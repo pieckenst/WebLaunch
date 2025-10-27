@@ -3,16 +3,16 @@
   "WorkspaceRootPath": "G:\\code\\WebLaunch\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\ribboncontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\ribboncontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\customlonghorntitlebar.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\customlonghorntitlebar.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\customlonghorntitlebar.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
       "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\customlonghorntitlebar.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\ribboncontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\ribboncontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\ribboncontrol.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
@@ -42,30 +42,29 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 1,
+          "SelectedChildIndex": 7,
           "Children": [
             {
               "$type": "Document",
               "DocumentIndex": 6,
-              "Title": "SpinningWheelLib",
+              "Title": "SpinningWheelLib.csproj",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
               "RelativeDocumentMoniker": "SpinningWheelLib\\SpinningWheelLib.csproj",
               "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
               "RelativeToolTip": "SpinningWheelLib\\SpinningWheelLib.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAA8AAAAdAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2024-11-29T14:57:16.834Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-29T14:57:16.834Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "RibbonControl.xaml.cs",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml.cs",
               "RelativeDocumentMoniker": "SpinningWheelLib\\RibbonControl.xaml.cs",
               "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml.cs",
               "RelativeToolTip": "SpinningWheelLib\\RibbonControl.xaml.cs",
-              "ViewState": "AgIAAAYAAAAAAAAAAAAQwCMAAAAEAAAAAAAAAA==",
+              "ViewState": "AgIAAGwBAAAAAAAAAAAWwJQBAAAiAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2024-11-29T14:56:31.087Z",
               "EditorCaption": ""
@@ -79,8 +78,7 @@
               "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml",
               "RelativeToolTip": "SpinningWheelLib\\RibbonControl.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2024-11-29T14:55:13.672Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-29T14:55:13.672Z"
             },
             {
               "$type": "Document",
@@ -91,8 +89,7 @@
               "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\roundrect100.png",
               "RelativeToolTip": "SpinningWheelLib\\roundrect100.png",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001533|",
-              "WhenOpened": "2024-11-29T14:36:23.145Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-29T14:36:23.145Z"
             },
             {
               "$type": "Document",
@@ -103,12 +100,11 @@
               "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\SettingsWindow.xaml",
               "RelativeToolTip": "SpinningWheelLib\\SettingsWindow.xaml",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2024-11-24T16:02:35.189Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-24T16:02:35.189Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 1,
               "Title": "CustomLonghornTitleBar.xaml",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\CustomLonghornTitleBar.xaml",
               "RelativeDocumentMoniker": "SpinningWheelLib\\CustomLonghornTitleBar.xaml",
@@ -128,18 +124,17 @@
               "RelativeToolTip": "handlerlaunch\\Program.cs",
               "ViewState": "AgIAAIoBAAAAAAAAAAAuwIEBAAAXAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2024-11-24T12:17:47.656Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-24T12:17:47.656Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "CustomLonghornTitleBar.xaml.cs",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
               "RelativeDocumentMoniker": "SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
               "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
               "RelativeToolTip": "SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
-              "ViewState": "AgIAAH8AAAAAAAAAAAAAAIYAAAAbAAAAAAAAAA==",
+              "ViewState": "AgIAAMcAAAAAAAAAAAAAAIYAAAAbAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2024-11-23T20:43:57.629Z",
               "EditorCaption": ""

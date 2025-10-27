@@ -4,34 +4,160 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.ComponentModel;
+using System.Collections.ObjectModel;
 
 namespace SpinningWheelLib.Controls
 {
-    public class RelayCommand : ICommand
+
+    public static class VisualTreeHelperExtensions 
 {
-    private readonly Action<object> _execute;
-    
-    public RelayCommand(Action<object> execute)
+    public static T GetParentOfType<T>(this DependencyObject element) where T : DependencyObject
     {
-        _execute = execute;
-    }
-
-    public event EventHandler CanExecuteChanged
-    {
-        add { CommandManager.RequerySuggested += value; }
-        remove { CommandManager.RequerySuggested -= value; }
-    }
-
-    public bool CanExecute(object parameter) => true;
-
-    public void Execute(object parameter)
-    {
-        _execute(parameter);
+        try
+        {
+            if (element == null) return null;
+            
+            var parent = VisualTreeHelper.GetParent(element);
+            
+            while (parent != null && !(parent is T))
+            {
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+            
+            return parent as T;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in GetParentOfType: {ex.Message}");
+            throw;
+        }
     }
 }
 
+    public interface IRibbonStateStorage : IDisposable
+    {
+        bool IsLoaded { get; }
+        void Load();
+        void Save();
+        void SaveTemporary();
+    }
+
+    public class RibbonStateStorage : IRibbonStateStorage
+    {
+        private readonly RibbonControl ribbon;
+        private bool isMinimized;
+        private bool isSimplified;
+        private double height;
+
+        public bool IsLoaded { get; private set; }
+
+        public RibbonStateStorage(RibbonControl ribbon)
+        {
+            try
+            {
+                this.ribbon = ribbon;
+                this.height = ribbon.Height;
+                this.isMinimized = ribbon.IsFolded;
+                this.isSimplified = false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in RibbonStateStorage constructor: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void Load()
+        {
+            try
+            {
+                if (IsLoaded) return;
+                
+                ribbon.Height = height;
+                ribbon.IsFolded = isMinimized;
+                IsLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in Load: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void Save()
+        {
+            try
+            {
+                height = ribbon.Height;
+                isMinimized = ribbon.IsFolded;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in Save: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void SaveTemporary()
+        {
+            try
+            {
+                Save();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in SaveTemporary: {ex.Message}");
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                Save();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in Dispose: {ex.Message}");
+                throw;
+            }
+        }
+    }
+
     public partial class RibbonControl : UserControl
     {
+        private IRibbonStateStorage ribbonStateStorage;
+        public IRibbonStateStorage RibbonStateStorage
+        {
+            get
+            {
+                try
+                {
+                    return ribbonStateStorage ??= CreateRibbonStateStorage();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in RibbonStateStorage getter: {ex.Message}");
+                    throw;
+                }
+            }
+        }
+
+        protected virtual IRibbonStateStorage CreateRibbonStateStorage()
+        {
+            try
+            {
+                return new RibbonStateStorage(this);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in CreateRibbonStateStorage: {ex.Message}");
+                throw;
+            }
+        }
+
         public static readonly DependencyProperty IsFoldedProperty =
             DependencyProperty.Register("IsFolded", typeof(bool), typeof(RibbonControl),
                 new PropertyMetadata(true, OnIsFoldedChanged));
@@ -48,44 +174,175 @@ namespace SpinningWheelLib.Controls
 
         public bool IsFolded
         {
-            get => (bool)GetValue(IsFoldedProperty);
-            set => SetValue(IsFoldedProperty, value);
+            get
+            {
+                try
+                {
+                    return (bool)GetValue(IsFoldedProperty);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in IsFolded getter: {ex.Message}");
+                    throw;
+                }
+            }
+            set
+            {
+                try
+                {
+                    SetValue(IsFoldedProperty, value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in IsFolded setter: {ex.Message}");
+                    throw;
+                }
+            }
         }
 
         public object QuickAccessToolbarContent
         {
-            get => GetValue(QuickAccessToolbarContentProperty);
-            set => SetValue(QuickAccessToolbarContentProperty, value);
+            get
+            {
+                try
+                {
+                    return GetValue(QuickAccessToolbarContentProperty);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in QuickAccessToolbarContent getter: {ex.Message}");
+                    throw;
+                }
+            }
+            set
+            {
+                try
+                {
+                    SetValue(QuickAccessToolbarContentProperty, value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in QuickAccessToolbarContent setter: {ex.Message}");
+                    throw;
+                }
+            }
         }
 
         public object MenuContent
         {
-            get => GetValue(MenuContentProperty);
-            set => SetValue(MenuContentProperty, value);
+            get
+            {
+                try
+                {
+                    return GetValue(MenuContentProperty);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in MenuContent getter: {ex.Message}");
+                    throw;
+                }
+            }
+            set
+            {
+                try
+                {
+                    SetValue(MenuContentProperty, value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in MenuContent setter: {ex.Message}");
+                    throw;
+                }
+            }
         }
 
         public int SelectedTabIndex
         {
-            get => (int)GetValue(SelectedTabIndexProperty);
-            set => SetValue(SelectedTabIndexProperty, value);
+            get
+            {
+                try
+                {
+                    return (int)GetValue(SelectedTabIndexProperty);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in SelectedTabIndex getter: {ex.Message}");
+                    throw;
+                }
+            }
+            set
+            {
+                try
+                {
+                    SetValue(SelectedTabIndexProperty, value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error in SelectedTabIndex setter: {ex.Message}");
+                    throw;
+                }
+            }
         }
 
-        public ICommand ToggleCollapseCommand { get; }
+        public ObservableCollection<TabItem> Tabs { get; } = new ObservableCollection<TabItem>();
 
+        public event EventHandler StateChanged;
 
         public RibbonControl()
         {
             try
             {
-                Console.WriteLine("Initializing RibbonControl...");
                 InitializeComponent();
-                PART_TabControl.SelectionChanged += OnTabSelectionChanged;
                 
-                Console.WriteLine("RibbonControl initialized successfully.");
+                this.Loaded += OnLoaded;
+                this.Unloaded += OnUnloaded;
+                
+                PART_TabControl.SelectionChanged += OnTabSelectionChanged;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error initializing RibbonControl: {ex.Message}");
+                Console.WriteLine($"Error in RibbonControl constructor: {ex.Message}");
+                throw;
+            }
+        }
+
+        private void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                LoadInitialState();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in OnLoaded: {ex.Message}");
+                throw;
+            }
+        }
+
+        private void OnUnloaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                RibbonStateStorage.Save();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in OnUnloaded: {ex.Message}");
+                throw;
+            }
+        }
+
+        private void LoadInitialState()
+        {
+            try
+            {
+                if (RibbonStateStorage.IsLoaded) return;
+                RibbonStateStorage.Load();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in LoadInitialState: {ex.Message}");
+                throw;
             }
         }
 
@@ -93,13 +350,14 @@ namespace SpinningWheelLib.Controls
         {
             try
             {
-                Console.WriteLine("IsFolded property changed.");
                 var ribbon = (RibbonControl)d;
                 ribbon.UpdateRibbonHeight();
+                ribbon.StateChanged?.Invoke(ribbon, EventArgs.Empty);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in OnIsFoldedChanged: {ex.Message}");
+                throw;
             }
         }
 
@@ -107,13 +365,13 @@ namespace SpinningWheelLib.Controls
         {
             try
             {
-                Console.WriteLine("SelectedTabIndex property changed.");
                 var ribbon = (RibbonControl)d;
                 ribbon.PART_TabControl.SelectedIndex = (int)e.NewValue;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in OnSelectedTabIndexChanged: {ex.Message}");
+                throw;
             }
         }
 
@@ -121,7 +379,6 @@ namespace SpinningWheelLib.Controls
         {
             try
             {
-                Console.WriteLine("Tab selection changed.");
                 if (!IsFolded)
                 {
                     UpdateRibbonHeight();
@@ -130,59 +387,51 @@ namespace SpinningWheelLib.Controls
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in OnTabSelectionChanged: {ex.Message}");
+                throw;
             }
         }
 
         private void UpdateRibbonHeight()
+{
+    var parentTitleBar = this.Parent as CustomLonghornTitleBar;
+    if (parentTitleBar != null)
+    {
+        var targetHeight = IsFolded ? 74 : 180;
+        
+        var window = Window.GetWindow(parentTitleBar);
+        if (window != null)
         {
-            try
-            {
-                Console.WriteLine("Updating ribbon height...");
-                var parentTitleBar = this.GetParentOfType<CustomLonghornTitleBar>();
-                if (parentTitleBar != null)
-                {
-                    var targetHeight = IsFolded ? 74 : 180;
-                    Console.WriteLine($"Target height set to {targetHeight}.");
-
-                    // Update parent window layout
-                    var window = Window.GetWindow(parentTitleBar);
-                    if (window != null)
-                    {
-                        window.InvalidateVisual();
-                        window.UpdateLayout();
-                    }
-
-                    // Animate height change
-                    var animation = new DoubleAnimation
-                    {
-                        To = targetHeight,
-                        Duration = TimeSpan.FromMilliseconds(167),
-                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
-                    };
-
-                    parentTitleBar.Height = targetHeight;
-                    parentTitleBar.BeginAnimation(HeightProperty, animation);
-                    parentTitleBar.UpdateLayout();
-                    Console.WriteLine("Ribbon height updated successfully.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in UpdateRibbonHeight: {ex.Message}");
-            }
+            window.InvalidateVisual();
+            window.UpdateLayout();
         }
+
+        var animation = new DoubleAnimation
+        {
+            To = targetHeight,
+            Duration = TimeSpan.FromMilliseconds(167),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+        };
+
+        parentTitleBar.Height = targetHeight;
+        parentTitleBar.BeginAnimation(HeightProperty, animation);
+        parentTitleBar.UpdateLayout();
+        
+        RibbonStateStorage.SaveTemporary();
+    }
+}
+
 
         private void OnCollapseButtonClick(object sender, RoutedEventArgs e)
         {
             try
             {
-                Console.WriteLine("Collapse button clicked.");
                 IsFolded = !IsFolded;
-                Console.WriteLine($"IsFolded set to {IsFolded}.");
+                UpdateRibbonHeight();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in OnCollapseButtonClick: {ex.Message}");
+                throw;
             }
         }
 
@@ -190,13 +439,13 @@ namespace SpinningWheelLib.Controls
         {
             try
             {
-                Console.WriteLine("Adding tab...");
                 PART_TabControl.Items.Add(tab);
-                Console.WriteLine("Tab added successfully.");
+                Tabs.Add(tab);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in AddTab: {ex.Message}");
+                throw;
             }
         }
 
@@ -204,13 +453,13 @@ namespace SpinningWheelLib.Controls
         {
             try
             {
-                Console.WriteLine("Removing tab...");
                 PART_TabControl.Items.Remove(tab);
-                Console.WriteLine("Tab removed successfully.");
+                Tabs.Remove(tab);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in RemoveTab: {ex.Message}");
+                throw;
             }
         }
 
@@ -218,38 +467,13 @@ namespace SpinningWheelLib.Controls
         {
             try
             {
-                Console.WriteLine("Clearing all tabs...");
                 PART_TabControl.Items.Clear();
-                Console.WriteLine("All tabs cleared successfully.");
+                Tabs.Clear();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error in ClearTabs: {ex.Message}");
-            }
-        }
-    }
-
-    public static class ControlExtensions
-    {
-        public static T GetParentOfType<T>(this DependencyObject element) where T : DependencyObject
-        {
-            try
-            {
-                if (element == null) return null;
-
-                var parent = VisualTreeHelper.GetParent(element);
-
-                while (parent != null && !(parent is T))
-                {
-                    parent = VisualTreeHelper.GetParent(parent);
-                }
-
-                return parent as T;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in GetParentOfType: {ex.Message}");
-                return null;
+                throw;
             }
         }
     }

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CoreLibLaunchSupport")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5f5f4cf39a2358874ff9da63bbe980d26fa9d49b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+bce2847074472aba6dece9bbf6af95dbc02389c5")]
 [assembly: System.Reflection.AssemblyProductAttribute("CoreLibLaunchSupport")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CoreLibLaunchSupport")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
