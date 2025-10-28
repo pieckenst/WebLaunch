@@ -1,15 +1,15 @@
 {
   "version": 2,
-  "dgSpecHash": "BzdeHBroeoI=",
+  "dgSpecHash": "n3kuVSwn+JY=",
   "success": true,
   "projectFilePath": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\Andrey\\.nuget\\packages\\h.generatedicons.system.drawing\\2.1.4\\h.generatedicons.system.drawing.2.1.4.nupkg.sha512",
-    "C:\\Users\\Andrey\\.nuget\\packages\\h.notifyicon\\2.1.4\\h.notifyicon.2.1.4.nupkg.sha512",
-    "C:\\Users\\Andrey\\.nuget\\packages\\h.notifyicon.wpf\\2.1.4\\h.notifyicon.wpf.2.1.4.nupkg.sha512",
-    "C:\\Users\\Andrey\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
-    "C:\\Users\\Andrey\\.nuget\\packages\\system.drawing.common\\8.0.10\\system.drawing.common.8.0.10.nupkg.sha512",
-    "C:\\Users\\Andrey\\.nuget\\packages\\xamlanimatedgif\\2.0.3\\xamlanimatedgif.2.0.3.nupkg.sha512"
+    "C:\\Users\\andrej\\.nuget\\packages\\h.generatedicons.system.drawing\\2.1.4\\h.generatedicons.system.drawing.2.1.4.nupkg.sha512",
+    "C:\\Users\\andrej\\.nuget\\packages\\h.notifyicon\\2.1.4\\h.notifyicon.2.1.4.nupkg.sha512",
+    "C:\\Users\\andrej\\.nuget\\packages\\h.notifyicon.wpf\\2.1.4\\h.notifyicon.wpf.2.1.4.nupkg.sha512",
+    "C:\\Users\\andrej\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
+    "C:\\Users\\andrej\\.nuget\\packages\\system.drawing.common\\8.0.10\\system.drawing.common.8.0.10.nupkg.sha512",
+    "C:\\Users\\andrej\\.nuget\\packages\\xamlanimatedgif\\2.0.3\\xamlanimatedgif.2.0.3.nupkg.sha512"
   ],
   "logs": []
 }

@@ -160,7 +160,7 @@
           "buildTransitive/net6.0/Microsoft.Extensions.Logging.Abstractions.targets": {}
         }
       },
-      "Microsoft.NET.ILLink.Tasks/9.0.0-rc.2.24473.5": {
+      "Microsoft.NET.ILLink.Tasks/9.0.7": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.ILLink.Tasks.props": {}
@@ -291,6 +291,22 @@
         },
         "buildMultiTargeting": {
           "buildMultiTargeting/_._": {}
+        }
+      },
+      "SixLabors.ImageSharp/3.1.11": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/SixLabors.ImageSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/SixLabors.ImageSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "build/_._": {}
         }
       },
       "System.AppContext/4.1.0": {
@@ -974,6 +990,41 @@
           }
         }
       },
+      "Veldrid.ImageSharp/4.9.0": {
+        "type": "package",
+        "dependencies": {
+          "SixLabors.ImageSharp": "1.0.4",
+          "Veldrid": "4.9.0"
+        },
+        "compile": {
+          "lib/net6.0/Veldrid.ImageSharp.dll": {
+            "related": ".pdb"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/Veldrid.ImageSharp.dll": {
+            "related": ".pdb"
+          }
+        }
+      },
+      "Veldrid.ImGui/5.65.0": {
+        "type": "package",
+        "dependencies": {
+          "ImGui.NET": "1.65.0-beta3",
+          "Veldrid": "4.5.0-g9ce7a7b3ec",
+          "Veldrid.SDL2": "4.5.0-g9ce7a7b3ec"
+        },
+        "compile": {
+          "lib/netstandard2.0/Veldrid.ImGui.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/Veldrid.ImGui.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
       "Veldrid.MetalBindings/4.9.0": {
         "type": "package",
         "dependencies": {
@@ -1173,13 +1224,14 @@
           }
         }
       },
-      "Elgar'nan/1.0.0": {
+      "Elgarnan/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v9.0",
         "dependencies": {
           "ImGui.NET": "1.91.0.1",
           "Microsoft.Extensions.DependencyInjection": "8.0.0",
           "Microsoft.Extensions.Logging.Abstractions": "8.0.0",
+          "SixLabors.ImageSharp": "3.1.11",
           "System.Collections": "4.3.0",
           "System.Diagnostics.Debug": "4.3.0",
           "System.IO.FileSystem": "4.3.0",
@@ -1187,14 +1239,16 @@
           "System.Runtime.Loader": "4.3.0",
           "System.Text.Json": "8.0.0",
           "Veldrid": "4.9.0",
+          "Veldrid.ImGui": "5.65.0",
+          "Veldrid.ImageSharp": "4.9.0",
           "Veldrid.SDL2": "4.9.0",
           "Veldrid.StartupUtilities": "4.9.0"
         },
         "compile": {
-          "bin/placeholder/Elgar'nan.dll": {}
+          "bin/placeholder/Elgarnan.dll": {}
         },
         "runtime": {
-          "bin/placeholder/Elgar'nan.dll": {}
+          "bin/placeholder/Elgarnan.dll": {}
         }
       }
     }
@@ -1450,10 +1504,10 @@
         "useSharedDesignerContext.txt"
       ]
     },
-    "Microsoft.NET.ILLink.Tasks/9.0.0-rc.2.24473.5": {
-      "sha512": "mXyCgKqBIo/KOpY09FqjOU8d+LME2qowzzvBd1/viYmSpAKYfQ2w1WDOlh0FniY4xnrB/wmDiAo4frJvfCqT0w==",
+    "Microsoft.NET.ILLink.Tasks/9.0.7": {
+      "sha512": "SZ1brSGoLnhLbE8QUZrtN6YwzN2gDT1wbx9qDBEfFFJcstiDTjJ6ygNuTPBV/K7SjGfx2YNbcJi5+ygbPOZpDg==",
       "type": "package",
-      "path": "microsoft.net.illink.tasks/9.0.0-rc.2.24473.5",
+      "path": "microsoft.net.illink.tasks/9.0.7",
       "hasTools": true,
       "files": [
         ".nupkg.metadata",
@@ -1467,7 +1521,7 @@
         "build/Microsoft.NET.ILLink.Analyzers.props",
         "build/Microsoft.NET.ILLink.Tasks.props",
         "build/Microsoft.NET.ILLink.targets",
-        "microsoft.net.illink.tasks.9.0.0-rc.2.24473.5.nupkg.sha512",
+        "microsoft.net.illink.tasks.9.0.7.nupkg.sha512",
         "microsoft.net.illink.tasks.nuspec",
         "tools/net472/ILLink.Tasks.dll",
         "tools/net472/ILLink.Tasks.dll.config",
@@ -1641,6 +1695,22 @@
         "lib/netstandard2.1/SharpGen.Runtime.COM.dll",
         "sharpgen.runtime.com.2.0.0-beta.13.nupkg.sha512",
         "sharpgen.runtime.com.nuspec"
+      ]
+    },
+    "SixLabors.ImageSharp/3.1.11": {
+      "sha512": "JfPLyigLthuE50yi6tMt7Amrenr/fA31t2CvJyhy/kQmfulIBAqo5T/YFUSRHtuYPXRSaUHygFeh6Qd933EoSw==",
+      "type": "package",
+      "path": "sixlabors.imagesharp/3.1.11",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE",
+        "build/SixLabors.ImageSharp.props",
+        "lib/net6.0/SixLabors.ImageSharp.dll",
+        "lib/net6.0/SixLabors.ImageSharp.xml",
+        "sixlabors.imagesharp.128.png",
+        "sixlabors.imagesharp.3.1.11.nupkg.sha512",
+        "sixlabors.imagesharp.nuspec"
       ]
     },
     "System.AppContext/4.1.0": {
@@ -4000,6 +4070,35 @@
         "veldrid.nuspec"
       ]
     },
+    "Veldrid.ImageSharp/4.9.0": {
+      "sha512": "yrhNrYA5FXZWWjmopXUCP9sEMxEjJmzzDkSBWq3cPWKOvzYQ9wXPkRlkj9cRljmhqQCkBH2gC2wtl6ddsjE50w==",
+      "type": "package",
+      "path": "veldrid.imagesharp/4.9.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "lib/net6.0/Veldrid.ImageSharp.dll",
+        "lib/net6.0/Veldrid.ImageSharp.pdb",
+        "lib/netstandard2.0/Veldrid.ImageSharp.dll",
+        "lib/netstandard2.0/Veldrid.ImageSharp.pdb",
+        "veldrid.imagesharp.4.9.0.nupkg.sha512",
+        "veldrid.imagesharp.nuspec"
+      ]
+    },
+    "Veldrid.ImGui/5.65.0": {
+      "sha512": "LV/hV7ZRFROlV0Q/J9Og+gOGit+jCN90LpI/erv/IPFcq5HgTSQ9lqtY+j+0nIR5ewbgddj+v1vcC0whgIBvKg==",
+      "type": "package",
+      "path": "veldrid.imgui/5.65.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "lib/netstandard2.0/Veldrid.ImGui.dll",
+        "lib/netstandard2.0/Veldrid.ImGui.pdb",
+        "lib/netstandard2.0/Veldrid.ImGui.xml",
+        "veldrid.imgui.5.65.0.nupkg.sha512",
+        "veldrid.imgui.nuspec"
+      ]
+    },
     "Veldrid.MetalBindings/4.9.0": {
       "sha512": "9qWYalATCT+/smQzFi2IFyEZpLE1l+A1r3tntKao8sYVAe18+P9rDIvpxyIL4T7Ritfm0JU2TnqckXmLenyfhQ==",
       "type": "package",
@@ -4177,7 +4276,7 @@
         "vortice.mathematics.nuspec"
       ]
     },
-    "Elgar'nan/1.0.0": {
+    "Elgarnan/1.0.0": {
       "type": "project",
       "path": "../El'GarnanPluginSystem/El'GarnanPluginSystem.csproj",
       "msbuildProject": "../El'GarnanPluginSystem/El'GarnanPluginSystem.csproj"
@@ -4185,13 +4284,14 @@
   },
   "projectFileDependencyGroups": {
     "net9.0": [
-      "Elgar'nan >= 1.0.0",
-      "Microsoft.NET.ILLink.Tasks >= 9.0.0-rc.2.24473.5"
+      "Elgarnan >= 1.0.0",
+      "Microsoft.NET.ILLink.Tasks >= 9.0.7"
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Andrey\\.nuget\\packages\\": {},
-    "D:\\sdk\\NuGetPackages": {}
+    "C:\\Users\\andrej\\.nuget\\packages\\": {},
+    "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages": {},
+    "E:\\sdk\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
@@ -4199,14 +4299,16 @@
       "projectUniqueName": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\Gameplugins.Plugin.FFXIV.csproj",
       "projectName": "Gameplugins.Plugin.FFXIV",
       "projectPath": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\Gameplugins.Plugin.FFXIV.csproj",
-      "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
       "outputPath": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
-        "D:\\sdk\\NuGetPackages"
+        "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+        "E:\\sdk\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -4215,6 +4317,7 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
         "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
@@ -4236,9 +4339,9 @@
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
-        "auditMode": "all"
+        "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net9.0": {
@@ -4247,7 +4350,7 @@
           "Microsoft.NET.ILLink.Tasks": {
             "suppressParent": "All",
             "target": "Package",
-            "version": "[9.0.0-rc.2.24473.5, )",
+            "version": "[9.0.7, )",
             "autoReferenced": true
           }
         },
@@ -4265,7 +4368,7 @@
         "downloadDependencies": [
           {
             "name": "Microsoft.NETCore.App.Crossgen2.win-x64",
-            "version": "[9.0.0-rc.2.24473.5, 9.0.0-rc.2.24473.5]"
+            "version": "[9.0.7, 9.0.7]"
           }
         ],
         "frameworkReferences": {
@@ -4273,40 +4376,8 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303/PortableRuntimeIdentifierGraph.json"
       }
     }
-  },
-  "logs": [
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'Newtonsoft.Json' 9.0.1 has a known high severity vulnerability, https://github.com/advisories/GHSA-5crp-9r3c-p9vr",
-      "libraryId": "Newtonsoft.Json",
-      "targetGraphs": [
-        "net9.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'System.Text.Json' 8.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-8g4q-xg66-9fp4",
-      "libraryId": "System.Text.Json",
-      "targetGraphs": [
-        "net9.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'System.Text.Json' 8.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-hh2w-p6rv-4g7w",
-      "libraryId": "System.Text.Json",
-      "targetGraphs": [
-        "net9.0"
-      ]
-    }
-  ]
+  }
 }

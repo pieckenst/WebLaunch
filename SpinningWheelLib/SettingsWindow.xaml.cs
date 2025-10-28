@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -26,9 +26,10 @@ namespace SpinningWheelLib
             {
                 if (IsWindows11OrGreater)
                 {
+                    var fluentUri = new Uri("pack://application:,,,/SpinningWheelLib;component/Dictionary1.xaml", UriKind.Absolute);
                     Resources.MergedDictionaries.Add(new ResourceDictionary
                     {
-                        Source = new Uri("Dictionary1.xaml", UriKind.Relative)
+                        Source = fluentUri
                     });
                 }
                 InitializeComponent();

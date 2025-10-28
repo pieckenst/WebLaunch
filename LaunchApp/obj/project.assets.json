@@ -561,7 +561,7 @@
           }
         }
       },
-      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.0-rc.2.24473.5": {
+      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.7": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.Sdk.WebAssembly.Pack.props": {},
@@ -2482,7 +2482,7 @@
           }
         }
       },
-      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.0-rc.2.24473.5": {
+      "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.7": {
         "type": "package",
         "build": {
           "build/Microsoft.NET.Sdk.WebAssembly.Pack.props": {},
@@ -4856,10 +4856,10 @@
         "microsoft.jsinterop.webassembly.nuspec"
       ]
     },
-    "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.0-rc.2.24473.5": {
-      "sha512": "eZ6Sd2nb+eXZM0saqyw8/rZVLBmh4UJR5VItE5jVtp+tQPMy8XY/8/jVbTbEQGiPHxXxf35MkE27IU2wQhm5eQ==",
+    "Microsoft.NET.Sdk.WebAssembly.Pack/9.0.7": {
+      "sha512": "5ehgbqGUERh0JVhTUPwFizw4hIoAglkFk/WMs45djePp16YHP11Vnmx44rOQ3gLW8/aDYN1j+pKdAtcEp4QOcw==",
       "type": "package",
-      "path": "microsoft.net.sdk.webassembly.pack/9.0.0-rc.2.24473.5",
+      "path": "microsoft.net.sdk.webassembly.pack/9.0.7",
       "hasTools": true,
       "files": [
         ".nupkg.metadata",
@@ -4890,43 +4890,12 @@
         "build/Microsoft.NET.Sdk.WebAssembly.Pack.targets",
         "build/Wasm.web.config",
         "build/browser.runtimeconfig.template.json",
-        "microsoft.net.sdk.webassembly.pack.9.0.0-rc.2.24473.5.nupkg.sha512",
+        "microsoft.net.sdk.webassembly.pack.9.0.7.nupkg.sha512",
         "microsoft.net.sdk.webassembly.pack.nuspec",
-        "tools/net472/Microsoft.Bcl.AsyncInterfaces.dll",
-        "tools/net472/Microsoft.Build.dll",
-        "tools/net472/Microsoft.IO.Redist.dll",
         "tools/net472/Microsoft.NET.Sdk.WebAssembly.Pack.Tasks.dll",
-        "tools/net472/Microsoft.NET.StringTools.dll",
         "tools/net472/Microsoft.NET.WebAssembly.Webcil.dll",
-        "tools/net472/Microsoft.VisualStudio.Setup.Configuration.Interop.dll",
-        "tools/net472/System.Buffers.dll",
-        "tools/net472/System.Collections.Immutable.dll",
-        "tools/net472/System.Configuration.ConfigurationManager.dll",
-        "tools/net472/System.Memory.dll",
-        "tools/net472/System.Numerics.Vectors.dll",
-        "tools/net472/System.Reflection.Metadata.dll",
-        "tools/net472/System.Reflection.MetadataLoadContext.dll",
-        "tools/net472/System.Runtime.CompilerServices.Unsafe.dll",
-        "tools/net472/System.Security.AccessControl.dll",
-        "tools/net472/System.Security.Permissions.dll",
-        "tools/net472/System.Security.Principal.Windows.dll",
-        "tools/net472/System.Text.Encodings.Web.dll",
-        "tools/net472/System.Text.Json.dll",
-        "tools/net472/System.Threading.Tasks.Dataflow.dll",
-        "tools/net472/System.Threading.Tasks.Extensions.dll",
-        "tools/net472/System.ValueTuple.dll",
-        "tools/net9.0/Microsoft.Build.dll",
         "tools/net9.0/Microsoft.NET.Sdk.WebAssembly.Pack.Tasks.dll",
-        "tools/net9.0/Microsoft.NET.StringTools.dll",
-        "tools/net9.0/Microsoft.NET.WebAssembly.Webcil.dll",
-        "tools/net9.0/Microsoft.Win32.SystemEvents.dll",
-        "tools/net9.0/System.Configuration.ConfigurationManager.dll",
-        "tools/net9.0/System.Diagnostics.EventLog.dll",
-        "tools/net9.0/System.Drawing.Common.dll",
-        "tools/net9.0/System.Reflection.MetadataLoadContext.dll",
-        "tools/net9.0/System.Security.Cryptography.ProtectedData.dll",
-        "tools/net9.0/System.Security.Permissions.dll",
-        "tools/net9.0/System.Windows.Extensions.dll"
+        "tools/net9.0/Microsoft.NET.WebAssembly.Webcil.dll"
       ]
     },
     "Microsoft.NETCore.Platforms/1.1.1": {
@@ -8728,15 +8697,16 @@
       "Masa.Blazor >= 1.7.7",
       "Microsoft.AspNetCore.Components.WebAssembly >= 8.0.10",
       "Microsoft.AspNetCore.Components.WebAssembly.DevServer >= 8.0.10",
-      "Microsoft.NET.Sdk.WebAssembly.Pack >= 9.0.0-rc.2.24473.5",
+      "Microsoft.NET.Sdk.WebAssembly.Pack >= 9.0.7",
       "System.Net.Http >= 4.3.4",
       "System.Private.Uri >= 4.3.2",
       "System.Text.RegularExpressions >= 4.3.1"
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Andrey\\.nuget\\packages\\": {},
-    "D:\\sdk\\NuGetPackages": {}
+    "C:\\Users\\andrej\\.nuget\\packages\\": {},
+    "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages": {},
+    "E:\\sdk\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
@@ -8744,14 +8714,16 @@
       "projectUniqueName": "G:\\code\\WebLaunch\\LaunchApp\\LaunchApp.csproj",
       "projectName": "LaunchApp",
       "projectPath": "G:\\code\\WebLaunch\\LaunchApp\\LaunchApp.csproj",
-      "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
       "outputPath": "G:\\code\\WebLaunch\\LaunchApp\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
-        "D:\\sdk\\NuGetPackages"
+        "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+        "E:\\sdk\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -8760,6 +8732,7 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
         "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
@@ -8777,9 +8750,9 @@
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
-        "auditMode": "all"
+        "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net8.0": {
@@ -8809,7 +8782,7 @@
           "Microsoft.NET.Sdk.WebAssembly.Pack": {
             "suppressParent": "All",
             "target": "Package",
-            "version": "[9.0.0-rc.2.24473.5, )",
+            "version": "[9.0.7, )",
             "autoReferenced": true
           },
           "System.Net.Http": {
@@ -8841,7 +8814,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303/PortableRuntimeIdentifierGraph.json"
       }
     },
     "runtimes": {

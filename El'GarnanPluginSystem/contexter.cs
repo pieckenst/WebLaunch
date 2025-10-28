@@ -1,7 +1,8 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
-using System.IO;
 
 namespace El_Garnan_Plugin_Loader
 {
@@ -32,18 +33,20 @@ namespace El_Garnan_Plugin_Loader
         /// <returns>The loaded assembly, or null if the assembly cannot be found.</returns>
         protected override Assembly Load(AssemblyName assemblyName)
         {
-            string assemblyPath = _pluginResolver.ResolveAssemblyToPath(assemblyName);
-            if (assemblyPath == null)
+            Assembly sharedAssembly = AssemblyLoadContext.Default.Assemblies
+                .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (sharedAssembly != null)
             {
-                assemblyPath = _processResolver.ResolveAssemblyToPath(assemblyName);
+                return sharedAssembly;
             }
 
-            if (assemblyPath != null)
-            {
-                return LoadFromAssemblyPath(assemblyPath);
-            }
+            string assemblyPath = _pluginResolver.ResolveAssemblyToPath(assemblyName) ??
+                                  _processResolver.ResolveAssemblyToPath(assemblyName);
 
-            return null;
+            return assemblyPath != null
+                ? LoadFromAssemblyPath(assemblyPath)
+                : null;
         }
 
         /// <summary>

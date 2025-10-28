@@ -277,8 +277,9 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Andrey\\.nuget\\packages\\": {},
-    "D:\\sdk\\NuGetPackages": {}
+    "C:\\Users\\andrej\\.nuget\\packages\\": {},
+    "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages": {},
+    "E:\\sdk\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
@@ -286,14 +287,16 @@
       "projectUniqueName": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
       "projectName": "SpinningWheelLib",
       "projectPath": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
-      "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+      "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
       "outputPath": "G:\\code\\WebLaunch\\SpinningWheelLib\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
-        "D:\\sdk\\NuGetPackages"
+        "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+        "E:\\sdk\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
@@ -302,6 +305,7 @@
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
         "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
@@ -319,9 +323,9 @@
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
-        "auditMode": "all"
+        "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.100"
+      "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
       "net9.0-windows7.0": {
@@ -355,7 +359,7 @@
             "privateAssets": "none"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

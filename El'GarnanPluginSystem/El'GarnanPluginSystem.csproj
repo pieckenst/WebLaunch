@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -7,8 +7,8 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
-    <Product>Elgar'nan</Product>
-    <AssemblyName>Elgar'nan</AssemblyName>
+    <Product>Elgarnan</Product> <!-- I love the compiler bitching about ' symbol in Elgar'nan - used to compile fine ,but something got changed  -->
+    <AssemblyName>Elgarnan</AssemblyName>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <Authors>pieckenst</Authors>
@@ -27,6 +27,7 @@
     <PackageReference Include="ImGui.NET" Version="1.91.0.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
     <PackageReference Include="System.Collections" Version="4.3.0" />
     <PackageReference Include="System.Diagnostics.Debug" Version="4.3.0" />
     <PackageReference Include="System.IO.FileSystem" Version="4.3.0" />
@@ -36,6 +37,8 @@
     <PackageReference Include="Veldrid" Version="4.9.0" />
     <PackageReference Include="Veldrid.SDL2" Version="4.9.0" />
     <PackageReference Include="Veldrid.StartupUtilities" Version="4.9.0" />
+    <PackageReference Include="Veldrid.ImGui" Version="5.65.0" />
+    <PackageReference Include="Veldrid.ImageSharp" Version="4.9.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -48,5 +51,29 @@
     <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="lib\$(TargetFramework)" />
     <None Include="$(OutputPath)\$(AssemblyName).xml" Pack="true" PackagePath="lib\$(TargetFramework)" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Resources\fonts\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Shaders\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\**" />
+    <EmbeddedResource Include="Shaders/GLSL/imgui-vertex.glsl" LogicalName="imgui-vertex.glsl" />
+    <EmbeddedResource Include="Shaders/GLSL/imgui-frag.glsl" LogicalName="imgui-frag.glsl" />
+    <EmbeddedResource Include="Shaders/HLSL/imgui-vertex.hlsl.bytes" LogicalName="imgui-vertex.hlsl.bytes" />
+    <EmbeddedResource Include="Shaders/HLSL/imgui-frag.hlsl.bytes" LogicalName="imgui-frag.hlsl.bytes" />
+    <EmbeddedResource Include="Shaders/SPIR-V/imgui-vertex.spv" LogicalName="imgui-vertex.spv" />
+    <EmbeddedResource Include="Shaders/SPIR-V/imgui-frag.spv" LogicalName="imgui-frag.spv" />
+    <EmbeddedResource Include="Shaders/Metal/imgui-vertex.metallib" LogicalName="imgui-vertex.metallib" />
+    <EmbeddedResource Include="Shaders/Metal/imgui-frag.metallib" LogicalName="imgui-frag.metallib" />
+    <EmbeddedResource Include="Resources/fonts/FontAwesome5FreeSolid.otf" LogicalName="FontAwesome5FreeSolid.otf" />
+    <EmbeddedResource Include="Resources/fonts/NotoSansCJKjp-Regular.otf" LogicalName="NotoSansCJKjp-Regular.otf" />
+  </ItemGroup>
+
 
 </Project>

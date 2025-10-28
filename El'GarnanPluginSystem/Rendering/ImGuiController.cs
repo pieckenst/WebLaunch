@@ -1,14 +1,20 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+
 using ImGuiNET;
 using Veldrid;
+
 
 namespace El_Garnan_Plugin_Loader.Rendering
 {
     public class ImGuiController : IDisposable
     {
+        private static readonly Assembly ImGuiResourceAssembly = typeof(ImGuiRenderer).GetTypeInfo().Assembly;
         private GraphicsDevice _gd;
         private DeviceBuffer _vertexBuffer;
         private DeviceBuffer _indexBuffer;
@@ -48,7 +54,39 @@ namespace El_Garnan_Plugin_Loader.Rendering
             ImGui.NewFrame();
             _frameBegun = true;
         }
+        private void SetKeyMappings()
+        {
+            ImGuiIOPtr io = ImGui.GetIO();
+            io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
 
+            // Add key mappings using modern ImGui API
+            io.AddKeyEvent(ImGuiKey.Tab, false);
+            io.AddKeyEvent(ImGuiKey.LeftArrow, false);
+            io.AddKeyEvent(ImGuiKey.RightArrow, false);
+            io.AddKeyEvent(ImGuiKey.UpArrow, false);
+            io.AddKeyEvent(ImGuiKey.DownArrow, false);
+            io.AddKeyEvent(ImGuiKey.PageUp, false);
+            io.AddKeyEvent(ImGuiKey.PageDown, false);
+            io.AddKeyEvent(ImGuiKey.Home, false);
+            io.AddKeyEvent(ImGuiKey.End, false);
+            io.AddKeyEvent(ImGuiKey.Delete, false);
+            io.AddKeyEvent(ImGuiKey.Backspace, false);
+            io.AddKeyEvent(ImGuiKey.Enter, false);
+            io.AddKeyEvent(ImGuiKey.Escape, false);
+            io.AddKeyEvent(ImGuiKey.Space, false);
+            io.AddKeyEvent(ImGuiKey.A, false);
+            io.AddKeyEvent(ImGuiKey.C, false);
+            io.AddKeyEvent(ImGuiKey.V, false);
+            io.AddKeyEvent(ImGuiKey.X, false);
+            io.AddKeyEvent(ImGuiKey.Y, false);
+            io.AddKeyEvent(ImGuiKey.Z, false);
+        }
+
+        public void WindowResized(int width, int height)
+        {
+            _windowWidth = width;
+            _windowHeight = height;
+        }
         private void CreateDeviceResources(GraphicsDevice gd, OutputDescription outputDescription)
         {
             ResourceFactory factory = gd.ResourceFactory;
@@ -58,8 +96,10 @@ namespace El_Garnan_Plugin_Loader.Rendering
             
             byte[] vertexShaderBytes = LoadEmbeddedShaderCode(gd.ResourceFactory, "imgui-vertex", ShaderStages.Vertex);
             byte[] fragmentShaderBytes = LoadEmbeddedShaderCode(gd.ResourceFactory, "imgui-frag", ShaderStages.Fragment);
-            _vertexShader = factory.CreateShader(new ShaderDescription(ShaderStages.Vertex, vertexShaderBytes, "main"));
-            _fragmentShader = factory.CreateShader(new ShaderDescription(ShaderStages.Fragment, fragmentShaderBytes, "main"));
+            string vertexEntry = gd.BackendType == GraphicsBackend.Vulkan ? "main" : "VS";
+            string fragmentEntry = gd.BackendType == GraphicsBackend.Vulkan ? "main" : "FS";
+            _vertexShader = factory.CreateShader(new ShaderDescription(ShaderStages.Vertex, vertexShaderBytes, vertexEntry));
+            _fragmentShader = factory.CreateShader(new ShaderDescription(ShaderStages.Fragment, fragmentShaderBytes, fragmentEntry));
 
             VertexLayoutDescription[] vertexLayouts = new VertexLayoutDescription[]
             {
@@ -93,16 +133,36 @@ namespace El_Garnan_Plugin_Loader.Rendering
             RecreateFontDeviceTexture(gd);
         }
 
-        private byte[] LoadEmbeddedShaderCode(ResourceFactory factory, string name, ShaderStages stage)
+        private static byte[] LoadEmbeddedShaderCode(ResourceFactory factory, string name, ShaderStages stage)
         {
-            // Load shader code from embedded resources or files
-            return new byte[0]; // Placeholder - implement actual shader loading
+            string resourceSuffix = GetResourceSuffix(factory.BackendType, name, stage);
+            var resourceName = ImGuiResourceAssembly.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith(resourceSuffix, StringComparison.OrdinalIgnoreCase));
+
+            if (resourceName == null)
+            {
+                throw new InvalidOperationException($"Unable to locate ImGui shader resource '{resourceSuffix}' in assembly '{ImGuiResourceAssembly.FullName}'.");
+            }
+
+            using var stream = ImGuiResourceAssembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException($"Failed to open shader resource stream '{resourceName}'.");
+
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            return ms.ToArray();
         }
 
-        public void WindowResized(int width, int height)
+        private static string GetResourceSuffix(GraphicsBackend backend, string name, ShaderStages stage)
         {
-            _windowWidth = width;
-            _windowHeight = height;
+            return backend switch
+            {
+                GraphicsBackend.Direct3D11 => $"{name}.hlsl.bytes",
+                GraphicsBackend.OpenGL => $"{name}.glsl",
+                GraphicsBackend.OpenGLES => $"{name}.glsles",
+                GraphicsBackend.Vulkan => $"{name}.spv",
+                GraphicsBackend.Metal => $"{name}.metallib",
+                _ => throw new NotSupportedException($"Unsupported graphics backend: {backend}")
+            };
         }
 
         private void RecreateFontDeviceTexture(GraphicsDevice gd)
@@ -136,34 +196,6 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
             _fontTextureResourceSet = gd.ResourceFactory.CreateResourceSet(new ResourceSetDescription(_textureLayout, _fontTextureView));
         }
-
-        private void SetKeyMappings()
-{
-    ImGuiIOPtr io = ImGui.GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
-    
-    // Add key mappings using modern ImGui API
-    io.AddKeyEvent(ImGuiKey.Tab, false);
-    io.AddKeyEvent(ImGuiKey.LeftArrow, false);
-    io.AddKeyEvent(ImGuiKey.RightArrow, false);
-    io.AddKeyEvent(ImGuiKey.UpArrow, false);
-    io.AddKeyEvent(ImGuiKey.DownArrow, false);
-    io.AddKeyEvent(ImGuiKey.PageUp, false);
-    io.AddKeyEvent(ImGuiKey.PageDown, false);
-    io.AddKeyEvent(ImGuiKey.Home, false);
-    io.AddKeyEvent(ImGuiKey.End, false);
-    io.AddKeyEvent(ImGuiKey.Delete, false);
-    io.AddKeyEvent(ImGuiKey.Backspace, false);
-    io.AddKeyEvent(ImGuiKey.Enter, false);
-    io.AddKeyEvent(ImGuiKey.Escape, false);
-    io.AddKeyEvent(ImGuiKey.Space, false);
-    io.AddKeyEvent(ImGuiKey.A, false);
-    io.AddKeyEvent(ImGuiKey.C, false);
-    io.AddKeyEvent(ImGuiKey.V, false);
-    io.AddKeyEvent(ImGuiKey.X, false);
-    io.AddKeyEvent(ImGuiKey.Y, false);
-    io.AddKeyEvent(ImGuiKey.Z, false);
-}
 
         private void SetPerFrameImGuiData(float deltaSeconds)
         {
@@ -286,16 +318,13 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
         public void Update(float deltaSeconds, InputSnapshot snapshot)
         {
-            if (_frameBegun)
+            if (!_frameBegun)
             {
-                ImGui.Render();
+                SetPerFrameImGuiData(deltaSeconds);
+                UpdateImGuiInput(snapshot);
+                ImGui.NewFrame();
+                _frameBegun = true;
             }
-
-            SetPerFrameImGuiData(deltaSeconds);
-            UpdateImGuiInput(snapshot);
-
-            _frameBegun = true;
-            ImGui.NewFrame();
         }
 
         private void UpdateImGuiInput(InputSnapshot snapshot)

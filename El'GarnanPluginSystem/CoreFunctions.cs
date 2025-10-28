@@ -1,7 +1,8 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.IO;
+using System.Linq;
 using El_Garnan_Plugin_Loader.Interfaces;
 using El_Garnan_Plugin_Loader.Models;
 
@@ -45,8 +46,9 @@ namespace El_Garnan_Plugin_Loader
         /// </summary>
         public event EventHandler<PluginErrorEventArgs> PluginError;
 
-        private readonly IPluginRenderer _renderer;
+        private IPluginRenderer _renderer;
         private bool _useStandaloneWindow;
+        private bool _renderingStarted;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CoreFunctions"/> class.
@@ -54,7 +56,7 @@ namespace El_Garnan_Plugin_Loader
         /// <param name="pluginsPath">The path to the plugins directory.</param>
         /// <param name="logger">The logger instance.</param>
         /// <param name="enableHotReload">Whether hot reload is enabled.</param>
-        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false,bool useStandaloneWindow = false)
+        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false, bool useStandaloneWindow = true)
         {
             _pluginsPath = pluginsPath;
             _logger = logger;
@@ -388,22 +390,65 @@ namespace El_Garnan_Plugin_Loader
             }
         }
 
-        public void StartRendering()
+        public void EnableStandaloneRenderer()
         {
             if (_useStandaloneWindow && _renderer != null)
             {
-                _renderer.Initialize();
-                _renderer.SetPlugins(_loadedPlugins.Values);
-            
-                Task.Run(() =>
-                {
-                    while (true)
-                    {
-                        _renderer.Render();
-                        Thread.Sleep(16); // ~60 FPS
-                    }
-                });
+                return;
             }
+
+            _useStandaloneWindow = true;
+            _renderer ??= new ImGuiPluginRenderer(_logger);
+        }
+
+        public void StartRendering()
+        {
+            if (_renderingStarted || !_useStandaloneWindow || _renderer == null)
+            {
+                return;
+            }
+
+            _renderingStarted = true;
+
+            _renderer.Initialize();
+            _renderer.SetPlugins(_loadedPlugins.Values);
+
+            Task.Run(() =>
+            {
+                while (true)
+                {
+                    _renderer.Render();
+                    Thread.Sleep(16); // ~60 FPS
+                }
+            });
+
+            Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+
+                var imGuiNotificationServices = _loadedPlugins.Values
+                    .Where(p => p.SupportsImGui)
+                    .OfType<INotificationService>()
+                    .ToList();
+
+                if (!imGuiNotificationServices.Any())
+                {
+                    _logger.Debug("ImGui renderer initialized but no notification-capable plugins were found.");
+                    return;
+                }
+
+                foreach (var notifier in imGuiNotificationServices)
+                {
+                    try
+                    {
+                        notifier.ShowNotification("ImGui Debug", "Renderer is active for this plugin.", NotificationType.Info);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Failed to send ImGui debug notification: {ex.Message}");
+                    }
+                }
+            });
         }
 
         /// <summary>

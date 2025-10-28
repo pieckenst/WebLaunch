@@ -1,0 +1,12 @@
+-O0
+-g
+-v
+-fwasm-exceptions
+-DDISABLE_PERFTRACING_LISTEN_PORTS=1
+-DLINK_ICALLS=1
+-DGEN_PINVOKE=1
+-emit-llvm
+"-IG:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\wasm\for-build"
+"-IC:\Program Files\dotnet\packs\Microsoft.NETCore.App.Runtime.Mono.browser-wasm\8.0.18\runtimes\browser-wasm\native\include\mono-2.0"
+"-IC:\Program Files\dotnet\packs\Microsoft.NETCore.App.Runtime.Mono.browser-wasm\8.0.18\runtimes\browser-wasm\native\include\wasm"
+-g

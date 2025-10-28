@@ -1,4 +1,4 @@
-﻿using handlerlaunch;
+using handlerlaunch;
 using CoreLibLaunchSupport;
 using Microsoft.Win32;
 using SpinningWheelLib;
@@ -262,7 +262,7 @@ namespace WMConsole
         {
             var pluginsPath = Path.Combine(GetInstallPath(), "Plugins");
             _logger = new ConsoleLogger();
-            _pluginSystem = new CoreFunctions(pluginsPath, _logger, true);
+            _pluginSystem = new CoreFunctions(pluginsPath, _logger, true, useStandaloneWindow: false);
 
             _pluginSystem.PluginLoaded += (s, e) => LogDebug($"Plugin loaded: {e.Plugin.Name}");
             _pluginSystem.PluginUnloaded += (s, e) => LogDebug($"Plugin unloaded: {e.PluginId}");
@@ -530,6 +530,28 @@ namespace WMConsole
                             }
                             else if (args[0].Contains("-type=settingstest")){
                                 LaunchSettingsWindow();
+                            }
+                            else if (args[0].Contains("-type=imguidebug"))
+                            {
+                                LogDebug("Starting ImGui debug scenario");
+                                _pluginSystem.EnableStandaloneRenderer();
+                                _pluginSystem.StartRendering();
+                                var imGuiPlugins = _pluginSystem.GetLoadedPlugins()
+                                    .Where(p => p.SupportsImGui)
+                                    .OfType<INotificationService>()
+                                    .ToList();
+
+                                if (imGuiPlugins.Count == 0)
+                                {
+                                    LogDebug("No ImGui-capable plugins loaded for debug scenario");
+                                }
+                                else
+                                {
+                                    foreach (var notifier in imGuiPlugins)
+                                    {
+                                        notifier.ShowNotification("Debug", "ImGui renderer triggered via protocol handler", NotificationType.Info);
+                                    }
+                                }
                             }
                             else
                             {

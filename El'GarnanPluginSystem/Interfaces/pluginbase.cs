@@ -211,6 +211,8 @@ namespace El_Garnan_Plugin_Loader.Base
         }
 
         private bool _showNotification = true;
+        private bool _popupQueued;
+        private const string NotificationPopupId = "##Notification";
 
 
         /// <summary>
@@ -244,36 +246,9 @@ namespace El_Garnan_Plugin_Loader.Base
         /// Shows a notification using the plugin's notification system
         /// </summary>
         protected void ShowNotification(string title, string message, NotificationType type = NotificationType.Info)
-{
-    NotificationQueue.Enqueue(new PluginNotification(title, message, type));
-    
-    if (SupportsImGui)
-    {
-        ImGui.OpenPopup("##Notification");
-        ImGui.SetNextWindowPos(new Vector2(ImGui.GetIO().DisplaySize.X - 300, 10), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new Vector2(280, 0));
-        
-        if (ImGui.BeginPopupModal("##Notification", ref _showNotification, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize))
         {
-            var notification = NotificationQueue.Peek();
-            var color = notification.Type switch
-            {
-                NotificationType.Success => new Vector4(0, 1, 0, 1),
-                NotificationType.Warning => new Vector4(1, 1, 0, 1),
-                NotificationType.Error => new Vector4(1, 0, 0, 1),
-                _ => new Vector4(0.4f, 0.7f, 1, 1)
-            };
-
-            ImGui.PushStyleColor(ImGuiCol.Text, color);
-            ImGui.Text(notification.Title);
-            ImGui.PopStyleColor();
-            ImGui.Text(notification.Message);
-            ImGui.EndPopup();
+            EnqueueNotification(new PluginNotification(title, message, type));
         }
-    }
-    
-    Logger?.Information($"[{type}] {title}: {message}");
-}
 
         /// <summary>
         /// Renders the plugin's ImGui interface
@@ -290,59 +265,103 @@ namespace El_Garnan_Plugin_Loader.Base
         /// Renders default ImGui notifications if no custom implementation is provided
         /// </summary>
         protected virtual void RenderDefaultNotifications()
-{
-    if (!SupportsImGui || NotificationQueue.Count == 0) return;
-
-    ImGui.Begin($"{Name} Notifications");
-    
-    foreach (var notification in NotificationQueue.ToArray())
-    {
-        var color = notification.Type switch
         {
-            NotificationType.Success => new Vector4(0, 1, 0, 1),
-            NotificationType.Warning => new Vector4(1, 1, 0, 1),
-            NotificationType.Error => new Vector4(1, 0, 0, 1),
-            _ => new Vector4(0.4f, 0.7f, 1, 1)
-        };
+            if (!SupportsImGui)
+            {
+                return;
+            }
 
-        ImGui.PushStyleColor(ImGuiCol.Text, color);
-        ImGui.Text($"[{notification.Timestamp:HH:mm:ss}] {notification.Title}: {notification.Message}");
-        ImGui.PopStyleColor();
-    }
+            RenderNotificationPopup();
 
-    ImGui.End();
-}
+            if (NotificationQueue.Count == 0)
+            {
+                return;
+            }
+
+            if (ImGui.Begin($"{Name} Notifications"))
+            {
+                foreach (var notification in NotificationQueue.ToArray())
+                {
+                    var color = GetNotificationColor(notification.Type);
+                    ImGui.PushStyleColor(ImGuiCol.Text, color);
+                    ImGui.Text($"[{notification.Timestamp:HH:mm:ss}] {notification.Title}: {notification.Message}");
+                    ImGui.PopStyleColor();
+                }
+            }
+            ImGui.End();
+        }
 
         void INotificationService.ShowNotification(string title, string message, NotificationType type)
         {
-            NotificationQueue.Enqueue(new PluginNotification(title, message, type));
-    
-    if (SupportsImGui)
-    {
-        ImGui.OpenPopup("##Notification");
-        ImGui.SetNextWindowPos(new Vector2(ImGui.GetIO().DisplaySize.X - 300, 10), ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new Vector2(280, 0));
-        
-        if (ImGui.BeginPopupModal("##Notification", ref _showNotification, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize))
-        {
-            var notification = NotificationQueue.Peek();
-            var color = notification.Type switch
-            {
-                NotificationType.Success => new Vector4(0, 1, 0, 1),
-                NotificationType.Warning => new Vector4(1, 1, 0, 1),
-                NotificationType.Error => new Vector4(1, 0, 0, 1),
-                _ => new Vector4(0.4f, 0.7f, 1, 1)
-            };
-
-            ImGui.PushStyleColor(ImGuiCol.Text, color);
-            ImGui.Text(notification.Title);
-            ImGui.PopStyleColor();
-            ImGui.Text(notification.Message);
-            ImGui.EndPopup();
+            EnqueueNotification(new PluginNotification(title, message, type));
         }
-    }
-    
-    Logger.Information($"[{type}] {title}: {message}");
+
+        private void EnqueueNotification(PluginNotification notification)
+        {
+            NotificationQueue.Enqueue(notification);
+
+            if (SupportsImGui)
+            {
+                _popupQueued = true;
+            }
+
+            Logger?.Information($"[{notification.Type}] {notification.Title}: {notification.Message}");
+        }
+
+        private void RenderNotificationPopup()
+        {
+            if (NotificationQueue.Count == 0)
+            {
+                _showNotification = true;
+                return;
+            }
+
+            var notification = NotificationQueue.Peek();
+
+            if (_popupQueued)
+            {
+                ImGui.OpenPopup(NotificationPopupId);
+                _popupQueued = false;
+                _showNotification = true;
+            }
+
+            var io = ImGui.GetIO();
+            ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 300, 10), ImGuiCond.Always);
+            ImGui.SetNextWindowSize(new Vector2(280, 0));
+
+            if (ImGui.BeginPopupModal(NotificationPopupId, ref _showNotification, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize))
+            {
+                var color = GetNotificationColor(notification.Type);
+                ImGui.PushStyleColor(ImGuiCol.Text, color);
+                ImGui.Text(notification.Title);
+                ImGui.PopStyleColor();
+                ImGui.Text(notification.Message);
+
+                if (!_showNotification)
+                {
+                    NotificationQueue.Dequeue();
+                    ImGui.CloseCurrentPopup();
+                    _showNotification = true;
+                }
+
+                ImGui.EndPopup();
+            }
+            else if (!_showNotification)
+            {
+                NotificationQueue.Dequeue();
+                _showNotification = true;
+            }
+        }
+
+        private static Vector4 GetNotificationColor(NotificationType type)
+        {
+            return type switch
+            {
+                NotificationType.Success => new Vector4(0f, 1f, 0f, 1f),
+                NotificationType.Warning => new Vector4(1f, 1f, 0f, 1f),
+                NotificationType.Error => new Vector4(1f, 0f, 0f, 1f),
+                _ => new Vector4(0.4f, 0.7f, 1f, 1f)
+            };
         }
     }
 }

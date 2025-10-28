@@ -22,7 +22,8 @@ namespace El_Garnan_Plugin_Loader.Interfaces
 
 public class ImGuiPluginRenderer : IPluginRenderer
 {
-    private ImGuiController _controller;
+    private ImGuiBindings _imgui;
+
     private GraphicsDevice _gd;
     private CommandList _cl;
     private Sdl2Window _window;
@@ -50,11 +51,11 @@ public class ImGuiPluginRenderer : IPluginRenderer
             _window.Resized += () =>
             {
                 _gd.MainSwapchain.Resize((uint)_window.Width, (uint)_window.Height);
-                _controller.WindowResized(_window.Width, _window.Height);
+                _imgui.WindowResized(_window.Width, _window.Height);
             };
 
             _cl = _gd.ResourceFactory.CreateCommandList();
-            _controller = new ImGuiController(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
+            _imgui = new ImGuiBindings(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
             
             _isInitialized = true;
             _logger.Information("ImGui renderer initialized successfully");
@@ -72,39 +73,71 @@ public class ImGuiPluginRenderer : IPluginRenderer
     }
 
     public void Render()
+{
+    if (!_isInitialized || _plugins == null) 
     {
-        if (!_isInitialized || _plugins == null) return;
+        _logger.Warning("Renderer not initialized or no plugins available");
+        return;
+    }
 
-        try
+    try
+    {
+        var snapshot = _window.PumpEvents();
+        if (!_window.Exists) 
         {
-            var snapshot = _window.PumpEvents();
-            if (!_window.Exists) return;
+            _logger.Warning("Window does not exist");
+            return;
+        }
 
-            _controller.Update(1f/60f, snapshot);
+        // Begin frame
+        _imgui.Update(1f/60f, snapshot);
 
-            foreach (var plugin in _plugins.Where(p => p.SupportsImGui))
+        // Create a new ImGui frame
+        ImGui.NewFrame();
+
+        // Render each plugin's ImGui content
+        bool hasContent = false;
+        foreach (var plugin in _plugins.Where(p => p.SupportsImGui))
+        {
+            try 
             {
                 plugin.RenderImGui();
+                hasContent = true;
             }
+            catch (Exception ex)
+            {
+                _logger.Error($"Error in plugin {plugin.Name} RenderImGui: {ex}");
+            }
+        }
 
+        // Only render if we have content
+        if (hasContent)
+        {
+            // End the ImGui frame
+            ImGui.Render();
+
+            // Render the frame
             _cl.Begin();
             _cl.SetFramebuffer(_gd.MainSwapchain.Framebuffer);
-            _cl.ClearColorTarget(0, RgbaFloat.Black);
-            _controller.Render(_gd, _cl);
-            _cl.End();
+            _cl.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1f));
+            
+            _imgui.Render(_gd, _cl);
 
+            _cl.End();
             _gd.SubmitCommands(_cl);
             _gd.SwapBuffers(_gd.MainSwapchain);
         }
-        catch (Exception ex)
-        {
-            _logger.Error("Error during ImGui rendering", ex);
-        }
     }
+    catch (Exception ex)
+    {
+        _logger.Error($"Error in render loop: {ex}");
+    }
+}
 
     public void Dispose()
     {
-        _controller?.Dispose();
+        _imgui?.Dispose();
+
         _cl?.Dispose();
         _gd?.Dispose();
     }

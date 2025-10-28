@@ -4,16 +4,17 @@
     "frameworks": [
       {
         "name": "Microsoft.NETCore.App",
-        "version": "9.0.0-rc.2.24473.5"
+        "version": "9.0.0"
       },
       {
         "name": "Microsoft.WindowsDesktop.App",
-        "version": "9.0.0-rc.2.24474.4"
+        "version": "9.0.0"
       }
     ],
     "additionalProbingPaths": [
-      "C:\\Users\\Andrey\\.nuget\\packages",
-      "D:\\sdk\\NuGetPackages"
+      "C:\\Users\\andrej\\.nuget\\packages",
+      "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+      "E:\\sdk\\NuGetPackages"
     ],
     "configProperties": {
       "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false,

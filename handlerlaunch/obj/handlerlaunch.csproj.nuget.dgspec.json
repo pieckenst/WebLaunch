@@ -10,14 +10,16 @@
         "projectUniqueName": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\CoreLibLaunchSupport.csproj",
         "projectName": "CoreLibLaunchSupport",
         "projectPath": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\CoreLibLaunchSupport.csproj",
-        "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
         "outputPath": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
-          "D:\\sdk\\NuGetPackages"
+          "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+          "E:\\sdk\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -26,6 +28,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
@@ -47,9 +50,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net6.0": {
@@ -76,7 +79,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303\\RuntimeIdentifierGraph.json"
         }
       }
     },
@@ -84,16 +87,18 @@
       "version": "1.0.0",
       "restore": {
         "projectUniqueName": "G:\\code\\WebLaunch\\El'GarnanPluginSystem\\El'GarnanPluginSystem.csproj",
-        "projectName": "Elgar'nan",
+        "projectName": "Elgarnan",
         "projectPath": "G:\\code\\WebLaunch\\El'GarnanPluginSystem\\El'GarnanPluginSystem.csproj",
-        "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
         "outputPath": "G:\\code\\WebLaunch\\El'GarnanPluginSystem\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
-          "D:\\sdk\\NuGetPackages"
+          "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+          "E:\\sdk\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -102,6 +107,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
@@ -119,9 +125,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -142,8 +148,12 @@
             "Microsoft.NET.ILLink.Tasks": {
               "suppressParent": "All",
               "target": "Package",
-              "version": "[9.0.0-rc.2.24473.5, )",
+              "version": "[9.0.7, )",
               "autoReferenced": true
+            },
+            "SixLabors.ImageSharp": {
+              "target": "Package",
+              "version": "[3.1.11, )"
             },
             "System.Collections": {
               "target": "Package",
@@ -173,6 +183,14 @@
               "target": "Package",
               "version": "[4.9.0, )"
             },
+            "Veldrid.ImGui": {
+              "target": "Package",
+              "version": "[5.65.0, )"
+            },
+            "Veldrid.ImageSharp": {
+              "target": "Package",
+              "version": "[4.9.0, )"
+            },
             "Veldrid.SDL2": {
               "target": "Package",
               "version": "[4.9.0, )"
@@ -196,7 +214,7 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.NETCore.App.Crossgen2.win-x64",
-              "version": "[9.0.0-rc.2.24473.5, 9.0.0-rc.2.24473.5]"
+              "version": "[9.0.7, 9.0.7]"
             }
           ],
           "frameworkReferences": {
@@ -204,7 +222,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
@@ -214,14 +232,16 @@
         "projectUniqueName": "G:\\code\\WebLaunch\\handlerlaunch\\handlerlaunch.csproj",
         "projectName": "WMconsole",
         "projectPath": "G:\\code\\WebLaunch\\handlerlaunch\\handlerlaunch.csproj",
-        "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
         "outputPath": "G:\\code\\WebLaunch\\handlerlaunch\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
-          "D:\\sdk\\NuGetPackages"
+          "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+          "E:\\sdk\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -230,6 +250,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
@@ -257,9 +278,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0-windows10.0.17763": {
@@ -276,7 +297,7 @@
             "Microsoft.NET.ILLink.Tasks": {
               "suppressParent": "All",
               "target": "Package",
-              "version": "[9.0.0-rc.2.24473.5, )",
+              "version": "[9.0.7, )",
               "autoReferenced": true
             },
             "Microsoft.Toolkit.Uwp.Notifications": {
@@ -310,23 +331,23 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
-              "version": "[9.0.0-rc.2.24474.3, 9.0.0-rc.2.24474.3]"
+              "version": "[9.0.7, 9.0.7]"
             },
             {
               "name": "Microsoft.NETCore.App.Crossgen2.win-x64",
-              "version": "[9.0.0-rc.2.24473.5, 9.0.0-rc.2.24473.5]"
+              "version": "[9.0.7, 9.0.7]"
             },
             {
               "name": "Microsoft.NETCore.App.Runtime.win-x64",
-              "version": "[9.0.0-rc.2.24473.5, 9.0.0-rc.2.24473.5]"
+              "version": "[9.0.7, 9.0.7]"
             },
             {
               "name": "Microsoft.Windows.SDK.NET.Ref",
-              "version": "[10.0.17763.45, 10.0.17763.45]"
+              "version": "[10.0.17763.57, 10.0.17763.57]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
-              "version": "[9.0.0-rc.2.24474.4, 9.0.0-rc.2.24474.4]"
+              "version": "[9.0.7, 9.0.7]"
             }
           ],
           "frameworkReferences": {
@@ -337,7 +358,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303/PortableRuntimeIdentifierGraph.json"
         }
       },
       "runtimes": {
@@ -352,14 +373,16 @@
         "projectUniqueName": "G:\\code\\WebLaunch\\LibDalamud\\LibDalamud.csproj",
         "projectName": "LibDalamud",
         "projectPath": "G:\\code\\WebLaunch\\LibDalamud\\LibDalamud.csproj",
-        "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
         "outputPath": "G:\\code\\WebLaunch\\LibDalamud\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
-          "D:\\sdk\\NuGetPackages"
+          "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+          "E:\\sdk\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -368,6 +391,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
@@ -385,9 +409,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net6.0": {
@@ -442,7 +466,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303\\RuntimeIdentifierGraph.json"
         }
       }
     },
@@ -452,14 +476,16 @@
         "projectUniqueName": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
         "projectName": "SpinningWheelLib",
         "projectPath": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
-        "packagesPath": "C:\\Users\\Andrey\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\andrej\\.nuget\\packages\\",
         "outputPath": "G:\\code\\WebLaunch\\SpinningWheelLib\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
-          "D:\\sdk\\NuGetPackages"
+          "C:\\Program Files\\DevExpress 24.2\\Components\\Offline Packages",
+          "E:\\sdk\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Andrey\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\andrej\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\DevExpress 24.2.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -468,6 +494,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\DevExpress 24.2\\Components\\System\\Components\\Packages": {},
           "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
@@ -485,9 +512,9 @@
         "restoreAuditProperties": {
           "enableAudit": "true",
           "auditLevel": "low",
-          "auditMode": "all"
+          "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0-windows7.0": {
@@ -521,7 +548,7 @@
               "privateAssets": "none"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.100-rc.2.24474.11/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.303/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

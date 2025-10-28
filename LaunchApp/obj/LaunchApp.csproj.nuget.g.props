@@ -5,23 +5,24 @@
     <RestoreTool Condition=" '$(RestoreTool)' == '' ">NuGet</RestoreTool>
     <ProjectAssetsFile Condition=" '$(ProjectAssetsFile)' == '' ">$(MSBuildThisFileDirectory)project.assets.json</ProjectAssetsFile>
     <NuGetPackageRoot Condition=" '$(NuGetPackageRoot)' == '' ">$(UserProfile)\.nuget\packages\</NuGetPackageRoot>
-    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">C:\Users\Andrey\.nuget\packages\;D:\sdk\NuGetPackages</NuGetPackageFolders>
+    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">C:\Users\andrej\.nuget\packages\;C:\Program Files\DevExpress 24.2\Components\Offline Packages;E:\sdk\NuGetPackages</NuGetPackageFolders>
     <NuGetProjectStyle Condition=" '$(NuGetProjectStyle)' == '' ">PackageReference</NuGetProjectStyle>
-    <NuGetToolVersion Condition=" '$(NuGetToolVersion)' == '' ">6.12.0</NuGetToolVersion>
+    <NuGetToolVersion Condition=" '$(NuGetToolVersion)' == '' ">6.14.0</NuGetToolVersion>
   </PropertyGroup>
   <ItemGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <SourceRoot Include="C:\Users\Andrey\.nuget\packages\" />
-    <SourceRoot Include="D:\sdk\NuGetPackages\" />
+    <SourceRoot Include="C:\Users\andrej\.nuget\packages\" />
+    <SourceRoot Include="C:\Program Files\DevExpress 24.2\Components\Offline Packages\" />
+    <SourceRoot Include="E:\sdk\NuGetPackages\" />
   </ItemGroup>
   <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <Import Project="$(NuGetPackageRoot)microsoft.net.sdk.webassembly.pack\9.0.0-rc.2.24473.5\build\Microsoft.NET.Sdk.WebAssembly.Pack.props" Condition="Exists('$(NuGetPackageRoot)microsoft.net.sdk.webassembly.pack\9.0.0-rc.2.24473.5\build\Microsoft.NET.Sdk.WebAssembly.Pack.props')" />
+    <Import Project="$(NuGetPackageRoot)microsoft.net.sdk.webassembly.pack\9.0.7\build\Microsoft.NET.Sdk.WebAssembly.Pack.props" Condition="Exists('$(NuGetPackageRoot)microsoft.net.sdk.webassembly.pack\9.0.7\build\Microsoft.NET.Sdk.WebAssembly.Pack.props')" />
     <Import Project="$(NuGetPackageRoot)microsoft.aspnetcore.components.webassembly\8.0.10\build\net8.0\Microsoft.AspNetCore.Components.WebAssembly.props" Condition="Exists('$(NuGetPackageRoot)microsoft.aspnetcore.components.webassembly\8.0.10\build\net8.0\Microsoft.AspNetCore.Components.WebAssembly.props')" />
     <Import Project="$(NuGetPackageRoot)masa.blazor\1.7.7\buildTransitive\Masa.Blazor.props" Condition="Exists('$(NuGetPackageRoot)masa.blazor\1.7.7\buildTransitive\Masa.Blazor.props')" />
     <Import Project="$(NuGetPackageRoot)lumexui\1.0.0-preview.3\buildTransitive\LumexUI.props" Condition="Exists('$(NuGetPackageRoot)lumexui\1.0.0-preview.3\buildTransitive\LumexUI.props')" />
   </ImportGroup>
   <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">
-    <PkgOneOf_SourceGenerator Condition=" '$(PkgOneOf_SourceGenerator)' == '' ">C:\Users\Andrey\.nuget\packages\oneof.sourcegenerator\3.0.223</PkgOneOf_SourceGenerator>
-    <PkgMicrosoft_NET_Sdk_WebAssembly_Pack Condition=" '$(PkgMicrosoft_NET_Sdk_WebAssembly_Pack)' == '' ">C:\Users\Andrey\.nuget\packages\microsoft.net.sdk.webassembly.pack\9.0.0-rc.2.24473.5</PkgMicrosoft_NET_Sdk_WebAssembly_Pack>
-    <PkgMicrosoft_AspNetCore_Components_WebAssembly_DevServer Condition=" '$(PkgMicrosoft_AspNetCore_Components_WebAssembly_DevServer)' == '' ">C:\Users\Andrey\.nuget\packages\microsoft.aspnetcore.components.webassembly.devserver\8.0.10</PkgMicrosoft_AspNetCore_Components_WebAssembly_DevServer>
+    <PkgOneOf_SourceGenerator Condition=" '$(PkgOneOf_SourceGenerator)' == '' ">C:\Users\andrej\.nuget\packages\oneof.sourcegenerator\3.0.223</PkgOneOf_SourceGenerator>
+    <PkgMicrosoft_NET_Sdk_WebAssembly_Pack Condition=" '$(PkgMicrosoft_NET_Sdk_WebAssembly_Pack)' == '' ">C:\Users\andrej\.nuget\packages\microsoft.net.sdk.webassembly.pack\9.0.7</PkgMicrosoft_NET_Sdk_WebAssembly_Pack>
+    <PkgMicrosoft_AspNetCore_Components_WebAssembly_DevServer Condition=" '$(PkgMicrosoft_AspNetCore_Components_WebAssembly_DevServer)' == '' ">C:\Users\andrej\.nuget\packages\microsoft.aspnetcore.components.webassembly.devserver\8.0.10</PkgMicrosoft_AspNetCore_Components_WebAssembly_DevServer>
   </PropertyGroup>
 </Project>
