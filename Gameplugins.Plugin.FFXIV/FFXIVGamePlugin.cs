@@ -1,12 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.Reflection;
+using El_Garnan_Plugin_Loader;
 using El_Garnan_Plugin_Loader.Base;
 using El_Garnan_Plugin_Loader.Interfaces;
 using El_Garnan_Plugin_Loader.Models;
-using El_Garnan_Plugin_Loader;
+using System;
+using System.Collections.Generic;
 using System.Numerics;
+using System.Reflection;
+using System.Threading.Tasks;
 
 namespace GamePlugins.FFXIV
 {
@@ -21,7 +21,7 @@ namespace GamePlugins.FFXIV
         private Type _imGuiWindowFlagsType;
         private Type _vector2Type;
         private Type _vector4Type;
-private Type _imGuiCondType;
+        private Type _imGuiCondType;
         private MethodInfo _imGuiBeginMethod;
         private MethodInfo _imGuiEndMethod;
         private MethodInfo _imGuiTextMethod;
@@ -30,12 +30,23 @@ private Type _imGuiCondType;
         private MethodInfo _imGuiTextColoredMethod;
         private MethodInfo _setNextWindowPosMethod;
 
-private MethodInfo _setNextWindowSizeMethod;
-private MethodInfo _beginMethod;
-private MethodInfo _endMethod;
-private MethodInfo _textMethod;
-private MethodInfo _sameLineMethod;
-private MethodInfo _buttonMethod;
+        private MethodInfo _setNextWindowSizeMethod;
+        private MethodInfo _beginMethod;
+        private MethodInfo _endMethod;
+        private MethodInfo _textMethod;
+        private MethodInfo _sameLineMethod;
+        private MethodInfo _buttonMethod;
+        // Add these fields at the class level
+
+        private static Type _imGuiMouseButtonType;
+
+        // These will hold the enum values
+        private static object _noTitleBar;
+        private static object _noResize;
+        private static object _noMove;
+        private static object _noCollapse;
+        private static object _noSavedSettings;
+        private static object _leftMouseButton;
         private object _imGuiDefaultWindowFlags;
 
         public override string PluginId => "ffxiv-launcher";
@@ -59,390 +70,613 @@ private MethodInfo _buttonMethod;
         }
 
 
-        private void InitializeImGui()
-{
-    Logger.Debug("Initializing ImGui...");
-    
-    // Log all properties and methods for debugging
-    var properties = _imGuiType.GetProperties(BindingFlags.Public | BindingFlags.Static);
-    Logger.Debug($"Found {properties.Length} static properties:");
-    foreach (var prop in properties)
-    {
-        Logger.Debug($"- {prop.Name} ({prop.PropertyType.Name})");
-    }
-
-    var methods = _imGuiType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-    Logger.Debug($"Found {methods.Length} static methods:");
-    foreach (var method in methods.DistinctBy(m => m.Name))
-    {
-        Logger.Debug($"- {method.Name} ({string.Join(", ", method.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"))})");
-    }
-
-    // Try to get the IO property
-    var ioProperty = _imGuiType.GetProperty("IO", BindingFlags.Public | BindingFlags.Static);
-    if (ioProperty == null)
-    {
-        // Try alternative approach - sometimes it's a method
-        var getIOMethod = _imGuiType.GetMethod("GetIO", BindingFlags.Public | BindingFlags.Static, 
-            null, Type.EmptyTypes, null);
-            
-        if (getIOMethod != null)
+        private bool EnsureWindowFlagsInitialized()
         {
-            Logger.Debug("Found GetIO method, using it to get IO");
-            var ioFromMethod = getIOMethod.Invoke(null, null);  // Changed variable name to avoid conflict
-            Logger.Debug("Successfully got IO via GetIO()");
-            return;
+            Logger.Debug("Ensuring window flags are initialized...");
+
+             var loadContext = new PluginLoadContext(AppContext.BaseDirectory);
+
+            _imGuiAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("ImGui.NET"))
+                ?? throw new InvalidOperationException("Could not load ImGui.NET assembly");
+
+            _imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags")
+                ?? throw new InvalidOperationException("Could not load ImGuiWindowFlags type");
+
+            _imGuiMouseButtonType = _imGuiAssembly.GetType("ImGuiNET.ImGuiMouseButton")
+                ?? throw new InvalidOperationException("Could not load ImGuiMouseButton type");
+
+            if (_imGuiWindowFlagsType == null || _imGuiMouseButtonType == null)
+            {
+                Logger.Error("Required ImGui types are not initialized");
+                return false;
+            }
+
+            try
+            {
+                // Initialize window flags if they're null
+                if (_noTitleBar == null)
+                {
+                    Logger.Debug("Initializing NoTitleBar flag...");
+                    _noTitleBar = Enum.ToObject(_imGuiWindowFlagsType, 1 << 0);
+                }
+                if (_noResize == null)
+                {
+                    Logger.Debug("Initializing NoResize flag...");
+                    _noResize = Enum.ToObject(_imGuiWindowFlagsType, 1 << 1);
+                }
+                if (_noMove == null)
+                {
+                    Logger.Debug("Initializing NoMove flag...");
+                    _noMove = Enum.ToObject(_imGuiWindowFlagsType, 1 << 2);
+                }
+                if (_noCollapse == null)
+                {
+                    Logger.Debug("Initializing NoCollapse flag...");
+                    _noCollapse = Enum.ToObject(_imGuiWindowFlagsType, 1 << 3);
+                }
+                if (_noSavedSettings == null)
+                {
+                    Logger.Debug("Initializing NoSavedSettings flag...");
+                    _noSavedSettings = Enum.ToObject(_imGuiWindowFlagsType, 1 << 5);
+                }
+                if (_leftMouseButton == null)
+                {
+                    Logger.Debug("Initializing LeftMouseButton flag...");
+                    _leftMouseButton = Enum.ToObject(_imGuiMouseButtonType, 0);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to initialize window flags: {ex}");
+                return false;
+            }
         }
-        
-        Logger.Error("Failed to find IO property or GetIO method");
-        return;
-    }
 
-    var ioFromProperty = ioProperty.GetValue(null);  // Changed variable name to avoid conflict
-    if (ioFromProperty == null)
-    {
-        Logger.Error("IO property returned null");
-        return;
-    }
+        private void InitializeImGui()
+        {
+            Logger.Debug("Initializing ImGui...");
 
-    // Get required types
-    _vector2Type = typeof(Vector2);
-    _imGuiCondType = _imGuiAssembly.GetType("ImGuiNET.ImGuiCond");
-    _imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags");
+            // Log all properties and methods for debugging
+            var properties = _imGuiType.GetProperties(BindingFlags.Public | BindingFlags.Static);
+            Logger.Debug($"Found {properties.Length} static properties:");
+            foreach (var prop in properties)
+            {
+                Logger.Debug($"- {prop.Name} ({prop.PropertyType.Name})");
+            }
 
-    if (_vector2Type == null || _imGuiCondType == null || _imGuiWindowFlagsType == null)
-    {
-        Logger.Error("Failed to get required types");
-        return;
-    }
+            var methods = _imGuiType.GetMethods(BindingFlags.Public | BindingFlags.Static);
+            Logger.Debug($"Found {methods.Length} static methods:");
+            foreach (var method in methods.DistinctBy(m => m.Name))
+            {
+                Logger.Debug($"- {method.Name} ({string.Join(", ", method.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"))})");
+            }
 
-    // Set up method bindings
-    _setNextWindowPosMethod = _imGuiType.GetMethod("SetNextWindowPos",
-        BindingFlags.Public | BindingFlags.Static,
-        null,
-        new[] { _vector2Type, _imGuiCondType, _vector2Type },
-        null);
+            // Try to get the IO property
+            var ioProperty = _imGuiType.GetProperty("IO", BindingFlags.Public | BindingFlags.Static);
+            if (ioProperty == null)
+            {
+                // Try alternative approach - sometimes it's a method
+                var getIOMethod = _imGuiType.GetMethod("GetIO", BindingFlags.Public | BindingFlags.Static,
+                    null, Type.EmptyTypes, null);
 
-    _setNextWindowSizeMethod = _imGuiType.GetMethod("SetNextWindowSize",
-        BindingFlags.Public | BindingFlags.Static,
-        null,
-        new[] { _vector2Type, _imGuiCondType },
-        null);
+                if (getIOMethod != null)
+                {
+                    Logger.Debug("Found GetIO method, using it to get IO");
+                    var ioFromMethod = getIOMethod.Invoke(null, null);  // Changed variable name to avoid conflict
+                    Logger.Debug("Successfully got IO via GetIO()");
+                    return;
+                }
 
-    _beginMethod = _imGuiType.GetMethod("Begin",
-        BindingFlags.Public | BindingFlags.Static,
-        null,
-        new[] { typeof(string), _imGuiWindowFlagsType },
-        null);
+                Logger.Error("Failed to find IO property or GetIO method");
+                return;
+            }
 
-    _endMethod = _imGuiType.GetMethod("End",
-        BindingFlags.Public | BindingFlags.Static);
+            var ioFromProperty = ioProperty.GetValue(null);  // Changed variable name to avoid conflict
+            if (ioFromProperty == null)
+            {
+                Logger.Error("IO property returned null");
+                return;
+            }
 
-    _textMethod = _imGuiType.GetMethod("Text",
-        BindingFlags.Public | BindingFlags.Static,
-        null,
-        new[] { typeof(string) },
-        null);
+            // Get required types
+            _vector2Type = typeof(Vector2);
+            _imGuiCondType = _imGuiAssembly.GetType("ImGuiNET.ImGuiCond");
+            _imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags");
 
-    _sameLineMethod = _imGuiType.GetMethod("SameLine",
-        BindingFlags.Public | BindingFlags.Static);
+            if (_vector2Type == null || _imGuiCondType == null || _imGuiWindowFlagsType == null)
+            {
+                Logger.Error("Failed to get required types");
+                return;
+            }
 
-    _buttonMethod = _imGuiType.GetMethod("Button",
-        BindingFlags.Public | BindingFlags.Static,
-        null,
-        new[] { typeof(string) },
-        null);
+            // Set up method bindings
+            _setNextWindowPosMethod = _imGuiType.GetMethod("SetNextWindowPos",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { _vector2Type, _imGuiCondType, _vector2Type },
+                null);
 
-    if (_setNextWindowPosMethod == null || _setNextWindowSizeMethod == null || 
-        _beginMethod == null || _endMethod == null || 
-        _textMethod == null || _sameLineMethod == null || 
-        _buttonMethod == null)
-    {
-        Logger.Error("Failed to get required ImGui methods");
-        return;
-    }
+            _setNextWindowSizeMethod = _imGuiType.GetMethod("SetNextWindowSize",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { _vector2Type, _imGuiCondType },
+                null);
 
-    Logger.Debug("ImGui initialized successfully");
-    
-}
+            _beginMethod = _imGuiType.GetMethod("Begin",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(string), _imGuiWindowFlagsType },
+                null);
+
+            _endMethod = _imGuiType.GetMethod("End",
+                BindingFlags.Public | BindingFlags.Static);
+
+            _textMethod = _imGuiType.GetMethod("Text",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(string) },
+                null);
+
+            _sameLineMethod = _imGuiType.GetMethod("SameLine",
+                BindingFlags.Public | BindingFlags.Static);
+
+            _buttonMethod = _imGuiType.GetMethod("Button",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(string) },
+                null);
+
+            if (_setNextWindowPosMethod == null || _setNextWindowSizeMethod == null ||
+                _beginMethod == null || _endMethod == null ||
+                _textMethod == null || _sameLineMethod == null ||
+                _buttonMethod == null)
+            {
+                Logger.Error("Failed to get required ImGui methods");
+                return;
+            }
+
+            // Get the ImGui assembly and types
+
+            _imGuiMouseButtonType = _imGuiAssembly.GetType("ImGuiNET.ImGuiMouseButton");
+
+            if (_imGuiWindowFlagsType == null || _imGuiMouseButtonType == null)
+            {
+                Logger.Error("Failed to get required ImGui enum types");
+                return;
+            }
+
+            // Initialize window flags
+            try
+            {
+                if (_noTitleBar == null)
+                {
+                    Logger.Debug("Initializing NoTitleBar flag...");
+                    _noTitleBar = Enum.ToObject(_imGuiWindowFlagsType, 1 << 0);    // NoTitleBar
+                }
+                if (_noResize == null)
+                {
+                    Logger.Debug("Initializing NoResize flag...");
+                    _noResize = Enum.ToObject(_imGuiWindowFlagsType, 1 << 1);     // NoResize
+                }
+                if (_noMove == null)
+                {
+                    Logger.Debug("Initializing NoMove flag...");
+                    _noMove = Enum.ToObject(_imGuiWindowFlagsType, 1 << 2);       // NoMove
+                }
+                if (_noCollapse == null)
+                {
+                    Logger.Debug("Initializing NoCollapse flag...");
+                    _noCollapse = Enum.ToObject(_imGuiWindowFlagsType, 1 << 3);   // NoCollapse
+                }
+                if (_noSavedSettings == null)
+                {
+                    Logger.Debug("Initializing NoSavedSettings flag...");
+                    _noSavedSettings = Enum.ToObject(_imGuiWindowFlagsType, 1 << 5); // NoSavedSettings
+                }
+
+                if (_imGuiMouseButtonType == null)
+                {
+                    Logger.Debug("Initializing LeftMouseButton flag...");
+                    _leftMouseButton = Enum.ToObject(_imGuiMouseButtonType, 0);    // ImGuiMouseButton.Left
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to initialize ImGui enums: {ex}");
+                return;
+            }
+
+            Logger.Debug("ImGui initialized successfully");
+
+        }
 
         protected override async Task InitializeInternalAsync()
-{
-    Logger.Information("Initializing FFXIV plugin...");
+        {
+            Logger.Information("Initializing FFXIV plugin...");
 
-    var loadContext = new PluginLoadContext(AppContext.BaseDirectory);
-    _coreSupportAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("CoreLibLaunchSupport")) 
-        ?? throw new InvalidOperationException("Could not load CoreLibLaunchSupport assembly");
-    _imGuiAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("ImGui.NET"))
-        ?? throw new InvalidOperationException("Could not load ImGui.NET assembly");
-    var numericsAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("System.Numerics"))
-        ?? throw new InvalidOperationException("Could not load System.Numerics assembly");
+            var loadContext = new PluginLoadContext(AppContext.BaseDirectory);
+            _coreSupportAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("CoreLibLaunchSupport"))
+                ?? throw new InvalidOperationException("Could not load CoreLibLaunchSupport assembly");
+            _imGuiAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("ImGui.NET"))
+                ?? throw new InvalidOperationException("Could not load ImGui.NET assembly");
+            var numericsAssembly = loadContext.LoadFromAssemblyName(new AssemblyName("System.Numerics"))
+                ?? throw new InvalidOperationException("Could not load System.Numerics assembly");
 
-    _networkLogicType = _coreSupportAssembly.GetType("CoreLibLaunchSupport.networklogic") 
-        ?? throw new InvalidOperationException("Could not load networklogic type");
-    // Make sure to set _imGuiType
-        _imGuiType = _imGuiAssembly.GetType("ImGuiNET.ImGui")
-            ?? throw new InvalidOperationException("Could not load ImGui type");
-            
-        Logger.Debug($"ImGui type: {_imGuiType.FullName}");
-         Logger.Debug($"ImGui type: {_imGuiType.FullName}");
-    _imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags")
-        ?? throw new InvalidOperationException("Could not load ImGuiWindowFlags type");
-    _vector4Type = numericsAssembly.GetType("System.Numerics.Vector4")
-        ?? throw new InvalidOperationException("Could not load Vector4 type");
+            _networkLogicType = _coreSupportAssembly.GetType("CoreLibLaunchSupport.networklogic")
+                ?? throw new InvalidOperationException("Could not load networklogic type");
+            // Make sure to set _imGuiType
+            _imGuiType = _imGuiAssembly.GetType("ImGuiNET.ImGui")
+                ?? throw new InvalidOperationException("Could not load ImGui type");
 
-    _networkLogic = Activator.CreateInstance(_networkLogicType)
-        ?? throw new InvalidOperationException("Could not create networklogic instance");
+            Logger.Debug($"ImGui type: {_imGuiType.FullName}");
+            Logger.Debug($"ImGui type: {_imGuiType.FullName}");
+            _imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags")
+                ?? throw new InvalidOperationException("Could not load ImGuiWindowFlags type");
+            _vector4Type = numericsAssembly.GetType("System.Numerics.Vector4")
+                ?? throw new InvalidOperationException("Could not load Vector4 type");
 
-    _imGuiBeginMethod = _imGuiType.GetMethod(
-            "Begin",
-            BindingFlags.Public | BindingFlags.Static,
-            binder: null,
-            types: new[] { typeof(string), _imGuiWindowFlagsType },
-            modifiers: null)
-        ?? throw new InvalidOperationException("Could not locate ImGui.Begin(string, ImGuiWindowFlags)");
+            _networkLogic = Activator.CreateInstance(_networkLogicType)
+                ?? throw new InvalidOperationException("Could not create networklogic instance");
 
-    _imGuiEndMethod = _imGuiType.GetMethod("End", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
-        ?? throw new InvalidOperationException("Could not locate ImGui.End()");
+            _imGuiBeginMethod = _imGuiType.GetMethod(
+                    "Begin",
+                    BindingFlags.Public | BindingFlags.Static,
+                    binder: null,
+                    types: new[] { typeof(string), _imGuiWindowFlagsType },
+                    modifiers: null)
+                ?? throw new InvalidOperationException("Could not locate ImGui.Begin(string, ImGuiWindowFlags)");
 
-    _imGuiTextMethod = _imGuiType.GetMethod("Text", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null)
-        ?? throw new InvalidOperationException("Could not locate ImGui.Text(string)");
+            _imGuiEndMethod = _imGuiType.GetMethod("End", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
+                ?? throw new InvalidOperationException("Could not locate ImGui.End()");
 
-    _imGuiSameLineMethod = _imGuiType.GetMethod("SameLine", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
-        ?? throw new InvalidOperationException("Could not locate ImGui.SameLine()");
+            _imGuiTextMethod = _imGuiType.GetMethod("Text", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null)
+                ?? throw new InvalidOperationException("Could not locate ImGui.Text(string)");
 
-    _imGuiSeparatorMethod = _imGuiType.GetMethod("Separator", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
-        ?? throw new InvalidOperationException("Could not locate ImGui.Separator()");
+            _imGuiSameLineMethod = _imGuiType.GetMethod("SameLine", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
+                ?? throw new InvalidOperationException("Could not locate ImGui.SameLine()");
 
-    _imGuiTextColoredMethod = _imGuiType.GetMethod(
-            "TextColored",
-            BindingFlags.Public | BindingFlags.Static,
-            binder: null,
-            types: new[] { _vector4Type, typeof(string) },
-            modifiers: null)
-        ?? throw new InvalidOperationException("Could not locate ImGui.TextColored(Vector4, string)");
+            _imGuiSeparatorMethod = _imGuiType.GetMethod("Separator", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null)
+                ?? throw new InvalidOperationException("Could not locate ImGui.Separator()");
 
-    _imGuiDefaultWindowFlags = Enum.ToObject(_imGuiWindowFlagsType, 0);
+            _imGuiTextColoredMethod = _imGuiType.GetMethod(
+                    "TextColored",
+                    BindingFlags.Public | BindingFlags.Static,
+                    binder: null,
+                    types: new[] { _vector4Type, typeof(string) },
+                    modifiers: null)
+                ?? throw new InvalidOperationException("Could not locate ImGui.TextColored(Vector4, string)");
 
-    var checkGateStatus = _networkLogicType.GetMethod("CheckGateStatus")
-        ?? throw new InvalidOperationException("Could not find CheckGateStatus method");
-    var checkLoginStatus = _networkLogicType.GetMethod("CheckLoginStatus")
-        ?? throw new InvalidOperationException("Could not find CheckLoginStatus method");
+            _imGuiDefaultWindowFlags = Enum.ToObject(_imGuiWindowFlagsType, 0);
 
-    var gateStatus = await Task.Run(() => (bool)checkGateStatus.Invoke(_networkLogic, null));
-    var loginStatus = await Task.Run(() => (bool)checkLoginStatus.Invoke(_networkLogic, null));
+            var checkGateStatus = _networkLogicType.GetMethod("CheckGateStatus")
+                ?? throw new InvalidOperationException("Could not find CheckGateStatus method");
+            var checkLoginStatus = _networkLogicType.GetMethod("CheckLoginStatus")
+                ?? throw new InvalidOperationException("Could not find CheckLoginStatus method");
 
-    Logger.Information($"Server Status - Gate: {gateStatus}, Login: {loginStatus}");
+            var gateStatus = await Task.Run(() => (bool)checkGateStatus.Invoke(_networkLogic, null));
+            var loginStatus = await Task.Run(() => (bool)checkLoginStatus.Invoke(_networkLogic, null));
 
-    if (!gateStatus)
-    {
-        Logger.Warning("Game servers unavailable");
-    }
+            Logger.Information($"Server Status - Gate: {gateStatus}, Login: {loginStatus}");
 
-    if (!loginStatus)
-    {
-        Logger.Warning("Login servers unavailable");
-    }
+            if (!gateStatus)
+            {
+                Logger.Warning("Game servers unavailable");
+            }
 
-    if (gateStatus && loginStatus)
-    {
-        Logger.Information("All systems operational");
-    }
+            if (!loginStatus)
+            {
+                Logger.Warning("Login servers unavailable");
+            }
 
-    InitializeImGui();
-}
+            if (gateStatus && loginStatus)
+            {
+                Logger.Information("All systems operational");
+            }
+
+            InitializeImGui();
+        }
 
 
         public override void RenderImGui()
-{
-    if (_imGuiType == null)
-    {
-        Logger.Error("ImGui type is not initialized");
-        return;
-    }
+        {
+            if (_imGuiType == null)
+            {
+                Logger.Error("ImGui type is not initialized");
+                return;
+            }
 
-    try
-    {
-        // Try to get IO property first
-        var ioProperty = _imGuiType.GetProperty("IO", BindingFlags.Public | BindingFlags.Static);
-        object io = null;
-        PropertyInfo? xProp = null;
+            // Ensure window flags are initialized
+            if (!EnsureWindowFlagsInitialized())
+            {
+                Logger.Error("Failed to initialize window flags");
+                return;
+            }
+
+            try
+            {
+                // Try to get IO property first
+                var ioProperty = _imGuiType.GetProperty("IO", BindingFlags.Public | BindingFlags.Static);
+                object io = null;
+                PropertyInfo? xProp = null;
                 PropertyInfo? yProp = null;
 
 
 
                 if (ioProperty != null)
-        {
-            io = ioProperty.GetValue(null);
-        }
-        else
-        {
-            // Fall back to GetIO method
-            var getIOMethod = _imGuiType.GetMethod("GetIO", BindingFlags.Public | BindingFlags.Static, 
-                null, Type.EmptyTypes, null);
-            if (getIOMethod != null)
-            {
-                io = getIOMethod.Invoke(null, null);
-            }
-        }
+                {
+                    io = ioProperty.GetValue(null);
+                }
+                else
+                {
+                    // Fall back to GetIO method
+                    var getIOMethod = _imGuiType.GetMethod("GetIO", BindingFlags.Public | BindingFlags.Static,
+                        null, Type.EmptyTypes, null);
+                    if (getIOMethod != null)
+                    {
+                        io = getIOMethod.Invoke(null, null);
+                    }
+                }
 
-        if (io == null)
-        {
-            Logger.Error("Failed to get ImGui IO (both property and method failed)");
-            return;
-        }
+                if (io == null)
+                {
+                    Logger.Error("Failed to get ImGui IO (both property and method failed)");
+                    return;
+                }
 
-        // Now try to get the DisplaySize property from the IO object
-        var displaySizeProperty = io.GetType().GetProperty("DisplaySize");
-        if (displaySizeProperty == null)
-        {
-            Logger.Error("Failed to get DisplaySize property from IO");
-            return;
-        }
+                //REUSABLE TYPE PROPERTY , DISPLAY SIZE WILL KEEP SEPARATE GETTYPE CALL
+                var ioType = io.GetType();
 
-        var displaySize = displaySizeProperty.GetValue(io);
-        if (displaySize == null)
-        {
-            Logger.Error("DisplaySize is null");
-            return;
-        }
 
-        // Convert displaySize to Vector2 if needed
-        System.Numerics.Vector2 displaySizeVector;
-        if (displaySize is System.Numerics.Vector2 vector)
-        {
-            displaySizeVector = vector;
-        }
-        else
-        {
-            // Try to get X and Y properties if direct cast fails
-            xProp = displaySize.GetType().GetProperty("X");
-            yProp = displaySize.GetType().GetProperty("Y");
-            if (xProp == null || yProp == null)
-            {
-                Logger.Error("Failed to get X or Y properties from DisplaySize");
-                return;
-            }
-            displaySizeVector = new System.Numerics.Vector2(
-                Convert.ToSingle(xProp.GetValue(displaySize)),
-                Convert.ToSingle(yProp.GetValue(displaySize))
-            );
-        }
+                // Now try to get the DisplaySize property from the IO object
+                var displaySizeProperty = io.GetType().GetProperty("DisplaySize"); // KEEP SEPARATE GET TYPE CALL FOR DISPLAY SIZE DO NOT SWAP FOR VARIABLE IO TYPE
+                if (displaySizeProperty == null)
+                {
+                    Logger.Error("Failed to get DisplaySize property from IO");
+                    return;
+                }
 
-        Logger.Debug($"Got display size: {displaySizeVector}");
-       
+                var displaySize = displaySizeProperty.GetValue(io);
+                if (displaySize == null)
+                {
+                    Logger.Error("DisplaySize is null");
+                    return;
+                }
 
-        // Set window position and size
-        float width = 400;
-        float height = 300;
+                // Convert displaySize to Vector2 if needed
+                System.Numerics.Vector2 displaySizeVector;
+                if (displaySize is System.Numerics.Vector2 vector)
+                {
+                    displaySizeVector = vector;
+                }
+                else
+                {
+                    // Try to get X and Y properties if direct cast fails
+                    xProp = displaySize.GetType().GetProperty("X");
+                    yProp = displaySize.GetType().GetProperty("Y");
+                    if (xProp == null || yProp == null)
+                    {
+                        Logger.Error("Failed to get X or Y properties from DisplaySize");
+                        return;
+                    }
+                    displaySizeVector = new System.Numerics.Vector2(
+                        Convert.ToSingle(xProp.GetValue(displaySize)),
+                        Convert.ToSingle(yProp.GetValue(displaySize))
+                    );
+                }
 
-         
-        // Set default display size values (1024x768 windowed)
-float displayWidth = 1024f;
-float displayHeight = 768f;
+                Logger.Debug($"Got display size: {displaySizeVector}");
 
-// Try to get the actual display size, but fall back to defaults if anything fails
-if (xProp != null && yProp != null)
-{
-    try
-    {
-        var xValue = xProp.GetValue(displaySize);
-        var yValue = yProp.GetValue(displaySize);
-        
-        if (xValue != null && yValue != null)
-        {
-            // Ensure the window is smaller than the display
-            var screenWidth = Convert.ToSingle(xValue);
-            var screenHeight = Convert.ToSingle(yValue);
-            
-            // Use the smaller of the two: actual screen size or our default window size
-            displayWidth = Math.Min(displayWidth, screenWidth * 0.9f);  // 90% of screen width
-            displayHeight = Math.Min(displayHeight, screenHeight * 0.9f); // 90% of screen height
-        }
-    }
-    catch (Exception ex)
-    {
-        Logger.Warning($"Failed to get display size, using defaults: {ex.Message}");
-    }
-}
-else
-{
-    Logger.Warning("Using default window size (1024x768)");
-}
 
-        
-        // Create Vector2 instances using reflection
-        var vector2Ctor = typeof(Vector2).GetConstructor(new[] { typeof(float), typeof(float) });
-        var windowPos = vector2Ctor.Invoke(new object[] { 
-            (displayWidth - width) * 0.5f, 
-            (displayHeight - height) * 0.5f 
+                // Set window position and size
+                float width = 400;
+                float height = 300;
+
+
+                // Set default display size values (1024x768 windowed)
+                float displayWidth = 1024f;
+                float displayHeight = 768f;
+
+                // Try to get the actual display size, but fall back to defaults if anything fails
+                if (xProp != null && yProp != null)
+                {
+                    try
+                    {
+                        var xValue = xProp.GetValue(displaySize);
+                        var yValue = yProp.GetValue(displaySize);
+
+                        if (xValue != null && yValue != null)
+                        {
+                            // Ensure the window is smaller than the display
+                            var screenWidth = Convert.ToSingle(xValue);
+                            var screenHeight = Convert.ToSingle(yValue);
+
+                            // Use the smaller of the two: actual screen size or our default window size
+                            displayWidth = Math.Min(displayWidth, screenWidth * 0.9f);  // 90% of screen width
+                            displayHeight = Math.Min(displayHeight, screenHeight * 0.9f); // 90% of screen height
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning($"Failed to get display size, using defaults: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    Logger.Warning("Using default window size (1024x768)");
+                }
+
+
+                // Create Vector2 instances using reflection
+                var vector2Ctor = typeof(Vector2).GetConstructor(new[] { typeof(float), typeof(float) });
+                var windowPos = vector2Ctor.Invoke(new object[] {
+            (displayWidth - width) * 0.5f,
+            (displayHeight - height) * 0.5f
         });
-        var windowSize = vector2Ctor.Invoke(new object[] { width, height });
-        var pivot = vector2Ctor.Invoke(new object[] { 0.5f, 0.5f });
+                var windowSize = vector2Ctor.Invoke(new object[] { width, height });
+                var pivot = vector2Ctor.Invoke(new object[] { 0.5f, 0.5f });
 
-        // Get enum values
-        var imGuiCondType = _imGuiAssembly.GetType("ImGuiNET.ImGuiCond");
-        var imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags");
-        
-        var alwaysValue = Enum.ToObject(imGuiCondType, 1 << 0); // ImGuiCond.Always
-        var noCollapse = Enum.ToObject(imGuiWindowFlagsType, 1 << 3); // ImGuiWindowFlags.NoCollapse
-        var noSavedSettings = Enum.ToObject(imGuiWindowFlagsType, 1 << 5); // ImGuiWindowFlags.NoSavedSettings
-        var windowFlags = (int)noCollapse | (int)noSavedSettings;
+                // Get enum values
+                var imGuiCondType = _imGuiAssembly.GetType("ImGuiNET.ImGuiCond");
+                var imGuiWindowFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImGuiWindowFlags");
 
-        // Set window position and size
-        var setNextWindowPosMethod = _imGuiType.GetMethod("SetNextWindowPos", 
-            BindingFlags.Public | BindingFlags.Static,
-            null,
-            new[] { typeof(Vector2), imGuiCondType, typeof(Vector2) },
-            null);
+                var alwaysValue = Enum.ToObject(imGuiCondType, 1 << 0); // ImGuiCond.Always
+                var noCollapse = Enum.ToObject(imGuiWindowFlagsType, 1 << 3); // ImGuiWindowFlags.NoCollapse
+                var noSavedSettings = Enum.ToObject(imGuiWindowFlagsType, 1 << 5); // ImGuiWindowFlags.NoSavedSettings
+                                                                                   // First, make sure all the flag variables are initialized
+                if (_noTitleBar == null || _noResize == null || _noMove == null ||
+                    _noCollapse == null || _noSavedSettings == null)
+                {
+                    Logger.Error("One or more window flags are not initialized");
+                    return;
+                }
 
-        var setNextWindowSizeMethod = _imGuiType.GetMethod("SetNextWindowSize",
-            BindingFlags.Public | BindingFlags.Static,
-            null,
-            new[] { typeof(Vector2), imGuiCondType },
-            null);
+                // Convert all flags to int and combine them
+                int windowFlags = (int)_noTitleBar | (int)_noResize | (int)_noMove |
+                                 (int)_noCollapse | (int)_noSavedSettings;
 
-        var beginMethod = _imGuiType.GetMethod("Begin",
-            BindingFlags.Public | BindingFlags.Static,
-            null,
-            new[] { typeof(string), imGuiWindowFlagsType },
-            null);
+                // Convert back to the proper enum type
+                var windowFlagsObj = Enum.ToObject(imGuiWindowFlagsType, windowFlags);
 
-        var endMethod = _imGuiType.GetMethod("End",
-            BindingFlags.Public | BindingFlags.Static);
+                // Set window position and size
+                var setNextWindowPosMethod = _imGuiType.GetMethod("SetNextWindowPos",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    new[] { typeof(Vector2), imGuiCondType, typeof(Vector2) },
+                    null);
 
-        var textMethod = _imGuiType.GetMethod("Text",
-            BindingFlags.Public | BindingFlags.Static,
-            null,
-            new[] { typeof(string) },
-            null);
+                var setNextWindowSizeMethod = _imGuiType.GetMethod("SetNextWindowSize",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    new[] { typeof(Vector2), imGuiCondType },
+                    null);
 
-        // Set window position and size
-        setNextWindowPosMethod?.Invoke(null, new[] { windowPos, alwaysValue, pivot });
-        setNextWindowSizeMethod?.Invoke(null, new[] { windowSize, 0 }); // 0 = ImGuiCond.None
+                var beginMethod = _imGuiType.GetMethod("Begin",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    new[] { typeof(string), imGuiWindowFlagsType },
+                    null);
 
-        // Begin window
-        var isOpen = new object[] { true };
-        var beginResult = beginMethod?.Invoke(null, new object[] { "FFXIV Launcher", windowFlags });
-        
-        if (beginResult is bool isWindowOpen && isWindowOpen)
-        {
-            try
-            {
-                // Window content
-                textMethod?.Invoke(null, new object[] { "Server Status: " + (_networkLogic != null ? "Online" : "Offline") });
+                var endMethod = _imGuiType.GetMethod("End",
+                    BindingFlags.Public | BindingFlags.Static);
+
+                var textMethod = _imGuiType.GetMethod("Text",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    new[] { typeof(string) },
+                    null);
+
+                // Set window position and size
+                setNextWindowPosMethod?.Invoke(null, new[] { windowPos, alwaysValue, pivot });
+                setNextWindowSizeMethod?.Invoke(null, new[] { windowSize, 0 }); // 0 = ImGuiCond.None
+
+                
+
+                // Begin window
+                var isOpen = new object[] { true };
+                var beginResult = beginMethod?.Invoke(null, new object[] { "FFXIV Launcher", windowFlagsObj });
+                // In RenderImGui method, replace the window movement code with:
+                var isWindowHoveredMethod = _imGuiType.GetMethod("IsWindowHovered",
+    BindingFlags.Public | BindingFlags.Static,
+    null,
+    Type.EmptyTypes,  // This specifies we want the parameterless overload
+    null);
+                var isMouseDownMethod = _imGuiType.GetMethod("IsMouseDown",
+    BindingFlags.Public | BindingFlags.Static,
+    null,
+    new[] { _imGuiMouseButtonType },
+    new ParameterModifier[0]);
+    if (isWindowHoveredMethod == null)
+{
+    Logger.Error("Failed to get IsWindowHovered method");
+    return;
+}
+
+if (isMouseDownMethod == null)
+{
+    Logger.Error("Failed to get IsMouseDown method");
+    return;
+}
+
+
+                if ((bool)isWindowHoveredMethod.Invoke(null, null) &&
+                    (bool)isMouseDownMethod.Invoke(null, new[] { _leftMouseButton }))
+                {
+                    // Get the current window position
+                    var getWindowPosMethod = _imGuiType.GetMethod("GetWindowPos",
+                        BindingFlags.Public | BindingFlags.Static);
+                    if (getWindowPosMethod == null)
+                    {
+                        Logger.Error("Failed to get GetWindowPos method");
+                        return;
+                    }
+
+                    var currentPos = getWindowPosMethod.Invoke(null, null);
+                    if (currentPos == null)
+                    {
+                        Logger.Error("Failed to get current window position");
+                        return;
+                    }
+
+                    var mouseDeltaProperty = ioType.GetProperty("MouseDelta");
+                    if (mouseDeltaProperty == null)
+                    {
+                        Logger.Error("Failed to get MouseDelta property");
+                        return;
+                    }
+
+                    var mouseDelta = mouseDeltaProperty.GetValue(io);
+                    if (mouseDelta == null)
+                    {
+                        Logger.Error("Failed to get mouse delta");
+                        return;
+                    }
+
+                    // Get the X and Y properties from the Vector2
+                    var mouseDeltaX = (float)mouseDelta.GetType().GetProperty("X").GetValue(mouseDelta);
+                    var mouseDeltaY = (float)mouseDelta.GetType().GetProperty("Y").GetValue(mouseDelta);
+                    var windowPosX = (float)currentPos.GetType().GetProperty("X").GetValue(currentPos);
+                    var windowPosY = (float)currentPos.GetType().GetProperty("Y").GetValue(currentPos);
+
+                    // Create new position
+                    var newPos = Activator.CreateInstance(currentPos.GetType(),
+                        windowPosX + mouseDeltaX,
+                        windowPosY + mouseDeltaY);
+
+                    // Set the new window position
+                    var setWindowPosMethod = _imGuiType.GetMethod("SetWindowPos",
+                        BindingFlags.Public | BindingFlags.Static,
+                        null,
+                        new[] { currentPos.GetType() },
+                        null);
+
+                    if (setWindowPosMethod == null)
+                    {
+                        Logger.Error("Failed to get SetWindowPos method");
+                        return;
+                    }
+
+                    setWindowPosMethod.Invoke(null, new[] { newPos });
+                }
+                if (beginResult is bool isWindowOpen && isWindowOpen)
+                {
+                    try
+                    {
+                        // Window content
+                        textMethod?.Invoke(null, new object[] { "Server Status: " + (_networkLogic != null ? "Online" : "Offline") });
+                    }
+                    finally
+                    {
+                        endMethod?.Invoke(null, null);
+                    }
+                }
             }
-            finally
+            catch (Exception ex)
             {
-                endMethod?.Invoke(null, null);
+                Logger.Error($"Error in RenderImGui: {ex}");
             }
         }
-    }
-    catch (Exception ex)
-    {
-        Logger.Error($"Error in RenderImGui: {ex}");
-    }
-}
 
 
 

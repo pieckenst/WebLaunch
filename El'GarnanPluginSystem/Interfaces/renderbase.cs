@@ -22,6 +22,7 @@ namespace El_Garnan_Plugin_Loader.Interfaces
 
 public class ImGuiPluginRenderer : IPluginRenderer
 {
+    private System.Timers.Timer _visibilityTimer;
     private ImGuiBindings _imgui;
 
     private GraphicsDevice _gd;
@@ -42,17 +43,69 @@ public class ImGuiPluginRenderer : IPluginRenderer
     {
         try
         {
-            VeldridStartup.CreateWindowAndGraphicsDevice(
-                new WindowCreateInfo(50, 50, 1280, 720, WindowState.Normal, "Plugin Interface"),
-                new GraphicsDeviceOptions(true, null, true, ResourceBindingModel.Improved, true, true),
-                out _window,
-                out _gd);
+           var windowCreateInfo = new WindowCreateInfo(
+    0, 0,  // Position will be set by ImGui
+    400, 300,  // Initial size
+    WindowState.Normal,
+    "Plugin Interface")
+{
+    WindowInitialState = WindowState.Normal
+    // Removed WindowInitialBorder as it doesn't exist
+};
 
-            _window.Resized += () =>
-            {
-                _gd.MainSwapchain.Resize((uint)_window.Width, (uint)_window.Height);
-                _imgui.WindowResized(_window.Width, _window.Height);
-            };
+VeldridStartup.CreateWindowAndGraphicsDevice(
+    windowCreateInfo,
+    new GraphicsDeviceOptions(true, null, true, ResourceBindingModel.Improved, true, true),
+    out _window,
+    out _gd);
+
+// Set SDL window flags after creation
+if (_window is Sdl2Window sdlWindow)
+{
+    var sdl2Window = sdlWindow.SdlWindowHandle;
+    Sdl2Native.SDL_SetWindowBordered(sdl2Window, 0);  // Remove border
+    Sdl2Native.SDL_SetWindowResizable(sdl2Window, 0); // Disable resizing
+    
+    // Get display bounds using Veldrid's SDL2 bindings
+    var displayIndex = Sdl2Native.SDL_GetWindowDisplayIndex(sdl2Window);
+    int displayWidth = 0;
+    int displayHeight = 0;
+    unsafe
+    {
+        SDL_DisplayMode mode;
+        if (Sdl2Native.SDL_GetCurrentDisplayMode(displayIndex, &mode) == 0)
+        {
+            displayWidth = mode.w;
+            displayHeight = mode.h;
+        }
+    }
+    
+    int windowWidth = 1024;  // Match this with your ImGui window size
+    int windowHeight = 768;
+    int windowX = (displayWidth - windowWidth) / 2;
+    int windowY = (displayHeight - windowHeight) / 2;
+    
+    Sdl2Native.SDL_SetWindowPosition(sdl2Window, windowX, windowY);
+    Sdl2Native.SDL_SetWindowSize(sdl2Window, windowWidth, windowHeight);
+}
+
+// In the Initialize method, after creating the window
+_window.Visible = false;  // Start hidden
+
+// Set up a timer to make the window visible after a delay
+_visibilityTimer = new System.Timers.Timer(5000); // 5 seconds
+_visibilityTimer.Elapsed += (s, e) => 
+{
+    if (_window != null)
+    {
+        _window.Visible = true;
+        _visibilityTimer.Stop();
+        _visibilityTimer.Dispose();
+    }
+};
+_visibilityTimer.AutoReset = false;
+_visibilityTimer.Start();
+
 
             _cl = _gd.ResourceFactory.CreateCommandList();
             _imgui = new ImGuiBindings(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
