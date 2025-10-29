@@ -1,199 +1,163 @@
+// Файл: ElGarnanPluginSystem/Interfaces/renderbase.cs
+
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using System.Linq;
+using System.Numerics; // *** ФИКС: Добавлена директива using для Vector2 и Vector4 ***
+using El_Garnan_Plugin_Loader.Models;
+using El_Garnan_Plugin_Loader.Rendering;
 using ImGuiNET;
 using Veldrid;
 using Veldrid.Sdl2;
 using Veldrid.StartupUtilities;
-using System.Numerics;
-using El_Garnan_Plugin_Loader.Models;
-using El_Garnan_Plugin_Loader.Rendering;
 
 namespace El_Garnan_Plugin_Loader.Interfaces
 {
     public interface IPluginRenderer : IDisposable
-{
-    void Initialize();
-    void Render();
-    bool IsInitialized { get; }
-    void SetPlugins(IEnumerable<IGamePlugin> plugins);
-}
-
-public class ImGuiPluginRenderer : IPluginRenderer
-{
-    private System.Timers.Timer _visibilityTimer;
-    private ImGuiBindings _imgui;
-
-    private GraphicsDevice _gd;
-    private CommandList _cl;
-    private Sdl2Window _window;
-    private IEnumerable<IGamePlugin> _plugins;
-    private bool _isInitialized;
-    private readonly ILogger _logger;
-
-    public bool IsInitialized => _isInitialized;
-
-    public ImGuiPluginRenderer(ILogger logger)
     {
-        _logger = logger;
+        void Initialize();
+        void Render();
+        bool IsInitialized { get; }
+        void SetPlugins(IEnumerable<IGamePlugin> plugins);
     }
 
-    public void Initialize()
+    public class ImGuiPluginRenderer : IPluginRenderer
     {
-        try
+        // Убираем таймер
+        private ImGuiBindings _imgui;
+        private GraphicsDevice _gd;
+        private CommandList _cl;
+        private Sdl2Window _window;
+        private IEnumerable<IGamePlugin> _plugins;
+        private bool _isInitialized;
+        private readonly ILogger _logger;
+
+        public bool IsInitialized => _isInitialized;
+
+        public ImGuiPluginRenderer(ILogger logger)
         {
-           var windowCreateInfo = new WindowCreateInfo(
-    0, 0,  // Position will be set by ImGui
-    400, 300,  // Initial size
-    WindowState.Normal,
-    "Plugin Interface")
-{
-    WindowInitialState = WindowState.Normal
-    // Removed WindowInitialBorder as it doesn't exist
-};
-
-VeldridStartup.CreateWindowAndGraphicsDevice(
-    windowCreateInfo,
-    new GraphicsDeviceOptions(true, null, true, ResourceBindingModel.Improved, true, true),
-    out _window,
-    out _gd);
-
-// Set SDL window flags after creation
-if (_window is Sdl2Window sdlWindow)
-{
-    var sdl2Window = sdlWindow.SdlWindowHandle;
-    Sdl2Native.SDL_SetWindowBordered(sdl2Window, 0);  // Remove border
-    Sdl2Native.SDL_SetWindowResizable(sdl2Window, 0); // Disable resizing
-    
-    // Get display bounds using Veldrid's SDL2 bindings
-    var displayIndex = Sdl2Native.SDL_GetWindowDisplayIndex(sdl2Window);
-    int displayWidth = 0;
-    int displayHeight = 0;
-    unsafe
-    {
-        SDL_DisplayMode mode;
-        if (Sdl2Native.SDL_GetCurrentDisplayMode(displayIndex, &mode) == 0)
-        {
-            displayWidth = mode.w;
-            displayHeight = mode.h;
-        }
-    }
-    
-    int windowWidth = 1024;  // Match this with your ImGui window size
-    int windowHeight = 768;
-    int windowX = (displayWidth - windowWidth) / 2;
-    int windowY = (displayHeight - windowHeight) / 2;
-    
-    Sdl2Native.SDL_SetWindowPosition(sdl2Window, windowX, windowY);
-    Sdl2Native.SDL_SetWindowSize(sdl2Window, windowWidth, windowHeight);
-}
-
-// In the Initialize method, after creating the window
-_window.Visible = false;  // Start hidden
-
-// Set up a timer to make the window visible after a delay
-_visibilityTimer = new System.Timers.Timer(5000); // 5 seconds
-_visibilityTimer.Elapsed += (s, e) => 
-{
-    if (_window != null)
-    {
-        _window.Visible = true;
-        _visibilityTimer.Stop();
-        _visibilityTimer.Dispose();
-    }
-};
-_visibilityTimer.AutoReset = false;
-_visibilityTimer.Start();
-
-
-            _cl = _gd.ResourceFactory.CreateCommandList();
-            _imgui = new ImGuiBindings(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
-            
-            _isInitialized = true;
-            _logger.Information("ImGui renderer initialized successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error("Failed to initialize ImGui renderer", ex);
-            throw;
-        }
-    }
-
-    public void SetPlugins(IEnumerable<IGamePlugin> plugins)
-    {
-        _plugins = plugins;
-    }
-
-    public void Render()
-{
-    if (!_isInitialized || _plugins == null) 
-    {
-        _logger.Warning("Renderer not initialized or no plugins available");
-        return;
-    }
-
-    try
-    {
-        var snapshot = _window.PumpEvents();
-        if (!_window.Exists) 
-        {
-            _logger.Warning("Window does not exist");
-            return;
+            _logger = logger;
         }
 
-        // Begin frame
-        _imgui.Update(1f/60f, snapshot);
-
-        // Create a new ImGui frame
-        ImGui.NewFrame();
-
-        // Render each plugin's ImGui content
-        bool hasContent = false;
-        foreach (var plugin in _plugins.Where(p => p.SupportsImGui))
+        public unsafe void Initialize()
         {
-            try 
+            try
             {
-                plugin.RenderImGui();
-                hasContent = true;
+                // *** ФИКС CS1503: Явно приводим int к нужному enum-типу SDLInitFlags ***
+                if (Sdl2Native.SDL_Init((SDLInitFlags)0x00000020) != 0) // 0x20 это SDL_INIT_VIDEO
+                {
+                    _logger.Error($"Failed to initialize SDL");
+                    return;
+                }
+
+                int width = 1024;
+                int height = 768;
+
+                // *** ФИКС CS0306: Создаем экземпляр структуры, а не указатель на нее ***
+                SDL_DisplayMode mode;
+                if (Sdl2Native.SDL_GetCurrentDisplayMode(0, &mode) != 0)
+                {
+                    _logger.Warning("Could not get display mode. Using default position.");
+                    // Устанавливаем значения по умолчанию, если не удалось получить реальные
+                    mode.w = 1920;
+                    mode.h = 1080;
+                }
+
+                int x = (mode.w - width) / 2;
+                int y = (mode.h - height) / 2;
+
+                // *** ФИКС CS1503: Явно приводим uint к нужному enum-типу SDL_WindowFlags ***
+                var windowFlags = (SDL_WindowFlags)0x00000010 | (SDL_WindowFlags)0x00000008; // BORDERLESS | HIDDEN
+
+                // Sdl2Native.SDL_CreateWindow ожидает uint, поэтому здесь приведение не нужно, если windowFlags уже uint.
+                // Но для ясности, лучше сразу объявить его как SDL_WindowFlags.
+                var sdlWindowHandle = Sdl2Native.SDL_CreateWindow(
+                    "Plugin Interface", x, y, width, height,
+                    windowFlags
+                );
+
+                // *** ФИКС CS1503: Передаем в конструктор правильный enum-тип SDL_WindowFlags ***
+                _window = new Sdl2Window("Plugin Interface", x, y, width, height, windowFlags, false);
+
+                var options = new GraphicsDeviceOptions(true, null, true, ResourceBindingModel.Improved, true, true);
+
+                _gd = VeldridStartup.CreateGraphicsDevice(_window, options);
+
+                _cl = _gd.ResourceFactory.CreateCommandList();
+                _imgui = new ImGuiBindings(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
+
+                _isInitialized = true;
+                _logger.Information("ImGui renderer initialized successfully");
+
+                _window.Visible = true;
             }
             catch (Exception ex)
             {
-                _logger.Error($"Error in plugin {plugin.Name} RenderImGui: {ex}");
+                _logger.Error("Failed to initialize ImGui renderer", ex);
+                throw;
             }
         }
 
-        // Only render if we have content
-        if (hasContent)
+        public void SetPlugins(IEnumerable<IGamePlugin> plugins)
         {
-            // End the ImGui frame
-            ImGui.Render();
+            _plugins = plugins;
+        }
 
-            // Render the frame
-            _cl.Begin();
-            _cl.SetFramebuffer(_gd.MainSwapchain.Framebuffer);
-            _cl.ClearColorTarget(0, new RgbaFloat(0.1f, 0.1f, 0.1f, 1f));
-            
-            _imgui.Render(_gd, _cl);
+        // ВАШ МЕТОД RENDER() УЖЕ ПРАВИЛЬНЫЙ, ОСТАВЛЯЕМ ЕГО КАК ЕСТЬ
+        public void Render()
+        {
+            if (!_isInitialized) return;
 
-            _cl.End();
-            _gd.SubmitCommands(_cl);
-            _gd.SwapBuffers(_gd.MainSwapchain);
+            try
+            {
+                while (_window.Exists)
+                {
+                    var snapshot = _window.PumpEvents();
+                    if (!_window.Exists) break;
+
+                    _imgui.Update(1f / 60f, snapshot);
+                    ImGui.NewFrame();
+
+                    // Отрисовка фона напрямую (этот вариант для случая без дочернего окна)
+                    var drawList = ImGui.GetBackgroundDrawList();
+                    // Используем Vector4 из System.Numerics
+                    var bgColor = ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(0.08f, 0.08f, 0.11f, 1.0f));
+                    drawList.AddRectFilled(System.Numerics.Vector2.Zero, ImGui.GetIO().DisplaySize, bgColor);
+
+                    if (_plugins != null)
+                    {
+                        foreach (var plugin in _plugins.Where(p => p.SupportsImGui))
+                        {
+                            plugin.RenderImGui();
+                        }
+                    }
+
+                    ImGui.Render();
+                    _cl.Begin();
+                    _cl.SetFramebuffer(_gd.MainSwapchain.Framebuffer);
+                    _cl.ClearColorTarget(0, new RgbaFloat(0, 0, 0, 1));
+                    _imgui.Render(_gd, _cl);
+                    _cl.End();
+                    _gd.SubmitCommands(_cl);
+                    _gd.SwapBuffers(_gd.MainSwapchain);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Error in render loop: {ex}");
+            }
+            finally
+            {
+                _logger.Information("Render window closed. Shutting down application.");
+                Environment.Exit(0);
+            }
+        }
+
+        public void Dispose()
+        {
+            _imgui?.Dispose();
+            _cl?.Dispose();
+            _gd?.Dispose();
         }
     }
-    catch (Exception ex)
-    {
-        _logger.Error($"Error in render loop: {ex}");
-    }
-}
-
-    public void Dispose()
-    {
-        _imgui?.Dispose();
-
-        _cl?.Dispose();
-        _gd?.Dispose();
-    }
-}
-
 }

@@ -3,20 +3,36 @@
   "WorkspaceRootPath": "G:\\code\\WebLaunch\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|g:\\code\\weblaunch\\el\u0027garnanpluginsystem\\rendering\\fontawesomeicon.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|solutionrelative:el\u0027garnanpluginsystem\\rendering\\fontawesomeicon.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|g:\\code\\weblaunch\\el\u0027garnanpluginsystem\\interfaces\\pluginbase.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|solutionrelative:el\u0027garnanpluginsystem\\interfaces\\pluginbase.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{82B61F90-D1E9-4B31-B829-B95F07B2FDF7}|Gameplugins.Plugin.FFXIV\\Gameplugins.Plugin.FFXIV.csproj|g:\\code\\weblaunch\\gameplugins.plugin.ffxiv\\ffxivgameplugin.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{82B61F90-D1E9-4B31-B829-B95F07B2FDF7}|Gameplugins.Plugin.FFXIV\\Gameplugins.Plugin.FFXIV.csproj|solutionrelative:gameplugins.plugin.ffxiv\\ffxivgameplugin.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|g:\\code\\weblaunch\\el\u0027garnanpluginsystem\\interfaces\\renderbase.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|solutionrelative:el\u0027garnanpluginsystem\\interfaces\\renderbase.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{82B61F90-D1E9-4B31-B829-B95F07B2FDF7}|Gameplugins.Plugin.FFXIV\\Gameplugins.Plugin.FFXIV.csproj|g:\\code\\weblaunch\\gameplugins.plugin.ffxiv\\ffxivgameplugin.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{82B61F90-D1E9-4B31-B829-B95F07B2FDF7}|Gameplugins.Plugin.FFXIV\\Gameplugins.Plugin.FFXIV.csproj|solutionrelative:gameplugins.plugin.ffxiv\\ffxivgameplugin.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\customlonghorntitlebar.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\customlonghorntitlebar.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\ribboncontrol.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\ribboncontrol.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\settingswindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\settingswindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\window1.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
+      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\window1.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|g:\\code\\weblaunch\\el\u0027garnanpluginsystem\\rendering\\fontawesomeicon.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|solutionrelative:el\u0027garnanpluginsystem\\rendering\\fontawesomeicon.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|g:\\code\\weblaunch\\el\u0027garnanpluginsystem\\interfaces\\pluginbase.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|solutionrelative:el\u0027garnanpluginsystem\\interfaces\\pluginbase.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{34AF2C77-0020-4314-AA80-BEA117ADF40A}|El\u0027GarnanPluginSystem\\El\u0027GarnanPluginSystem.csproj|g:\\code\\weblaunch\\el\u0027garnanpluginsystem\\rendering\\imguibindings.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -34,10 +50,6 @@
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|D:\\studio\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\settingswindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\settingswindow.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{6D7D239E-33BB-4509-AC21-1DC7C36D403F}|handlerlaunch\\handlerlaunch.csproj|g:\\code\\weblaunch\\handlerlaunch\\supportobjects.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{6D7D239E-33BB-4509-AC21-1DC7C36D403F}|handlerlaunch\\handlerlaunch.csproj|solutionrelative:handlerlaunch\\supportobjects.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -53,16 +65,8 @@
       "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\customlonghorntitlebar.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\customlonghorntitlebar.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\customlonghorntitlebar.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\ribboncontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\ribboncontrol.xaml.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|g:\\code\\weblaunch\\spinningwheellib\\ribboncontrol.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}",
-      "RelativeMoniker": "D:0:0:{1629F3CE-F4A2-42EC-ABF2-C9200EB1BD38}|SpinningWheelLib\\SpinningWheelLib.csproj|solutionrelative:spinningwheellib\\ribboncontrol.xaml||{F11ACC28-31D1-4C80-A34B-F4E09D3D753C}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{6D7D239E-33BB-4509-AC21-1DC7C36D403F}|handlerlaunch\\handlerlaunch.csproj|g:\\code\\weblaunch\\handlerlaunch\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -84,7 +88,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 5,
+          "SelectedChildIndex": 4,
           "Children": [
             {
               "$type": "Bookmark",
@@ -96,135 +100,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "pluginbase.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
-              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
-              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
-              "ViewState": "AgIAAPwAAAAAAAAAAAAAAAABAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-28T19:56:11.398Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 5,
-              "Title": "TextureWrap.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
-              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
-              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
-              "ViewState": "AgIAABUAAAAAAAAAAAAzwCUAAAAjAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-28T14:45:18.172Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": "ImGuiBindings.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
-              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
-              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
-              "ViewState": "AgIAAFYBAAAAAAAAAAAAwGoBAAAbAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-28T14:40:11.577Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "FontAwesomeIcon.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
-              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
-              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
-              "ViewState": "AgIAAHwbAAAAAAAAAAAAAIobAAAaAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-28T14:39:48.664Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
               "DocumentIndex": 3,
-              "Title": "FFXIVGamePlugin.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
-              "RelativeDocumentMoniker": "Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
-              "RelativeToolTip": "Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
-              "ViewState": "AgIAAC0CAAAAAAAAAAAAADoCAAAQAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-28T12:22:56.02Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "renderbase.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
-              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
-              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
-              "ViewState": "AgIAADcAAAAAAAAAAAAAAEsAAAAaAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-27T19:51:56.816Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 6,
-              "Title": "ImGuiController.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
-              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
-              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
-              "ViewState": "AgIAADIAAAAAAAAAAAAAwE8AAAAmAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-27T19:46:30.453Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 7,
-              "Title": "Microsoft.Common.CurrentVersion.targets",
-              "DocumentMoniker": "D:\\studio\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
-              "ToolTip": "D:\\studio\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
-              "ViewState": "AgIAAG0JAAAAAAAAAAAcwIAJAAAEAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
-              "WhenOpened": "2025-10-27T19:46:27.298Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 9,
-              "Title": "SupportObjects.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\handlerlaunch\\SupportObjects.cs",
-              "RelativeDocumentMoniker": "handlerlaunch\\SupportObjects.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\handlerlaunch\\SupportObjects.cs",
-              "RelativeToolTip": "handlerlaunch\\SupportObjects.cs",
-              "ViewState": "AgIAANUCAAAAAAAAAAAQwPUCAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-27T19:09:11.342Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 14,
-              "Title": "RibbonControl.xaml.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml.cs",
-              "RelativeDocumentMoniker": "SpinningWheelLib\\RibbonControl.xaml.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml.cs",
-              "RelativeToolTip": "SpinningWheelLib\\RibbonControl.xaml.cs",
-              "ViewState": "AgIAAGwBAAAAAAAAAAAWwJQBAAAiAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2024-11-29T14:56:31.087Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 15,
               "Title": "RibbonControl.xaml",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml",
               "RelativeDocumentMoniker": "SpinningWheelLib\\RibbonControl.xaml",
@@ -236,54 +112,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
-              "Title": "SettingsWindow.xaml",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\SettingsWindow.xaml",
-              "RelativeDocumentMoniker": "SpinningWheelLib\\SettingsWindow.xaml",
-              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\SettingsWindow.xaml",
-              "RelativeToolTip": "SpinningWheelLib\\SettingsWindow.xaml",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
-              "WhenOpened": "2024-11-24T16:02:35.189Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 11,
-              "Title": "Microsoft.PackageDependencyResolution.targets",
-              "DocumentMoniker": "C:\\Program Files\\dotnet\\sdk\\9.0.303\\Sdks\\Microsoft.NET.Sdk\\targets\\Microsoft.PackageDependencyResolution.targets",
-              "ToolTip": "C:\\Program Files\\dotnet\\sdk\\9.0.303\\Sdks\\Microsoft.NET.Sdk\\targets\\Microsoft.PackageDependencyResolution.targets",
-              "ViewState": "AgIAAPYAAAAAAAAAAAAcwAkBAAAEAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
-              "WhenOpened": "2025-10-27T19:05:50.874Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 18,
-              "Title": "roundrect100.png",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\roundrect100.png",
-              "RelativeDocumentMoniker": "SpinningWheelLib\\roundrect100.png",
-              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\roundrect100.png",
-              "RelativeToolTip": "SpinningWheelLib\\roundrect100.png",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001533|",
-              "WhenOpened": "2024-11-29T14:36:23.145Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 10,
-              "Title": "Class1.cs",
-              "DocumentMoniker": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\Class1.cs",
-              "RelativeDocumentMoniker": "CoreLibLaunchSupport\\Class1.cs",
-              "ToolTip": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\Class1.cs",
-              "RelativeToolTip": "CoreLibLaunchSupport\\Class1.cs",
-              "ViewState": "AgIAAPAEAAAAAAAAAAAswAQFAAAgAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2025-10-27T19:05:52.251Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 13,
+              "DocumentIndex": 2,
               "Title": "CustomLonghornTitleBar.xaml",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\CustomLonghornTitleBar.xaml",
               "RelativeDocumentMoniker": "SpinningWheelLib\\CustomLonghornTitleBar.xaml",
@@ -295,7 +124,184 @@
             },
             {
               "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "FFXIVGamePlugin.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
+              "RelativeDocumentMoniker": "Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
+              "RelativeToolTip": "Gameplugins.Plugin.FFXIV\\FFXIVGamePlugin.cs",
+              "ViewState": "AgIAAJQCAAAAAAAAAAAAALQCAAAzAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-28T12:22:56.02Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "SettingsWindow.xaml",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\SettingsWindow.xaml",
+              "RelativeDocumentMoniker": "SpinningWheelLib\\SettingsWindow.xaml",
+              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\SettingsWindow.xaml",
+              "RelativeToolTip": "SpinningWheelLib\\SettingsWindow.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2024-11-24T16:02:35.189Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "renderbase.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
+              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
+              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Interfaces\\renderbase.cs",
+              "ViewState": "AgIAACIAAAAAAAAAAAA2wCkAAAAnAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-27T19:51:56.816Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Window1.xaml",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\Window1.xaml",
+              "RelativeDocumentMoniker": "SpinningWheelLib\\Window1.xaml",
+              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\Window1.xaml",
+              "RelativeToolTip": "SpinningWheelLib\\Window1.xaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2025-10-29T13:12:03.908Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "FontAwesomeIcon.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
+              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
+              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\FontAwesomeIcon.cs",
+              "ViewState": "AgIAAHwbAAAAAAAAAAAAAJEbAAAeAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-28T14:39:48.664Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "ImGuiBindings.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
+              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
+              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiBindings.cs",
+              "ViewState": "AgIAAFYBAAAAAAAAAAAAwGoBAAAbAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-28T14:40:11.577Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "pluginbase.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
+              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
+              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Interfaces\\pluginbase.cs",
+              "ViewState": "AgIAAPwAAAAAAAAAAAAAAAABAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-28T19:56:11.398Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "TextureWrap.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
+              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
+              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\TextureWrap.cs",
+              "ViewState": "AgIAABUAAAAAAAAAAAAzwCUAAAAjAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-28T14:45:18.172Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "ImGuiController.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
+              "RelativeDocumentMoniker": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
+              "RelativeToolTip": "El\u0027GarnanPluginSystem\\Rendering\\ImGuiController.cs",
+              "ViewState": "AgIAADIAAAAAAAAAAAAAwE8AAAAmAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-27T19:46:30.453Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "Microsoft.Common.CurrentVersion.targets",
+              "DocumentMoniker": "D:\\studio\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "ToolTip": "D:\\studio\\MSBuild\\Current\\Bin\\amd64\\Microsoft.Common.CurrentVersion.targets",
+              "ViewState": "AgIAAG0JAAAAAAAAAAAcwIAJAAAEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
+              "WhenOpened": "2025-10-27T19:46:27.298Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "SupportObjects.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\handlerlaunch\\SupportObjects.cs",
+              "RelativeDocumentMoniker": "handlerlaunch\\SupportObjects.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\handlerlaunch\\SupportObjects.cs",
+              "RelativeToolTip": "handlerlaunch\\SupportObjects.cs",
+              "ViewState": "AgIAANUCAAAAAAAAAAAQwPUCAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-27T19:09:11.342Z"
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 16,
+              "Title": "RibbonControl.xaml.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml.cs",
+              "RelativeDocumentMoniker": "SpinningWheelLib\\RibbonControl.xaml.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\RibbonControl.xaml.cs",
+              "RelativeToolTip": "SpinningWheelLib\\RibbonControl.xaml.cs",
+              "ViewState": "AgIAAGwBAAAAAAAAAAAWwJQBAAAiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-11-29T14:56:31.087Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "Microsoft.PackageDependencyResolution.targets",
+              "DocumentMoniker": "C:\\Program Files\\dotnet\\sdk\\9.0.303\\Sdks\\Microsoft.NET.Sdk\\targets\\Microsoft.PackageDependencyResolution.targets",
+              "ToolTip": "C:\\Program Files\\dotnet\\sdk\\9.0.303\\Sdks\\Microsoft.NET.Sdk\\targets\\Microsoft.PackageDependencyResolution.targets",
+              "ViewState": "AgIAAPYAAAAAAAAAAAAcwAkBAAAEAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
+              "WhenOpened": "2025-10-27T19:05:50.874Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "roundrect100.png",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\roundrect100.png",
+              "RelativeDocumentMoniker": "SpinningWheelLib\\roundrect100.png",
+              "ToolTip": "G:\\code\\WebLaunch\\SpinningWheelLib\\roundrect100.png",
+              "RelativeToolTip": "SpinningWheelLib\\roundrect100.png",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001533|",
+              "WhenOpened": "2024-11-29T14:36:23.145Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "Class1.cs",
+              "DocumentMoniker": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\Class1.cs",
+              "RelativeDocumentMoniker": "CoreLibLaunchSupport\\Class1.cs",
+              "ToolTip": "G:\\code\\WebLaunch\\CoreLibLaunchSupport\\Class1.cs",
+              "RelativeToolTip": "CoreLibLaunchSupport\\Class1.cs",
+              "ViewState": "AgIAAPAEAAAAAAAAAAAswAQFAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-27T19:05:52.251Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
               "Title": "Program.cs",
               "DocumentMoniker": "G:\\code\\WebLaunch\\handlerlaunch\\Program.cs",
               "RelativeDocumentMoniker": "handlerlaunch\\Program.cs",
@@ -303,12 +309,11 @@
               "RelativeToolTip": "handlerlaunch\\Program.cs",
               "ViewState": "AgIAAIoBAAAAAAAAAAAuwIEBAAAXAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2024-11-24T12:17:47.656Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-24T12:17:47.656Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 12,
+              "DocumentIndex": 15,
               "Title": "CustomLonghornTitleBar.xaml.cs",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
               "RelativeDocumentMoniker": "SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
@@ -316,12 +321,11 @@
               "RelativeToolTip": "SpinningWheelLib\\CustomLonghornTitleBar.xaml.cs",
               "ViewState": "AgIAAAQAAAAAAAAAAAAcwIYAAAAbAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2024-11-23T20:43:57.629Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-23T20:43:57.629Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 17,
+              "DocumentIndex": 18,
               "Title": "SpinningWheelLib.csproj",
               "DocumentMoniker": "G:\\code\\WebLaunch\\SpinningWheelLib\\SpinningWheelLib.csproj",
               "RelativeDocumentMoniker": "SpinningWheelLib\\SpinningWheelLib.csproj",
@@ -329,8 +333,7 @@
               "RelativeToolTip": "SpinningWheelLib\\SpinningWheelLib.csproj",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAA8AAAAdAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
-              "WhenOpened": "2024-11-29T14:57:16.834Z",
-              "EditorCaption": ""
+              "WhenOpened": "2024-11-29T14:57:16.834Z"
             }
           ]
         }

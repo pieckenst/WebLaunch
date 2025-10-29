@@ -1112,6 +1112,6 @@ G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\LaunchApp.dll
 G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\refint\LaunchApp.dll
 G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\LaunchApp.pdb
 G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\ref\LaunchApp.dll
-G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\compressed\1obbtagp6p-rvxsub7k7x.gz
-G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\compressed\lauxpm0ksv-yabejb9glh.gz
-G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\compressed\u19yvlzdbb-cz735vykjs.gz
+G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\compressed\1obbtagp6p-mbr0v47z63.gz
+G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\compressed\lauxpm0ksv-hijov8nsgv.gz
+G:\code\WebLaunch\LaunchApp\obj\Debug\net8.0\compressed\u19yvlzdbb-1k7p5biu1o.gz

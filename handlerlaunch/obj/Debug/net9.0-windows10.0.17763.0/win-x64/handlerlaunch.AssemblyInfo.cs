@@ -17,7 +17,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute("Protocol handler and plugin host for WebLaunch game launcher platform. Supports m" +
     "ultiple games and launchers through a dynamic plugin system.")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+85b8190207f8579f5d486eb6288604715203e668")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4d68e32e5b1c03a8effd60df39a96d940c7336aa")]
 [assembly: System.Reflection.AssemblyProductAttribute("WMconsole")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WebLaunch Protocol Handler and Plugin Host")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

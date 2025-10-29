@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("FFXIV Game Plugin for Elgar\'nan Plugin System")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+85b8190207f8579f5d486eb6288604715203e668")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4d68e32e5b1c03a8effd60df39a96d940c7336aa")]
 [assembly: System.Reflection.AssemblyProductAttribute("Gameplugins.Plugin.FFXIV")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Gameplugins.Plugin.FFXIV")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

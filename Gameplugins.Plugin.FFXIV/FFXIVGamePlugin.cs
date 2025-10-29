@@ -659,18 +659,92 @@ if (isMouseDownMethod == null)
 
                     setWindowPosMethod.Invoke(null, new[] { newPos });
                 }
-                if (beginResult is bool isWindowOpen && isWindowOpen)
-                {
-                    try
-                    {
-                        // Window content
-                        textMethod?.Invoke(null, new object[] { "Server Status: " + (_networkLogic != null ? "Online" : "Offline") });
-                    }
-                    finally
-                    {
-                        endMethod?.Invoke(null, null);
-                    }
-                }
+           if (beginResult is bool isWindowOpen && isWindowOpen)
+{
+    try
+    {
+        // --- Получение свойств окна (Позиция и Размер) ---
+        // *** ФИКС #1: Получение абсолютной позиции окна на экране ***
+        var getWindowPosMethod = _imGuiType.GetMethod("GetWindowPos", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+        if (getWindowPosMethod == null) { Logger.Error("Failed to get GetWindowPos method"); return; }
+        // Ошибка CS0136 исправлена: используем уже существующую переменную `windowPos`
+        windowPos = getWindowPosMethod.Invoke(null, null);
+
+        var windowSizeMethod = _imGuiType.GetMethod("GetWindowSize", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+        if (windowSizeMethod == null) { Logger.Error("Failed to get GetWindowSize method"); return; }
+        // Ошибка CS0136 исправлена: используем уже существующую переменную `windowSize`
+        windowSize = windowSizeMethod.Invoke(null, null);
+
+        // --- Получение правильного списка для отрисовки ---
+        // *** ФИКС #2: Используем GetWindowDrawList, а не GetBackgroundDrawList ***
+        var getWindowDrawListMethod = _imGuiType.GetMethod("GetWindowDrawList", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+        if (getWindowDrawListMethod == null) { Logger.Error("Failed to find GetWindowDrawList method"); return; }
+        var drawList = getWindowDrawListMethod.Invoke(null, null);
+        
+        // *** ФИКС #3: Получаем тип ImDrawFlags через рефлексию ***
+        var imDrawFlagsType = _imGuiAssembly.GetType("ImGuiNET.ImDrawFlags");
+        if (imDrawFlagsType == null) { Logger.Error("Failed to get ImDrawFlags type"); return; }
+
+        // --- Получение методов для отрисовки через рефлексию ---
+        var addRectFilledMethod = drawList.GetType().GetMethod("AddRectFilled", new[] { typeof(Vector2), typeof(Vector2), typeof(uint), typeof(float), imDrawFlagsType });
+        var colorConvertMethod = _imGuiType.GetMethod("ColorConvertFloat4ToU32", new[] { typeof(Vector4) });
+        var calcTextSizeMethod = _imGuiType.GetMethod("CalcTextSize", new[] { typeof(string) });
+        var setCursorPosMethod = _imGuiType.GetMethod("SetCursorPos", new[] { typeof(Vector2) });
+        var textColoredMethod = _imGuiType.GetMethod("TextColored", new[] { typeof(Vector4), typeof(string) });
+
+        // --- Отрисовка кастомного фона ---
+        var bgColor = new Vector4(0.08f, 0.08f, 0.11f, 1.0f);
+        var bgColorU32 = (uint)colorConvertMethod.Invoke(null, new object[] { bgColor });
+        var rectBottomRight = new Vector2(((Vector2)windowPos).X + ((Vector2)windowSize).X, ((Vector2)windowPos).Y + ((Vector2)windowSize).Y);
+        
+        if(addRectFilledMethod != null)
+        {
+            var imDrawFlagsNone = Enum.ToObject(imDrawFlagsType, 0); // ImDrawFlags.None
+            addRectFilledMethod.Invoke(drawList, new object[] { windowPos, rectBottomRight, bgColorU32, 8.0f, imDrawFlagsNone });
+        }
+
+        // --- Отрисовка заголовка (используем стандартные виджеты) ---
+        var titleText = "FFXIV Launcher";
+        var titleSize = (Vector2)calcTextSizeMethod.Invoke(null, new object[] { titleText });
+        var titlePosRelative = new Vector2((((Vector2)windowSize).X - titleSize.X) * 0.5f, ((Vector2)windowSize).Y * 0.2f);
+        setCursorPosMethod.Invoke(null, new object[] { titlePosRelative });
+        textColoredMethod.Invoke(null, new object[] { new Vector4(0.9f, 0.9f, 0.9f, 1.0f), titleText });
+
+        // --- Отрисовка статуса сервера ---
+        var gateStatus = (bool)_networkLogicType.GetMethod("CheckGateStatus").Invoke(_networkLogic, null);
+        var statusText = gateStatus ? "Server Status: Online" : "Server Status: Offline";
+        var statusColor = gateStatus ? new Vector4(0.2f, 1.0f, 0.2f, 1.0f) : new Vector4(1.0f, 0.2f, 0.2f, 1.0f);
+        var statusSize = (Vector2)calcTextSizeMethod.Invoke(null, new object[] { statusText });
+        var statusPosRelative = new Vector2((((Vector2)windowSize).X - statusSize.X) * 0.5f, titlePosRelative.Y + titleSize.Y + 20);
+        setCursorPosMethod.Invoke(null, new object[] { statusPosRelative });
+        textColoredMethod.Invoke(null, new object[] { statusColor, statusText });
+
+        // --- Отрисовка спиннера загрузки (используя абсолютные координаты) ---
+        var spinnerRadius = 20.0f;
+        var spinnerCenterAbs = new Vector2(
+            ((Vector2)windowPos).X + ((Vector2)windowSize).X * 0.5f,
+            ((Vector2)windowPos).Y + statusPosRelative.Y + statusSize.Y + 40
+        );
+
+        var time = (float)DateTime.Now.TimeOfDay.TotalSeconds;
+        var spinnerAngle = time * 5.0f;
+        var arcColor = (uint)colorConvertMethod.Invoke(null, new object[] { new Vector4(0.8f, 0.8f, 1f, 1f) });
+
+        var addArcMethod = drawList.GetType().GetMethod("AddArc", new[] { typeof(Vector2), typeof(float), typeof(float), typeof(float), typeof(uint), typeof(int), typeof(float) });
+        if (addArcMethod != null)
+        {
+            addArcMethod.Invoke(drawList, new object[] { spinnerCenterAbs, spinnerRadius, spinnerAngle - 2.0f, spinnerAngle + 2.0f, arcColor, 20, 2.5f });
+        }
+    }
+    catch (Exception ex)
+    {
+        Logger.Error($"Error in window rendering: {ex}");
+    }
+    finally
+    {
+        endMethod?.Invoke(null, null);
+    }
+}
             }
             catch (Exception ex)
             {
