@@ -1,20 +1,36 @@
-name: Deploy to Pages
-
+name: Deploy Pages
 on:
-  push:
-    branches: [ "gh-pages" ]
-
+  workflow_dispatch:
 permissions:
-  pages: write
-  id-token: write
-
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: false
 jobs:
-  deploy:
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet workload install wasm-tools
+      - run: bash scripts/publish-web.sh
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: artifacts/web/wwwroot
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Deploy artifact
         id: deployment
         uses: actions/deploy-pages@v4
