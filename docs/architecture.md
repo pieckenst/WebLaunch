@@ -82,3 +82,19 @@ Example extension:
     <Menu><LumexLink Href="counter#launch">Launch settings</LumexLink></Menu>
 </SectionTabBar>
 ```
+
+### Game settings dialogs
+
+The game header keeps Play Now, a settings gear and live pairing state together.
+Both launch controls open the same settings dialog; the pairing summary opens its
+Desktop connection view. Game settings and connection setup share one controller,
+so changing views does not create another bridge session. GUI/console selection,
+pairing confirmation and recovery remain available in Desktop connection.
+
+The native HTML dialog supplies an inert backdrop, focus containment and focus
+restoration. Escape, Cancel and Close clear password/OTP inputs; closing during a
+launch requests cancellation, and closing a pending pairing disconnects it. Initial
+focus goes to the installation folder or desktop-mode selector. The dialog scrolls
+within the viewport on mobile and at browser zoom. Icons are inline SVGs, avoiding
+an external font dependency. Lumex v2 owns navigation/theme controls; Masa remains
+in use for page content and the application theme.

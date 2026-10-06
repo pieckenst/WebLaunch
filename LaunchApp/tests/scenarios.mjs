@@ -1,5 +1,16 @@
 import { expect } from '@playwright/test';
 
+async function openDesktop(page) {
+    await page.locator('.connection-summary').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+}
+async function gameSettings(page) {
+    await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
+}
+async function desktopSettings(page) {
+    await page.getByRole('button', { name: 'Desktop connection', exact: true }).click();
+}
+
 export async function prepare(page, base) {
     await page.addInitScript(() => {
         Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36' });
@@ -28,7 +39,9 @@ export async function navigationAndPreferences(page, base) {
     await expect(page).toHaveURL(base + 'spellborn#classes');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + 'counter');
+    await openDesktop(page);
     await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await page.locator('meta[name="viewport"]').getAttribute('content')).not.toContain('user-scalable=no');
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -53,9 +66,11 @@ export async function sectionHistoryAndModeControls(page, base) {
     await selected('Launch settings').focus(); await page.keyboard.press('Enter');
     await expect(page).toHaveURL(base + 'counter#launch');
     await expect(selected('Launch settings')).toHaveAttribute('aria-current', 'location');
+    await openDesktop(page);
     await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('console');
     await expect(page.getByRole('link', { name: 'Open desktop launcher', exact: true })).toHaveAttribute('href', 'HandleWebRequest:connect?v=2&mode=console');
     await page.reload();
+    await openDesktop(page);
     await expect(page.getByLabel('Desktop launcher mode', { exact: true })).toHaveValue('console');
     await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('gui');
     await expect(page.getByRole('link', { name: 'Open desktop launcher', exact: true })).toHaveAttribute('href', 'HandleWebRequest:connect?v=2&mode=gui');
@@ -77,7 +92,7 @@ export async function sectionHistoryAndModeControls(page, base) {
     await page.getByRole('link', { name: 'Pairing and desktop mode', exact: true }).click();
     await expect(page).toHaveURL(base + 'counter#launch');
     await expect(page.locator('.section-menu')).not.toHaveAttribute('open', '');
-    await page.getByRole('link', { name: 'WebLaunch', exact: true }).click();
+    await page.getByRole('link', { name: 'Game Launcher', exact: true }).click();
     await expect(page).toHaveURL(base);
     await expect(sections()).toHaveCount(0);
     await page.goBack();
@@ -102,10 +117,12 @@ async function pair(page) {
 }
 export async function secureLaunch(page, base) {
     await page.goto(base + 'counter');
+    await openDesktop(page);
     await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('console');
     await pair(page);
     await expect(page.locator('.desktop-state')).toContainText('The existing host is still running');
     await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('gui');
+    await gameSettings(page);
     const consoles = []; page.on('console', message => consoles.push(message.text()));
     await page.getByLabel('Installation folder').fill('C:\\Games\\日本語');
     await page.getByLabel('Username', { exact: true }).fill('synthetic-user');
@@ -118,12 +135,14 @@ export async function secureLaunch(page, base) {
     await expect(page.getByRole('button', { name: 'Cancel launch' })).toBeVisible();
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
     await expect(page.locator('.launch-status')).toHaveText('Game process started.', { timeout: 15000 });
+    await desktopSettings(page);
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Pairing saved · disconnected');
     expect(page.url()).not.toContain('synthetic');
     expect(consoles.join('\n')).not.toContain('synthetic-secret');
     expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('synthetic-secret');
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(page.locator('.launch-status')).toHaveText('Connected. Enter your game settings.');
+    await gameSettings(page);
     await page.getByLabel('Password', { exact: true }).fill('synthetic-cancel');
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel launch' }).click();
@@ -131,11 +150,51 @@ export async function secureLaunch(page, base) {
 }
 export async function unavailableHandler(page, base) {
     await page.goto(base + 'spellborn');
+    await openDesktop(page);
     await page.route('http://127.0.0.1:47832/**', route => route.abort());
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(page.locator('.launch-status')).toContainText('Cannot connect to WebLaunch');
+    await gameSettings(page);
     await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
+    await desktopSettings(page);
     await page.getByRole('button', { name: 'Forget this browser pairing' }).click();
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Not paired · disconnected');
     await page.unroute('http://127.0.0.1:47832/**');
+}
+
+export async function settingsDialogs(page, base) {
+    await page.goto(base + 'counter');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    const gear = page.getByRole('button', { name: 'Game settings', exact: true });
+    await gear.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveAccessibleName('Login settings');
+    await expect(page.getByLabel('Installation folder')).toBeFocused();
+    await page.getByLabel('Password', { exact: true }).fill('synthetic-dismiss-secret');
+    await page.getByLabel('One-time password (optional)').fill('123456');
+    // Native modal focus containment keeps background navigation outside the tab order.
+    await dialog.getByRole('button', { name: 'Close settings', exact: true }).focus();
+    for (let i = 0; i < 18; i++) {
+        await page.keyboard.press('Tab');
+        expect(await dialog.evaluate(el => el.contains(document.activeElement) || document.activeElement === document.body)).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await expect(gear).toBeFocused();
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('One-time password (optional)')).toHaveValue('');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    expect(await dialog.evaluate(el => el.getBoundingClientRect().width < innerWidth && el.getBoundingClientRect().height < innerHeight)).toBe(true);
+    await page.keyboard.press('Escape');
+    await page.goto(base + 'spellborn');
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(dialog).toHaveAccessibleName('Game settings');
+    await expect(page.getByLabel('Installation folder')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 900 });
 }

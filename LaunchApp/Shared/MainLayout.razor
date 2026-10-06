@@ -9,14 +9,16 @@
     <a class="skip-link" href="#main">Skip to content</a>
     <LumexNavbar Class="site-header" Height="auto" Blurred="false" Classes="@(new NavbarSlots { Wrapper = "main-nav-content" })">
         <LumexNavbarContent As="div" Class="brand-group">
-            <LumexNavbarBrand><LumexLink Class="brand" Href="./" Color="LumexUI.Common.ThemeColor.None">WebLaunch</LumexLink></LumexNavbarBrand>
+            <LumexNavbarBrand><LumexLink Class="brand" Href="./" Color="LumexUI.Common.ThemeColor.None"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 32 32" fill="currentColor"><path d="M17.648 10.13 15.879 7.026 7.03 22.55h3.498ZM19.88 14.046l-1.77 3.152 1.284 2.253h-2.549l-1.743 3.099h9.625Z" /></svg>Game Launcher</LumexLink></LumexNavbarBrand>
         </LumexNavbarContent>
         <LumexNavbarContent Class="main-links">
+            <LumexNavbarItem><LumexLink Href="./" Color="LumexUI.Common.ThemeColor.None"><NavigationIcon Name="overview" /> Home</LumexLink></LumexNavbarItem>
             <LumexNavbarItem><LumexLink Href="counter" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "counter" ? "page" : null)">Final Fantasy XIV</LumexLink></LumexNavbarItem>
             <LumexNavbarItem><LumexLink Href="spellborn" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "spellborn" ? "page" : null)">Spellborn</LumexLink></LumexNavbarItem>
         </LumexNavbarContent>
         <LumexNavbarContent Class="theme-control">
             <LumexNavbarItem><LumexSwitch tabindex="-1" Class="theme-toggle" Value="@dark" ValueChanged="SetTheme" Size="LumexUI.Common.Size.Small">Dark theme</LumexSwitch></LumexNavbarItem>
+            <LumexNavbarItem><a class="nav-launch" href="@(GameNavigation.Route is { } route ? route + "#launch" : "./")">Launch Game</a></LumexNavbarItem>
         </LumexNavbarContent>
     </LumexNavbar>
     @if (GameNavigation.Route is not null)

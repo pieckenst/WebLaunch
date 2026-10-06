@@ -2,9 +2,23 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
-<section id="launch" class="launch-panel" aria-labelledby="launch-heading">
-    <h2 id="launch-heading">Launch @Title</h2>
-    <p>Keep your Windows launcher open. Sign-in details travel through your paired local connection.</p>
+<section id="launch" class="launch-panel" aria-label="Launch controls">
+    <div class="play-card">
+        <button class="primary play-button" type="button" @onclick="OpenGame">Play now</button>
+        <button class="settings-button" type="button" aria-label="Game settings" title="Game settings" @onclick="OpenGame"><NavigationIcon /></button>
+    </div>
+    <button class="connection-summary" type="button" @onclick="OpenDesktop"><span class="status-dot @(paired ? "connected" : "")"></span>@PairingState</button>
+    <p class="launch-summary" role="status">@(launchAttempted ? message : "")</p>
+</section>
+<dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
+        <button type="button" class="close-dialog" aria-label="Close settings" disabled="@connecting" @onclick="CloseSettings">×</button>
+    </div>
+    <div class="dialog-tabs" aria-label="Settings views">
+        <button type="button" aria-pressed="@(!desktopView)" @onclick="ShowGame">Game settings</button>
+        <button type="button" aria-pressed="@desktopView" @onclick="ShowDesktop">Desktop connection</button>
+    </div>
+    <div hidden="@(!desktopView)" class="connection-view">
     @if (platformChecked && !supported)
     {
         <p role="note">Game launching requires Chrome or Edge on Windows. You can browse this site on any device.</p>
@@ -39,30 +53,59 @@
             <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@connecting">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@connecting">Cancel pairing</button></div>
         </div>
     }
+    </div>
+    <div hidden="@desktopView" class="game-settings-view">
+        @if (!paired)
+        { <p class="connection-notice">Connect your desktop launcher before playing. <button type="button" class="inline-action" @onclick="ShowDesktop">Set up connection</button></p> }
     <form @onsubmit="Launch" @onsubmit:preventDefault>
-        <fieldset disabled="@(busy || !paired)">
-            <legend>Game settings</legend>
+        <fieldset disabled="@busy">
+
             <label for="game-path">Installation folder</label>
             <input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" />
             <small id="path-help">@(Game == "ffxiv" ? "Choose the folder containing the boot and game directories." : "Choose the folder where Spellborn is installed, or a writable folder for installation.")</small>
             @if (Game == "ffxiv")
             {
                 <label for="username">Username</label><input id="username" @bind="username" required maxlength="256" autocomplete="username" />
-                <label for="password">Password</label><input id="password" type="password" @bind="password" required maxlength="1024" autocomplete="current-password" />
-                <label for="otp">One-time password (optional)</label><input id="otp" @bind="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
+                <label for="password">Password</label><input id="password" type="password" @bind="password" @bind:event="oninput" required maxlength="1024" autocomplete="current-password" />
+                <label for="otp">One-time password (optional)</label><input id="otp" @bind="otp" @bind:event="oninput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
                 <label class="check"><input type="checkbox" @bind="steam" /> I own the game on Steam</label>
             }
-            <button class="primary" type="submit">Launch game</button>
+            <div class="dialog-actions"><button type="button" @onclick="CloseSettings">Cancel</button><button class="primary" type="submit" disabled="@(!paired)">Launch game</button></div>
         </fieldset>
     </form>
+    </div>
     @if (busy) { <button type="button" @onclick="Cancel">Cancel launch</button> }
     <p id="launch-status" tabindex="-1" class="launch-status" role="status" aria-live="polite" aria-atomic="true">@message</p>
-</section>
+</dialog>
 
 @code {
     [Parameter] public string Game { get; set; } = "ffxiv";
     [Parameter] public string Title { get; set; } = "";
-    private IJSObjectReference? module;
+    private IJSObjectReference? module, dialogModule;
+    private ElementReference dialog;
+    private DotNetObjectReference<LaunchPanel>? dialogReference;
+    private bool desktopView, launchAttempted;
+    private Task OpenGame() => OpenSettings(false);
+    private Task OpenDesktop() => OpenSettings(true);
+    private async Task OpenSettings(bool desktop)
+    {
+        desktopView = desktop;
+        dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
+        dialogReference ??= DotNetObjectReference.Create(this);
+        await dialogModule.InvokeVoidAsync("open", dialog, dialogReference);
+        focusTarget = desktop ? "desktop-mode" : "game-path";
+    }
+    private void ShowGame() { desktopView = false; focusTarget = "game-path"; }
+    private void ShowDesktop() { desktopView = true; focusTarget = "desktop-mode"; }
+    [JSInvokable] public async Task CloseSettings()
+    {
+        if (connecting) return;
+        password = otp = "";
+        if (busy) await Cancel();
+        if (pairingCode.Length > 0) await CancelPairing();
+        if (dialogModule is not null) await dialogModule.InvokeVoidAsync("close", dialog);
+        await InvokeAsync(StateHasChanged);
+    }
     private readonly CancellationTokenSource lifetime = new();
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
@@ -133,7 +176,7 @@
             paired = result.Paired; pairingCode = result.Code; actualMode = result.DesktopMode;
             if (paired) savedPairing = true;
             pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
-            focusTarget = paired ? "game-path" : "pairing-confirm";
+            focusTarget = paired ? "launch-status" : "pairing-confirm";
             message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
         }
         catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
@@ -142,7 +185,7 @@
     private async Task Confirm()
     {
         connecting = true;
-        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "game-path"; }
+        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "launch-status"; }
         catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         finally { connecting = false; }
     }
@@ -159,7 +202,7 @@
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
         catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); return; }
-        busy = true; message = "Submitting launch request…";
+        launchAttempted = true; busy = true; message = "Submitting launch request…";
         try
         {
             await module.InvokeAsync<string?>("preference", Game + ".path", path);
@@ -201,6 +244,8 @@
         if (connectionMonitor is not null) await connectionMonitor;
         if (polling is not null) { try { await polling; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
         if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }
+        if (dialogModule is not null) { await dialogModule.InvokeVoidAsync("close", dialog); await dialogModule.DisposeAsync(); }
+        dialogReference?.Dispose();
         password = otp = ""; lifetime.Dispose();
     }
 }

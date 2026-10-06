@@ -1,11 +1,16 @@
 @page "/"
 @inject LaunchApp.Services.GameNavigation GameNavigation
 <PageTitle>WebLaunch — your game library</PageTitle>
-<section class="library"><p class="eyebrow">YOUR NEXT ADVENTURE</p><h1>Your game library</h1><p>Choose a game, connect your Windows launcher, and play.</p>
+<section class="library"><h1 class="visually-hidden">Your game library</h1>
 <div class="game-grid">
 @foreach (var game in _games)
 {
-    <article class="game-card"><img src="@game.CoverImage" alt="" loading="lazy" /><div><h2>@game.Name</h2><p>@game.Description</p><a class="button" href="@game.Route">Open @game.Name</a></div></article>
+    <article class="game-card">
+        <div class="game-cover" style="background-image: linear-gradient(0deg, #000d, #0001), url('@game.CoverImage')">
+            <h2>@game.Name</h2><div class="game-tags">@foreach (var tag in game.Tags) { <span>@tag</span> }</div>
+        </div>
+        <div class="game-card-body"><p>@game.Description</p><small>@game.ShortInfo</small><a class="card-play" href="@game.Route" aria-label="Open @game.Name">Play now</a></div>
+    </article>
 }
 </div></section>
 @code {

@@ -7,7 +7,7 @@
         {
             <LumexNavbarItem>
                 @* Section selection is fragment-specific; the library's page NavLink matching ignores fragments. *@
-                <LumexComponent As="a" href="@Navigation.ToAbsoluteUri(Route + "#" + section.Id)" aria-current="@(ActiveSection == section.Id ? "location" : null)">@section.Title</LumexComponent>
+                <LumexComponent As="a" href="@Navigation.ToAbsoluteUri(Route + "#" + section.Id)" aria-current="@(ActiveSection == section.Id ? "location" : null)"><NavigationIcon Name="@section.Id" />@section.Title</LumexComponent>
             </LumexNavbarItem>
         }
     </LumexNavbarContent>
