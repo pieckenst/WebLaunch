@@ -1,0 +1,143 @@
+@using WebLaunch.Core
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<section id="launch" class="launch-panel" aria-labelledby="launch-heading">
+    <h2 id="launch-heading">Launch @Title</h2>
+    <p>Keep your Windows launcher open. Sign-in details travel through your paired local connection.</p>
+    @if (platformChecked && !supported)
+    {
+        <p role="note">Game launching requires Chrome or Edge on Windows. You can browse this site on any device.</p>
+    }
+    <p><a href="https://github.com/pieckenst/WebLaunch/releases/">Download the Windows launcher</a> · <a href="HandleWebRequest:connect?v=2">Open desktop launcher</a></p>
+    <div class="actions">
+        <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(paired ? "Reconnect" : "Connect")</button>
+        <button type="button" @onclick="Forget" disabled="@(busy || connecting)">Forget this browser pairing</button>
+    </div>
+    @if (pairingCode.Length > 0)
+    {
+        <div class="pairing" role="group" aria-label="Confirm pairing">
+            <p>Compare this code with the desktop launcher. Confirm in both windows only if they match.</p>
+            <strong class="pairing-code">@pairingCode</strong>
+            <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@connecting">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@connecting">Cancel pairing</button></div>
+        </div>
+    }
+    <form @onsubmit="Launch" @onsubmit:preventDefault>
+        <fieldset disabled="@(busy || !paired)">
+            <legend>Game settings</legend>
+            <label for="game-path">Installation folder</label>
+            <input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" />
+            <small id="path-help">@(Game == "ffxiv" ? "Choose the folder containing the boot and game directories." : "Choose the folder where Spellborn is installed, or a writable folder for installation.")</small>
+            @if (Game == "ffxiv")
+            {
+                <label for="username">Username</label><input id="username" @bind="username" required maxlength="256" autocomplete="username" />
+                <label for="password">Password</label><input id="password" type="password" @bind="password" required maxlength="1024" autocomplete="current-password" />
+                <label for="otp">One-time password (optional)</label><input id="otp" @bind="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
+                <label class="check"><input type="checkbox" @bind="steam" /> I own the game on Steam</label>
+            }
+            <button class="primary" type="submit">Launch game</button>
+        </fieldset>
+    </form>
+    @if (busy) { <button type="button" @onclick="Cancel">Cancel launch</button> }
+    <p id="launch-status" tabindex="-1" class="launch-status" role="status" aria-live="polite" aria-atomic="true">@message</p>
+</section>
+
+@code {
+    [Parameter] public string Game { get; set; } = "ffxiv";
+    [Parameter] public string Title { get; set; } = "";
+    private IJSObjectReference? module;
+    private readonly CancellationTokenSource lifetime = new();
+    private string path = "", username = "", password = "", otp = "", pairingCode = "";
+    private string message = "Open the desktop launcher, then choose Connect.";
+    private bool steam, paired, busy, connecting, supported, platformChecked;
+    private Task? polling;
+    private string? focusTarget;
+    private sealed record Connection(bool Paired, string Code);
+    private sealed record Reply(bool Paired, LaunchStatus Status);
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            if (focusTarget is { } target && module is not null)
+            { focusTarget = null; await module.InvokeVoidAsync("focus", target); }
+            return;
+        }
+        module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
+        supported = await module.InvokeAsync<bool>("supported"); platformChecked = true;
+        path = await module.InvokeAsync<string?>("preference", Game + ".path") ?? "";
+        StateHasChanged();
+    }
+    private async Task Connect()
+    {
+        if (module is null) return;
+        connecting = true; paired = false; pairingCode = ""; message = "Connecting to the desktop launcher…";
+        try
+        {
+            var result = await module.InvokeAsync<Connection>("connect");
+            paired = result.Paired; pairingCode = result.Code;
+            focusTarget = paired ? "game-path" : "pairing-confirm";
+            message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
+        }
+        catch (JSException ex) { message = UserMessage(ex); focusTarget = "launch-status"; }
+        finally { connecting = false; }
+    }
+    private async Task Confirm()
+    {
+        connecting = true;
+        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "game-path"; }
+        catch (JSException ex) { message = UserMessage(ex); focusTarget = "launch-status"; }
+        finally { connecting = false; }
+    }
+    private async Task CancelPairing() { await module!.InvokeVoidAsync("disconnect"); pairingCode = ""; paired = false; message = "Pairing cancelled. Close the desktop pairing prompt."; }
+    private async Task Forget()
+    {
+        if (module is null) return;
+        try { await module.InvokeVoidAsync("forget"); paired = false; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; }
+        catch (JSException) { message = "Could not clear pairing. Close this tab and clear WebLaunch site data in browser settings."; }
+    }
+    private async Task Launch()
+    {
+        if (busy || !paired || module is null) return;
+        var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
+        try { request.Validate(); }
+        catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); return; }
+        busy = true; message = "Submitting launch request…";
+        try
+        {
+            await module.InvokeAsync<string?>("preference", Game + ".path", path);
+            password = otp = "";
+            var reply = await module.InvokeAsync<Reply>("launch", request);
+            message = reply.Status.Message;
+            password = otp = ""; request.ClearCredentials();
+            polling = Poll(); await polling;
+        }
+        catch (JSException ex) { message = UserMessage(ex); paired = false; }
+        catch (OperationCanceledException) { }
+        finally { request.ClearCredentials(); password = otp = ""; busy = false; paired = false; focusTarget = "launch-status"; }
+    }
+    private async Task Poll()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        while (await timer.WaitForNextTickAsync(lifetime.Token))
+        {
+            var reply = await module!.InvokeAsync<Reply>("status");
+            message = reply.Status.Message; await InvokeAsync(StateHasChanged);
+            if (reply.Status.Completed) return;
+        }
+    }
+    private async Task Cancel()
+    {
+        password = otp = "";
+        try { await module!.InvokeVoidAsync("cancel"); message = "Cancelling launch…"; }
+        catch (JSException ex) { message = UserMessage(ex); focusTarget = "launch-status"; }
+    }
+    // JS errors are user-facing controlled messages; strip the runtime-added stack trace.
+    private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];
+    public async ValueTask DisposeAsync()
+    {
+        await lifetime.CancelAsync();
+        if (polling is not null) { try { await polling; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
+        if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }
+        password = otp = ""; lifetime.Dispose();
+    }
+}

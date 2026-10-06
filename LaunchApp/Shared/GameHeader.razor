@@ -1,0 +1,9 @@
+<header class="game-header">
+    <div><p class="eyebrow">WEBLAUNCH · WINDOWS LAUNCHER</p><h1>@Title</h1><p>@Description</p></div>
+    <a class="button" href="@(Route + "#launch")">Launch settings</a>
+</header>
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public string Route { get; set; } = "";
+}

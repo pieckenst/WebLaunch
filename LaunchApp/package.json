@@ -1,5 +1,10 @@
 {
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:shared": "node tests/shared-browser.mjs"
+  },
   "devDependencies": {
-    "tailwindcss": "^3.4.14"
+    "@playwright/test": "1.63.0"
   }
 }
