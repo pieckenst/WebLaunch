@@ -54,3 +54,17 @@ Steam or Spellborn service availability.
 - Let the request time out and shut down the host during selection: the native
   chooser should close, with no stale result applied to a later connection.
 - Retry rapidly and from two paired tabs; only one chooser should be active.
+
+## Windows 10/11 notifications and debug mode
+
+- Explicit install/repair must create the WebLaunch Start-menu shortcut with its
+  AppUserModelID and protocol activation metadata; ordinary launches must not register it.
+- Exercise GUI, console and quiet console with synthetic launch services. Inspect
+  Notification Center for each phase, indeterminate progress and terminal outcome.
+  Failures/cancellation must never show success; quiet mode must not display popups.
+- Test notification permission disabled and Do Not Disturb: launches still work and
+  sanitized logs explain unavailable/failed notifications.
+- Click a notification while the host is running and after exit. Confirm the v2
+  bootstrap reaches the correct mode without credentials or game paths in the URL.
+- Start with and without --debug; verify plugin lifecycle entries, request correlation,
+  bounded log rotation, and absence of credential/path/raw plugin payloads.

@@ -25,13 +25,16 @@ internal class Program
     {
         if (args.Contains("--help", StringComparer.Ordinal))
         {
-            Console.WriteLine("WebLaunch [--console [--quiet]] [--install | launch URI]");
+            Console.WriteLine("WebLaunch [--console [--quiet]] [--debug] [--install | launch URI]");
             Console.WriteLine("Console mode pairs by typing matching codes. Quiet mode accepts existing pairings only.");
+            Console.WriteLine("--debug records sanitized lifecycle diagnostics in %LOCALAPPDATA%\\WebLaunch\\Logs. Install/repair enables Windows notifications.");
             return;
         }
         var console = args.Contains("--console", StringComparer.Ordinal);
         var quiet = args.Contains("--quiet", StringComparer.Ordinal);
-        args = args.Where(a => a is not ("--console" or "--quiet")).ToArray();
+        var debug = args.Contains("--debug", StringComparer.Ordinal);
+        DesktopDiagnostics.Configure(debug);
+        args = args.Where(a => a is not ("--console" or "--quiet" or "--debug")).ToArray();
         if (quiet && !console) { Console.Error.WriteLine("--quiet requires --console."); return; }
         if (quiet) { Console.SetOut(TextWriter.Null); Console.SetError(TextWriter.Null); }
         if (args.Length > 1 || (args.Length == 1 && args[0].Length > 8192))
@@ -58,6 +61,7 @@ internal class Program
         try { owns = mutex.WaitOne(0); } catch (AbandonedMutexException) { owns = true; }
         if (!owns)
         {
+            if (debug) Console.WriteLine("Restart the running launcher with --debug to enable detailed diagnostics.");
             try
             {
                 using var connection = new NamedPipeClientStream(".", pipe, PipeDirection.Out, PipeOptions.CurrentUserOnly);
@@ -107,7 +111,7 @@ internal class Program
                 try
                 {
                     request = LegacyProtocol.Parse(uri, Trust.LegacyUntil, DateTimeOffset.UtcNow);
-                    await Launcher.LaunchAsync(request, new InlineProgress<LaunchStatus>(s => Console.WriteLine(s.Message)), lifetime.Token);
+                    await Launcher.LaunchAsync(request, new InlineProgress<LaunchStatus>(_ => { }), lifetime.Token);
                     Console.WriteLine("Game process started.");
                 }
                 catch (OperationCanceledException) { Console.WriteLine("Launch cancelled."); }
@@ -130,7 +134,7 @@ internal class Program
     private static void RunApplication(string[] args, string pipe)
     {
         var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        var window = new Window { Title = "WebLaunch", Width = 540, Height = 400, MinWidth = 420, MinHeight = 320 };
+        var window = new Window { Title = "WebLaunch", Width = 540, Height = 480, MinWidth = 420, MinHeight = 320 };
         var content = new StackPanel { Margin = new Thickness(24) };
         var status = new TextBlock { Text = "Starting launcher…", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) };
         content.Children.Add(new TextBlock { Text = "WebLaunch desktop connection", FontSize = 22, Margin = new Thickness(0, 0, 0, 14) });
@@ -141,6 +145,7 @@ internal class Program
         content.Children.Add(forget);
         var legacy = new CheckBox { Content = "Allow legacy credential links for 24 hours", Margin = new Thickness(0, 12, 0, 6) };
         content.Children.Add(legacy);
+        content.Children.Add(new TextBlock { Text = "Install / repair enables Windows progress notifications. Logs: %LOCALAPPDATA%\\WebLaunch\\Logs. Start with --debug for plugin lifecycle details.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8) });
         content.Children.Add(new TextBlock { Text = "Legacy links expose login data in URLs and operating-system launch arguments. Prefer Connect on the updated website.", TextWrapping = TextWrapping.Wrap });
         window.Content = content;
         using var lifetime = new CancellationTokenSource();
@@ -167,7 +172,7 @@ internal class Program
             try
             {
                 request = LegacyProtocol.Parse(argument, Trust!.LegacyUntil, DateTimeOffset.UtcNow);
-                await Launcher!.LaunchAsync(request, new InlineProgress<LaunchStatus>(s => Report(s.Message)), lifetime.Token);
+                await Launcher!.LaunchAsync(request, new InlineProgress<LaunchStatus>(_ => { }), lifetime.Token);
                 Report("Game process started.");
             }
             catch (InvalidOperationException) { Report("Legacy links are disabled or the launch failed. Use Connect on the updated website."); }
@@ -226,6 +231,8 @@ internal class Program
         key.SetValue("", "URL:WebLaunch"); key.SetValue("URL Protocol", "");
         using var command = key.CreateSubKey(@"shell\open\command");
         command.SetValue("", $"\"{executable}\" \"%1\"");
+        NotificationRegistration.Install(executable);
+        DesktopDiagnostics.Write(DiagnosticEvent.RegistrationComplete);
     }
     private static async Task ListenAsync(string name, Func<string, Task> handle, CancellationToken token)
     {
@@ -285,9 +292,9 @@ public sealed class DesktopPairingPrompt(Window owner) : IPairingPrompt
 // Untrusted plugin diagnostic strings must never become credential-bearing logs.
 public class ConsoleLogger : ILogger
 {
-    public void Debug(string message) { }
-    public void Information(string message) { }
-    public void Warning(string message) => Console.WriteLine("A plugin reported a warning.");
-    public void Error(string message) => Console.WriteLine("A plugin reported an error.");
-    public void Error(string message, Exception ex) => Console.WriteLine($"Plugin error ({ex.GetType().Name}).");
+    public void Debug(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginDebug);
+    public void Information(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginInformation);
+    public void Warning(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginWarning);
+    public void Error(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError);
+    public void Error(string message, Exception ex) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError);
 }

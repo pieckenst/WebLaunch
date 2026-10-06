@@ -92,3 +92,31 @@ through the manually dispatched workflow on `main` after handler rollout.
 Before release, complete [Windows acceptance checks](docs/windows-acceptance.md).
 See [architecture](docs/architecture.md), [protocol/security](docs/protocol-v2.md),
 and [third-party components](docs/THIRD-PARTY.md).
+
+## Windows progress notifications and diagnostics
+
+Run **Install / repair browser launch link** again after upgrading (or
+`WMconsole.exe --console --install`). This explicitly creates the Start-menu
+shortcut/application identity needed for Windows 10/11 notifications. Both GUI and
+console launches report preparing, sign-in, updating and starting phases, followed
+by success, failure or cancellation. Progress is indeterminate because plugins do
+not report reliable percentages. Open Windows Notification Center to check it;
+quiet mode does not show popup banners. Windows notification settings / Do Not
+Disturb can suppress banners. Notification failures are logged and never stop a
+launch. Clicking a notification opens the existing handler through its v2 bootstrap.
+
+Start `WMconsole.exe --debug` for GUI diagnostics or
+`WMconsole.exe --console --debug` for console diagnostics. Stop any running host
+first; starting a second instance does not change the first host's debug setting.
+Logs live in `%LOCALAPPDATA%\WebLaunch\Logs\desktop.log`, with one rotated backup
+at 1 MiB. Normal mode records host, launch and plugin warning/error events; debug
+adds plugin debug/information and successful notification events. Fields contain
+controlled event names, request IDs, phases and bundled-plugin identifiers. Raw
+plugin messages, passwords, OTPs, session tokens, paths and launch URLs are excluded.
+
+The browser's **Browse on desktop** button uses a paired handler to select and
+return an absolute Windows folder. Browser directory handles cannot supply that
+path reliably. Manual entry remains available for older handlers. Both sides
+validate the path before launch, and credentials continue over the encrypted bridge.
+Browser console diagnostics contain fixed operation/error codes; recoverable errors
+stay in the UI, and render/state failures offer a reload action.

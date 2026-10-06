@@ -106,3 +106,24 @@ manual path entry remains supported. Browser diagnostics emit only operation/err
 types and fixed codes; they never format exception messages, stacks, URLs or state.
 Expected bridge and module failures remain in the launch UI. A safe render boundary
 and a reload notice cover unexpected failures without persisting sign-in details.
+
+### Desktop progress and diagnostics
+
+`ObservedLaunchService` provides the same safe lifecycle events to GUI/console
+status displays, Windows notifications and diagnostic files. Plugin progress cannot
+claim terminal success; success is emitted only after the launch service returns.
+Observer failures are isolated from the launch. Windows notifications use
+`Windows.UI.Notifications.ToastNotificationManager` with a per-request tag and a
+Start-menu application identity installed only by explicit install/repair. Protocol
+activation uses a v2 bootstrap without secrets. Quiet mode records notifications
+without popup banners. Native notification behavior remains a Windows acceptance gate.
+
+`SafeDiagnosticLog` stores controlled events in two bounded files. Debug mode adds
+plugin trace events but never accepts raw message text or exception payloads. Unknown
+plugin IDs and states become fixed labels. Browser diagnostics similarly avoid
+formatting arbitrary state; .NET stderr is avoided for handled errors because it
+triggers Blazor's fatal-error banner.
+
+The Windows API registration follows Microsoft's desktop notification requirements:
+[CreateToastNotifier(appID)](https://learn.microsoft.com/en-us/uwp/api/windows.ui.notifications.toastnotificationmanager.createtoastnotifier)
+and [desktop AppUserModelID shortcut registration](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/hh802768(v=vs.85)).
