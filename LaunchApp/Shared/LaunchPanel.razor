@@ -9,7 +9,24 @@
     {
         <p role="note">Game launching requires Chrome or Edge on Windows. You can browse this site on any device.</p>
     }
-    <p><a href="https://github.com/pieckenst/WebLaunch/releases/">Download the Windows launcher</a> · <a href="HandleWebRequest:connect?v=2">Open desktop launcher</a></p>
+    <div class="desktop-options">
+        <label for="desktop-mode">Desktop launcher mode</label>
+        <select id="desktop-mode" @bind="desktopMode" @bind:after="SaveMode" disabled="@(busy || connecting)" aria-describedby="desktop-mode-help">
+            <option value="gui">GUI — desktop window</option>
+            <option value="console">Console — terminal pairing</option>
+        </select>
+        <p id="desktop-mode-help">GUI confirms pairing in a window. Console asks you to type the matching code in its terminal. Close the running launcher before changing modes.</p>
+        @if (supported)
+        { <a class="button" href="@bootstrapUrl" @onclick="OpeningDesktop">Open desktop launcher</a> }
+        <a href="https://github.com/pieckenst/WebLaunch/releases/">Download the Windows launcher</a>
+    </div>
+    <p class="pairing-state" role="status" aria-label="Pairing status">@PairingState</p>
+    @if (actualMode.Length > 0)
+    {
+        <p class="desktop-state">Connected desktop mode: <strong>@ModeLabel(actualMode)</strong>.
+            @if (actualMode != desktopMode) { <span>The existing host is still running. Close it and open the selected mode to switch.</span> }
+        </p>
+    }
     <div class="actions">
         <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(paired ? "Reconnect" : "Connect")</button>
         <button type="button" @onclick="Forget" disabled="@(busy || connecting)">Forget this browser pairing</button>
@@ -49,11 +66,15 @@
     private readonly CancellationTokenSource lifetime = new();
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
-    private bool steam, paired, busy, connecting, supported, platformChecked;
-    private Task? polling;
+    private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
+    private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
+    private string PairingState => paired ? "Paired · connected" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
+    private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
+    private Task? polling, connectionMonitor;
+    private DateTimeOffset pairingExpires;
     private string? focusTarget;
-    private sealed record Connection(bool Paired, string Code);
-    private sealed record Reply(bool Paired, LaunchStatus Status);
+    private sealed record Connection(bool Paired, string Code, string DesktopMode);
+    private sealed record Reply(bool Paired, LaunchStatus Status, string DesktopMode);
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -65,34 +86,71 @@
         module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
         supported = await module.InvokeAsync<bool>("supported"); platformChecked = true;
         path = await module.InvokeAsync<string?>("preference", Game + ".path") ?? "";
+        desktopMode = await module.InvokeAsync<string?>("preference", "desktopMode") == "console" ? "console" : "gui";
+        bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode);
+        try { savedPairing = await module.InvokeAsync<bool>("pairingSaved"); }
+        catch (JSException) { message = "Pairing storage is unavailable. Allow site storage before connecting."; }
+        connectionMonitor = MonitorConnection();
         StateHasChanged();
     }
+    private async Task MonitorConnection()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+            {
+                if (connecting || busy || module is null) continue;
+                if (pairingCode.Length > 0 && DateTimeOffset.UtcNow >= pairingExpires)
+                {
+                    pairingCode = ""; message = "Pairing expired. Connect again to compare a new code.";
+                    await module.InvokeVoidAsync("disconnect");
+                    await InvokeAsync(StateHasChanged);
+                }
+                if (!paired) continue;
+                try { await module.InvokeAsync<Reply>("status"); }
+                catch (JSException ex)
+                { paired = false; actualMode = ""; message = UserMessage(ex); await InvokeAsync(StateHasChanged); }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (JSException) { }
+    }
+    private async Task SaveMode()
+    {
+        if (module is null) return;
+        await module.InvokeAsync<string?>("preference", "desktopMode", desktopMode);
+        bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode);
+    }
+    private void OpeningDesktop() => message = "Approve opening the desktop launcher in your browser, then choose Connect. If nothing opens, install or repair the desktop launcher.";
     private async Task Connect()
     {
         if (module is null) return;
-        connecting = true; paired = false; pairingCode = ""; message = "Connecting to the desktop launcher…";
+        connecting = true; paired = false; actualMode = ""; pairingCode = ""; message = "Connecting to the desktop launcher…";
         try
         {
             var result = await module.InvokeAsync<Connection>("connect");
-            paired = result.Paired; pairingCode = result.Code;
+            paired = result.Paired; pairingCode = result.Code; actualMode = result.DesktopMode;
+            if (paired) savedPairing = true;
+            pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
             focusTarget = paired ? "game-path" : "pairing-confirm";
             message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
         }
-        catch (JSException ex) { message = UserMessage(ex); focusTarget = "launch-status"; }
+        catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         finally { connecting = false; }
     }
     private async Task Confirm()
     {
         connecting = true;
-        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "game-path"; }
-        catch (JSException ex) { message = UserMessage(ex); focusTarget = "launch-status"; }
+        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "game-path"; }
+        catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         finally { connecting = false; }
     }
-    private async Task CancelPairing() { await module!.InvokeVoidAsync("disconnect"); pairingCode = ""; paired = false; message = "Pairing cancelled. Close the desktop pairing prompt."; }
+    private async Task CancelPairing() { await module!.InvokeVoidAsync("disconnect"); pairingCode = ""; paired = false; actualMode = ""; message = "Pairing cancelled. Connect again when ready."; }
     private async Task Forget()
     {
         if (module is null) return;
-        try { await module.InvokeVoidAsync("forget"); paired = false; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; }
+        try { await module.InvokeVoidAsync("forget"); paired = false; savedPairing = false; actualMode = ""; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; }
         catch (JSException) { message = "Could not clear pairing. Close this tab and clear WebLaunch site data in browser settings."; }
     }
     private async Task Launch()
@@ -113,7 +171,11 @@
         }
         catch (JSException ex) { message = UserMessage(ex); paired = false; }
         catch (OperationCanceledException) { }
-        finally { request.ClearCredentials(); password = otp = ""; busy = false; paired = false; focusTarget = "launch-status"; }
+        finally
+        {
+            request.ClearCredentials(); password = otp = ""; busy = false; paired = false; actualMode = ""; focusTarget = "launch-status";
+            try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { }
+        }
     }
     private async Task Poll()
     {
@@ -129,13 +191,14 @@
     {
         password = otp = "";
         try { await module!.InvokeVoidAsync("cancel"); message = "Cancelling launch…"; }
-        catch (JSException ex) { message = UserMessage(ex); focusTarget = "launch-status"; }
+        catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
     }
     // JS errors are user-facing controlled messages; strip the runtime-added stack trace.
     private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];
     public async ValueTask DisposeAsync()
     {
         await lifetime.CancelAsync();
+        if (connectionMonitor is not null) await connectionMonitor;
         if (polling is not null) { try { await polling; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
         if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }
         password = otp = ""; lifetime.Dispose();

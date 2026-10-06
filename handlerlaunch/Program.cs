@@ -36,6 +36,15 @@ internal class Program
         if (quiet) { Console.SetOut(TextWriter.Null); Console.SetError(TextWriter.Null); }
         if (args.Length > 1 || (args.Length == 1 && args[0].Length > 8192))
         { Console.Error.WriteLine("Supply at most one launch URI or --install."); return; }
+        try
+        {
+            if (args.Length == 1 && BootstrapRequest.TryParse(args[0], out var bootstrap))
+            {
+                if (quiet || (console && bootstrap!.Mode != "console")) throw new ArgumentException();
+                console = bootstrap!.Mode == "console";
+            }
+        }
+        catch { Console.Error.WriteLine("Invalid desktop connection link."); return; }
         if (console && args.FirstOrDefault() == "--install")
         {
             try { RegisterProtocolHandler(); Console.WriteLine("Browser launch link installed."); }
@@ -79,11 +88,20 @@ internal class Program
         try
         {
             await using var runtime = await DesktopRuntime.StartAsync(new ConsolePairingPrompt(Console.In, Console.Out, quiet),
-                status => Console.WriteLine(status.Message), lifetime.Token);
+                status => Console.WriteLine(status.Message), lifetime.Token, quiet ? "quiet" : "console");
             Trust = runtime.Trust; Launcher = runtime.Launcher;
             async Task Handle(string uri)
             {
-                if (uri is "" or "HandleWebRequest:connect?v=2" or "handlewebrequest:connect?v=2") return;
+                if (uri == "") return;
+                try
+                {
+                    if (BootstrapRequest.TryParse(uri, out var bootstrap))
+                    {
+                        if (bootstrap!.Mode != "console") Console.WriteLine("Console mode is already running. Stop it before opening GUI mode.");
+                        return;
+                    }
+                }
+                catch (ArgumentException) { Console.Error.WriteLine("Invalid desktop connection link."); return; }
                 if (uri == "--install") { RegisterProtocolHandler(); return; }
                 LaunchRequest? request = null;
                 try
@@ -134,7 +152,16 @@ internal class Program
         async Task HandleAsync(string argument)
         {
             window.Show(); window.Activate();
-            if (argument is "" or "HandleWebRequest:connect?v=2" or "handlewebrequest:connect?v=2") return;
+            if (argument == "") return;
+            try
+            {
+                if (BootstrapRequest.TryParse(argument, out var bootstrap))
+                {
+                    if (bootstrap!.Mode != "gui") Report("GUI mode is already running. Close this window, then open console mode from the browser.");
+                    return;
+                }
+            }
+            catch (ArgumentException) { Report("Invalid desktop connection link."); return; }
             if (argument == "--install") { RegisterProtocolHandler(); Report("Browser link installed. Choose Connect on the website."); return; }
             LaunchRequest? request = null;
             try

@@ -27,7 +27,7 @@ public sealed class BridgeCommand
     public string Code { get; set; } = "";
     public LaunchRequest? Launch { get; set; }
 }
-public sealed record BridgeReply(bool Paired, LaunchStatus Status);
+public sealed record BridgeReply(bool Paired, LaunchStatus Status, string DesktopMode = "gui");
 
 public sealed class BridgeHost : IAsyncDisposable
 {
@@ -36,6 +36,7 @@ public sealed class BridgeHost : IAsyncDisposable
     private readonly IPairingPrompt prompt;
     private readonly ILaunchService launcher;
     private readonly HashSet<string> origins;
+    private readonly string desktopMode;
     private readonly ConcurrentDictionary<string, Session> sessions = new();
     private readonly ConcurrentDictionary<string, byte> usedRequestIds = new();
     private readonly CancellationTokenSource lifetime = new();
@@ -45,8 +46,10 @@ public sealed class BridgeHost : IAsyncDisposable
     private DateTimeOffset pairingRetryAfter;
     private int pairingFailures;
 
-    public BridgeHost(IBridgeTrustStore trust, IPairingPrompt prompt, ILaunchService launcher, IEnumerable<string>? developmentOrigins = null)
+    public BridgeHost(IBridgeTrustStore trust, IPairingPrompt prompt, ILaunchService launcher, IEnumerable<string>? developmentOrigins = null, string desktopMode = "gui")
     {
+        if (desktopMode is not ("gui" or "console" or "quiet")) throw new ArgumentException("Invalid desktop mode.");
+        this.desktopMode = desktopMode;
         this.trust = trust; this.prompt = prompt; this.launcher = launcher;
         origins = new(StringComparer.Ordinal) { "https://pieckenst.github.io" };
         foreach (var origin in developmentOrigins ?? [])
@@ -110,7 +113,7 @@ public sealed class BridgeHost : IAsyncDisposable
             var fingerprint = BridgeCrypto.Fingerprint(hello.Identity);
             var known = trust.IsTrusted(origin, fingerprint);
             if (sessions.Count >= 16 || usedRequestIds.Count >= 4096 ||
-                (!known && (DateTimeOffset.UtcNow < pairingRetryAfter || sessions.Values.Any(s => !s.Paired))))
+                (!known && (DateTimeOffset.UtcNow < pairingRetryAfter || sessions.Values.Any(s => !s.Paired && !s.IsExpired))))
             { context.Response.StatusCode = 429; return; }
             using var ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
             using var clientKey = ECDiffieHellman.Create();
@@ -145,6 +148,14 @@ public sealed class BridgeHost : IAsyncDisposable
             if (session.IsExpired) { context.Response.StatusCode = 410; return; }
             var envelope = await context.Request.ReadFromJsonAsync<EncryptedMessage>(timeout.Token) ?? throw new InvalidDataException();
             var command = session.Channel.Decrypt<BridgeCommand>(envelope);
+            if (command.Action == "disconnect")
+            {
+                session.Expires = DateTimeOffset.MinValue;
+                session.JobCancellation.Cancel(); session.PairingTimeout.Cancel();
+                await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(false,
+                    new("disconnected", "Connection closed.", true), desktopMode)), timeout.Token);
+                return;
+            }
             if (!session.Paired)
             {
                 if (command.Action != "confirm" || command.Code != session.Code || !await session.Approval.WaitAsync(timeout.Token) || session.IsExpired)
@@ -174,7 +185,7 @@ public sealed class BridgeHost : IAsyncDisposable
                 case "cancel": session.JobCancellation.Cancel(); break;
                 default: throw new InvalidDataException("Unsupported command.");
             }
-            await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(session.Paired, session.Status)), timeout.Token);
+            await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(session.Paired, session.Status, desktopMode)), timeout.Token);
         }
         finally { session.Gate.Release(); }
     }

@@ -95,7 +95,7 @@ export async function connect() {
     const code = (new DataView(salt.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');
     channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: await derive('client'), receive: await derive('desktop'), sent: 0, received: 0, paired: false };
     if (response.knownBrowser) await confirmPairing();
-    return { paired: channel.paired, code: channel.paired ? '' : code };
+    return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '' };
 }
 function nonce(sequence) {
     const bytes = new Uint8Array(12);
@@ -133,6 +133,7 @@ export async function confirmPairing() {
     current.identity.desktop = current.desktop;
     await saveIdentity(current.identity);
     current.paired = true;
+    current.desktopMode = reply.desktopMode || 'unknown';
     return reply;
 }
 export async function launch(request) {
@@ -143,10 +144,10 @@ export async function launch(request) {
 export const status = () => send({ action: 'status' });
 export const cancel = () => channel?.paired ? send({ action: 'cancel' }) : Promise.resolve();
 export async function disconnect() {
-    try { await cancel(); } finally { channel = undefined; }
+    try { if (channel) await send({ action: 'disconnect' }); } finally { channel = undefined; }
 }
 export async function forget() {
-    await disconnect();
+    try { await disconnect(); } catch { /* Local revocation must work while the desktop is unavailable. */ }
     const db = await database();
     try {
         await new Promise((resolve, reject) => {
@@ -167,8 +168,16 @@ export function preference(key, value) {
 export function applyTheme(value) {
     const dark = value === 'dark' || (value !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.classList.toggle('dark', dark);
+    document.documentElement.classList.toggle('light', !dark);
     return dark;
 }
 export function scrollSection(id) { document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }
 
 export function focus(id) { document.getElementById(id)?.focus(); }
+
+export async function pairingSaved() { return !!(await readIdentity())?.desktop; }
+export function bootstrapLink(mode) {
+    if (mode !== 'gui' && mode !== 'console') throw new Error('Choose GUI or console mode.');
+    return 'HandleWebRequest:connect?v=2&mode=' + mode;
+}

@@ -70,9 +70,10 @@ public sealed class BridgeTests
     [Fact] public async Task PairThenLaunchAndRejectDuplicateOrReplay()
     {
         using var trust = new TrustStore(); var launcher = new Launcher();
-        await using var host = new BridgeHost(trust, new Prompt(true), launcher); await host.StartAsync();
+        await using var host = new BridgeHost(trust, new Prompt(true), launcher, desktopMode: "console"); await host.StartAsync();
         using var client = new Client(); await client.ConnectAsync();
-        Assert.True((await client.Exchange(new() { Action = "confirm", Code = client.Code })).Paired);
+        var confirmation = await client.Exchange(new() { Action = "confirm", Code = client.Code });
+        Assert.True(confirmation.Paired); Assert.Equal("console", confirmation.DesktopMode);
         var request = new LaunchRequest { Game = "spellborn", GamePath = @"C:\Games" };
         var reply = await client.Exchange(new() { Action = "launch", Launch = request });
         Assert.True(reply.Status.Success); Assert.Equal(1, launcher.Calls);
@@ -157,6 +158,19 @@ public sealed class BridgeTests
         using var http = new HttpClient(); http.DefaultRequestHeaders.Add("Origin", Origin);
         using var response = await http.PostAsync($"http://127.0.0.1:{BridgeHost.Port}/v2/hello", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode); Assert.Equal(0, launcher.Calls);
+    }
+
+    [Fact] public async Task CancellingPendingPairingExpiresSessionAndAllowsImmediateRetry()
+    {
+        using var trust = new TrustStore(); var launcher = new Launcher();
+        await using var host = new BridgeHost(trust, new Prompt(true), launcher); await host.StartAsync();
+        using var first = new Client(); await first.ConnectAsync();
+        Assert.False((await first.Exchange(new() { Action = "disconnect" })).Paired);
+        using var expired = await first.Send(new() { Action = "confirm", Code = first.Code });
+        Assert.Equal(HttpStatusCode.Gone, expired.StatusCode);
+        using var retry = new Client(); await retry.ConnectAsync();
+        Assert.True((await retry.Exchange(new() { Action = "confirm", Code = retry.Code })).Paired);
+        Assert.Equal(0, launcher.Calls);
     }
 
 }
