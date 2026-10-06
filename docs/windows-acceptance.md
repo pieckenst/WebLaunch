@@ -8,6 +8,9 @@ Keep the PR draft until the release owner has these results.
   both plugin manifests/assemblies, .NET runtimes, native dependencies and notices.
 - Install the URL handler without elevation. Verify registry command quoting and
   that a second protocol invocation focuses the existing per-user host.
+- Select GUI and Console in the browser, open each through the versioned protocol
+  link, and confirm that the new host starts in the selected mode. With an existing
+  host, verify the browser reports the actual mode and gives switching guidance.
 - Run `--console`: verify text-only pairing, redirected output and Ctrl+C cleanup.
   Pair once, restart with `--console --quiet`, and verify no WPF window/output,
   successful reconnect for the trusted browser and rejection of a new browser.

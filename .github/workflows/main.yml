@@ -19,12 +19,13 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: LaunchApp/package-lock.json
+      - run: npm ci --prefix LaunchApp
       - run: dotnet workload install wasm-tools
       - run: dotnet restore handlerlaunch.sln -p:EnableWindowsTargeting=true
       - run: dotnet build handlerlaunch.sln -c Release -p:EnableWindowsTargeting=true --no-restore
       - run: dotnet test WebLaunch.Tests/WebLaunch.Tests.csproj -c Release --no-build
       - run: python3 scripts/audit-dependencies.py
-      - run: npm ci --prefix LaunchApp && npm audit --prefix LaunchApp
+      - run: npm audit --prefix LaunchApp
       - run: bash scripts/publish-web.sh
       - name: Browser scenarios against production path and synthetic bridge
         run: |
@@ -56,6 +57,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - run: npm ci --prefix LaunchApp
       - run: dotnet workload install wasm-tools
       - run: dotnet build handlerlaunch.sln -c Release
       - run: dotnet test WebLaunch.Tests/WebLaunch.Tests.csproj -c Release --no-build

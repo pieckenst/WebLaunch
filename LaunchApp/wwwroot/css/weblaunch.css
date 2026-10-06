@@ -51,3 +51,35 @@ footer { padding: 2rem 1rem; text-align: center; color: var(--muted); }
 main { width: 100%; min-width: 0; }
 .game-header > div, .launch-panel, .container { min-width: 0; overflow-wrap: anywhere; }
 .section-nav { max-width: 100%; }
+/* Section links remain ordinary document navigation; all page sections stay visible. */
+html { scroll-padding-top: calc(var(--header-height, 5rem) + var(--section-bar-height, 4rem) + 1rem); }
+.section-bar { position: sticky; top: var(--header-height, 5rem); z-index: 9; display: flex; align-items: center; gap: .75rem; padding: .5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--line); min-width: 0; max-width: 100%; }
+.section-tabs { display: flex; gap: .5rem; flex: 1; min-width: 0; overflow-x: auto; padding: .4rem; }
+.section-tabs a { white-space: nowrap; padding: .35rem .6rem; text-decoration: none; border-bottom: 3px solid transparent; }
+.section-tabs a[aria-current="location"] { border-bottom-color: var(--accent); background: var(--background); }
+.site-header [aria-current="page"] { font-weight: 800; text-decoration-thickness: 3px; }
+.section-actions { display: flex; gap: .5rem; }
+.section-menu { position: relative; flex: none; }
+.section-menu summary { cursor: pointer; padding: .5rem; }
+.section-menu-content { position: absolute; right: 0; min-width: 230px; padding: .75rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--surface); box-shadow: 0 6px 18px #0003; }
+.section-menu-content a { display: block; padding: .5rem; }
+.desktop-options select { width: 100%; padding: .65rem; font: inherit; color: var(--ink); background: var(--background); border: 1px solid var(--line); border-radius: .4rem; }
+.desktop-options .button { margin: 0 .5rem .5rem 0; }
+.pairing-state { display: inline-block; padding: .3rem .65rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--background); font-weight: 600; }
+.launch-panel { scroll-margin-top: 0; }
+/* Lumex navigation layout alongside Masa content. */
+.site-header { display: block; padding: .7rem 1rem; }
+.site-header .main-nav-content { width: 100%; max-width: 1180px; margin: auto; padding: 0; gap: 1rem; flex-wrap: wrap; height: auto; }
+.site-header .brand-group, .site-header .main-links, .site-header .theme-control { padding: 0; margin: 0; height: auto; }
+.site-header .main-links { flex: 1; gap: 1rem; }
+.site-header label { margin: 0; }
+.section-bar { padding: .25rem 1rem; }
+.section-bar .section-bar-content { display: flex; align-items: center; width: 100%; max-width: 1180px; margin: auto; padding: 0; gap: .75rem; height: auto; }
+.section-bar .section-tabs { margin: 0; padding: .4rem; height: auto; }
+.section-tabs li { flex: none; }
+.section-tabs a { display: block; }
+@media(max-width: 600px) { .site-header .main-links { order: 3; flex-basis: 100%; } .site-header .theme-control { margin-left: auto; } }
+
+.theme-toggle:focus-within { outline: 3px solid var(--accent); outline-offset: 4px; }
+.m-application .site-header, .m-application .section-bar { flex: 0 0 auto; }
+.site-header .brand-group, .site-header .theme-control { flex: 0 0 auto; }

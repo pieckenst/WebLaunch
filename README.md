@@ -39,11 +39,11 @@ Requirements: .NET SDK **10.0.401**, `wasm-tools`, Node 24, npm, and Windows for
 WPF/Win32 execution. Linux can build with Windows targeting enabled.
 
 ```sh
+npm ci --prefix LaunchApp
 dotnet workload install wasm-tools
 dotnet restore handlerlaunch.sln -p:EnableWindowsTargeting=true
 dotnet build handlerlaunch.sln -c Release -p:EnableWindowsTargeting=true
 dotnet test WebLaunch.Tests/WebLaunch.Tests.csproj -c Release
-npm ci --prefix LaunchApp
 dotnet run --project LaunchApp --urls http://localhost:5148
 ```
 
@@ -51,6 +51,19 @@ On Windows, set `WEBLAUNCH_DEVELOPMENT_ORIGINS=http://localhost:5148` only for t
 local desktop process. Build packaged plugins with `scripts/package.ps1` before
 running `artifacts/desktop/WMconsole.exe`. Merely building the solution does not
 install/register the handler or copy plugins into arbitrary directories.
+
+LaunchApp uses LumexUI 2.4.0 alongside MasaBlazor. Its build invokes the pinned
+Tailwind v4 CLI through `npm run build:css`. Package theme inputs are resolved from
+NuGet restore metadata and staged under `obj`; generated CSS stays out of Git.
+The Tailwind 4.3.0 lockfile uses Parcel watcher 2.6.0, avoiding the vulnerable
+watcher dependency pinned by CLI 4.3.3. Both themes use Lumex CSS tokens, synchronized
+with Masa and the namespaced WebLaunch preference.
+
+In the browser, select **GUI** or **Console** before choosing **Open desktop launcher**.
+The credential-free bootstrap carries that mode. An already-running per-user host
+keeps its mode; the paired connection reports its actual mode and explains how to
+switch. Pairing status distinguishes pending, connected, and saved-but-disconnected
+states. Quiet console remains a desktop-only option.
 
 ## Production-path browser checks
 

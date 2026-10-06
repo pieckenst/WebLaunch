@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components.Web;
+using LumexUI.Extensions;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 
 
@@ -19,6 +20,7 @@ builder.Services.AddMasaBlazor(builder =>
     });
 });
 
+builder.Services.AddLumexServices();
 builder.Services.AddScoped<LaunchApp.Services.GameNavigation>();
 
 await builder.Build().RunAsync();

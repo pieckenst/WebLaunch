@@ -2,9 +2,12 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:shared": "node tests/shared-browser.mjs"
+    "test:shared": "node tests/shared-browser.mjs",
+    "build:css": "node scripts/build-css.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0"
+    "@playwright/test": "1.63.0",
+    "tailwindcss": "4.3.0",
+    "@tailwindcss/cli": "4.3.0"
   }
 }

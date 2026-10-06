@@ -56,3 +56,29 @@ Provider MD5/SHA1 fields remain compatibility integrity checks, not signatures.
 TLS certificate verification is enabled. Downloads and asynchronous updater calls
 have bounded retries/cancellation. FFXIV patch binary algorithms remain unchanged;
 containment is applied at their filesystem boundary.
+
+## Browser sections and component libraries
+
+MasaBlazor supplies page content; LumexUI v2 supplies navigation, links and controls.
+`GamePageBase` normalizes old route/query section links for both games to base-aware
+fragments. `GameNavigation` owns the route and selected section, including refresh
+and Back/Forward. A scoped JS adapter reports hash-only anchor/history changes
+that Blazor does not surface through its managed location event. It clears the subheader when leaving a game; it never redirects
+section selection to the library.
+
+`SectionTabBar` wraps Lumex navigation with `Sections`, `ActiveSection`, `Actions`
+and `Menu` slots. Its links use `LumexComponent` anchors with fragment-specific
+`aria-current="location"`; Lumex's ordinary page links ignore fragments when matching.
+The sections remain visible in the document, so these are navigation links rather
+than ARIA tab panels. The URL is the selection source. Manual scrolling does not
+rewrite history or change the selected link. The overflow strip stays usable on
+mobile, menus support Escape, and measured sticky heights account for wrapping.
+
+Example extension:
+
+```razor
+<SectionTabBar Route="counter" Sections="sections" ActiveSection="selected">
+    <Actions><LumexButton OnClick="RefreshStatus">Refresh status</LumexButton></Actions>
+    <Menu><LumexLink Href="counter#launch">Launch settings</LumexLink></Menu>
+</SectionTabBar>
+```

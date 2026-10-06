@@ -17,3 +17,5 @@ TestResults/
 playwright-report/
 Plugins/
 **/test-results/
+
+LaunchApp/wwwroot/css/lumex.generated.css

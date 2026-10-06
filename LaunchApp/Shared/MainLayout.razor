@@ -2,60 +2,83 @@
 @inject LaunchApp.Services.GameNavigation GameNavigation
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
-@implements IDisposable
+@inject MasaBlazor Masa
+@implements IAsyncDisposable
 
-<MApp>
+<MApp Dark="@dark">
     <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-        <a class="brand" href="./">WebLaunch</a>
-        <nav aria-label="Main navigation"><a href="counter">Final Fantasy XIV</a><a href="spellborn">Spellborn</a></nav>
-        <button type="button" @onclick="ToggleTheme" aria-label="Toggle dark theme" aria-pressed="@dark">@(dark ? "Light theme" : "Dark theme")</button>
-    </header>
+    <LumexNavbar Class="site-header" Height="auto" Blurred="false" Classes="@(new NavbarSlots { Wrapper = "main-nav-content" })">
+        <LumexNavbarContent As="div" Class="brand-group">
+            <LumexNavbarBrand><LumexLink Class="brand" Href="./" Color="LumexUI.Common.ThemeColor.None">WebLaunch</LumexLink></LumexNavbarBrand>
+        </LumexNavbarContent>
+        <LumexNavbarContent Class="main-links">
+            <LumexNavbarItem><LumexLink Href="counter" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "counter" ? "page" : null)">Final Fantasy XIV</LumexLink></LumexNavbarItem>
+            <LumexNavbarItem><LumexLink Href="spellborn" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "spellborn" ? "page" : null)">Spellborn</LumexLink></LumexNavbarItem>
+        </LumexNavbarContent>
+        <LumexNavbarContent Class="theme-control">
+            <LumexNavbarItem><LumexSwitch tabindex="-1" Class="theme-toggle" Value="@dark" ValueChanged="SetTheme" Size="LumexUI.Common.Size.Small">Dark theme</LumexSwitch></LumexNavbarItem>
+        </LumexNavbarContent>
+    </LumexNavbar>
     @if (GameNavigation.Route is not null)
     {
-        <nav class="section-nav" aria-label="Game sections">
-            @foreach (var section in GameNavigation.Sections)
-            {
-                <a href="@(GameNavigation.Route + "#" + section.Id)" aria-current="@(active == section.Id ? "location" : null)">@section.Title</a>
-            }
-            <a href="@(GameNavigation.Route + "#launch")">Launch settings</a>
-        </nav>
+        <SectionTabBar Route="@GameNavigation.Route" Sections="@GameNavigation.Sections" ActiveSection="@GameNavigation.ActiveSection">
+            <Menu>
+                <a href="https://github.com/pieckenst/WebLaunch/releases/">Download desktop launcher</a>
+                <a href="@(GameNavigation.Route + "#launch")">Pairing and desktop mode</a>
+            </Menu>
+        </SectionTabBar>
     }
     <main id="main" tabindex="-1">@Body</main>
     <footer>WebLaunch requires the Windows desktop launcher to start games. <a href="https://github.com/pieckenst/WebLaunch/releases/">Downloads</a></footer>
 </MApp>
 @code {
     private bool dark;
-    private string active = "overview";
+    private DotNetObjectReference<MainLayout>? reference;
+    private bool syncNavigation = true;
+    private IJSObjectReference? navigationModule;
     private IJSObjectReference? module;
     protected override void OnInitialized()
     {
         GameNavigation.Changed += Update;
-        Navigation.LocationChanged += LocationChanged;
+        reference = DotNetObjectReference.Create(this);
+
     }
-    private void Update() => InvokeAsync(StateHasChanged);
-    private void LocationChanged(object? sender, LocationChangedEventArgs e)
+    [JSInvokable] public void BrowserLocationChanged(string location) => GameNavigation.RefreshLocation(location);
+    private void Update()
     {
-        active = new Uri(e.Location).Fragment.TrimStart('#');
-        if (active.Length == 0) active = "overview";
-        Update();
+        syncNavigation = true;
+        _ = InvokeAsync(StateHasChanged);
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
+            navigationModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/navigation.js");
             var preference = await module.InvokeAsync<string?>("preference", "theme");
             dark = await module.InvokeAsync<bool>("applyTheme", preference);
+            if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
             StateHasChanged();
         }
+        if (syncNavigation && navigationModule is not null)
+        {
+            syncNavigation = false;
+            await navigationModule.InvokeVoidAsync("sync", GameNavigation.Route, GameNavigation.ActiveSection, reference);
+        }
     }
-    private async Task ToggleTheme()
+    private async Task SetTheme(bool enabled)
     {
         if (module is null) return;
-        dark = !dark;
+        dark = enabled;
+        if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
         await module.InvokeVoidAsync("preference", "theme", dark ? "dark" : "light");
         await module.InvokeVoidAsync("applyTheme", dark ? "dark" : "light");
     }
-    public void Dispose() { GameNavigation.Changed -= Update; Navigation.LocationChanged -= LocationChanged; }
+    public async ValueTask DisposeAsync()
+    {
+        GameNavigation.Changed -= Update;
+        if (navigationModule is not null) { await navigationModule.InvokeVoidAsync("dispose"); await navigationModule.DisposeAsync(); }
+        if (module is not null) await module.DisposeAsync();
+        reference?.Dispose();
+    }
 }

@@ -1,0 +1,32 @@
+@using LaunchApp.Services
+@inject NavigationManager Navigation
+
+<LumexNavbar As="div" Class="section-bar" Height="auto" Blurred="false" role="navigation" aria-label="@Label" Classes="@(new NavbarSlots { Wrapper = "section-bar-content" })">
+    <LumexNavbarContent Class="section-tabs">
+        @foreach (var section in Sections)
+        {
+            <LumexNavbarItem>
+                @* Section selection is fragment-specific; the library's page NavLink matching ignores fragments. *@
+                <LumexComponent As="a" href="@Navigation.ToAbsoluteUri(Route + "#" + section.Id)" aria-current="@(ActiveSection == section.Id ? "location" : null)">@section.Title</LumexComponent>
+            </LumexNavbarItem>
+        }
+    </LumexNavbarContent>
+    @if (Actions is not null) { <div class="section-actions">@Actions</div> }
+    @if (Menu is not null)
+    {
+        <details class="section-menu">
+            <summary>@MenuLabel</summary>
+            <div class="section-menu-content">@Menu</div>
+        </details>
+    }
+</LumexNavbar>
+
+@code {
+    [Parameter, EditorRequired] public string Route { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyList<GameSection> Sections { get; set; } = [];
+    [Parameter] public string ActiveSection { get; set; } = "overview";
+    [Parameter] public string Label { get; set; } = "Game sections";
+    [Parameter] public RenderFragment? Actions { get; set; }
+    [Parameter] public RenderFragment? Menu { get; set; }
+    [Parameter] public string MenuLabel { get; set; } = "More";
+}

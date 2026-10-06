@@ -1,8 +1,9 @@
 @page "/spellborn"
+@page "/spellborn/{Section}"
 @inject NavigationManager navigationManager
 @inject IJSRuntime jsRuntime
 @inject MasaBlazor MasaBlazor
-@inject LaunchApp.Services.GameNavigation GameNavigation
+@inherits GamePageBase
 
 <PageTitle>Chronicles of Spellborn</PageTitle>
 
@@ -71,5 +72,6 @@
 
 
 @code {
-    protected override void OnInitialized() => GameNavigation.Set("spellborn", new("overview", "Overview"), new("classes", "Classes"));
+    protected override string GameRoute => "spellborn";
+    protected override LaunchApp.Services.GameSection[] PageSections => [new("overview", "Overview"), new("classes", "Classes")];
 }

@@ -4,7 +4,7 @@
 @inject NavigationManager navigationManager
 @inject IJSRuntime jsRuntime
 @inject MasaBlazor MasaBlazor
-@inject LaunchApp.Services.GameNavigation GameNavigation
+@inherits GamePageBase
 
 
 <PageTitle>FFXIV Login</PageTitle>
@@ -250,13 +250,6 @@
 
 
 @code {
-    [Parameter] public string? Section { get; set; }
-    [SupplyParameterFromQuery(Name = "section")] public string? QuerySection { get; set; }
-    protected override void OnParametersSet()
-    {
-        GameNavigation.Set("counter", new("overview", "Overview"), new("characters", "Races"), new("story", "Story"), new("classes", "Jobs"), new("world", "World"), new("features", "Features"));
-        var selected = Section ?? QuerySection;
-        if (selected is not null && GameNavigation.Sections.Any(s => s.Id == selected))
-            navigationManager.NavigateTo("counter#" + selected, replace: true);
-    }
+    protected override string GameRoute => "counter";
+    protected override LaunchApp.Services.GameSection[] PageSections => [new("overview", "Overview"), new("characters", "Races"), new("story", "Story"), new("classes", "Jobs"), new("world", "World"), new("features", "Features")];
 }

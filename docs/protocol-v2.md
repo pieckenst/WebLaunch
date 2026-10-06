@@ -78,3 +78,16 @@ No updated website path falls back to legacy mode. Existing bookmarks remain.
 Remove legacy mode in the next protocol-major release after integrators migrate.
 Publish the handler before the site; old handlers cannot complete a v2 handshake
 and the site shows installation/update guidance instead of sending credentials.
+
+## Desktop presentation mode
+
+The bootstrap accepts `HandleWebRequest:connect?v=2&mode=gui` or `mode=console`.
+Omitting mode preserves GUI as the default. Duplicate/unknown fields, unsupported
+versions and modes are rejected before starting a new host. The URL contains no
+credentials, path or shell arguments. Quiet mode requires local CLI configuration.
+A running host is not replaced during active work: encrypted replies contain
+`desktopMode` (`gui`, `console`, or `quiet`) so the browser can show the actual mode
+and ask the user to close the current host before switching.
+
+Encrypted `disconnect` cancels pending pairing/launch work and expires the session.
+The browser can cancel pairing and retry immediately without waiting for expiry.

@@ -15,6 +15,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: LaunchApp/package-lock.json
+      - run: npm ci --prefix LaunchApp
       - run: dotnet workload install wasm-tools
       - run: bash scripts/publish-web.sh
       - uses: actions/configure-pages@v5
