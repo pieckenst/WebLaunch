@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using XIVLauncher.Common.Patching.Util;
 
 namespace XIVLauncher.Common.Patching.ZiPatch.Chunk
@@ -25,7 +25,7 @@ namespace XIVLauncher.Common.Patching.ZiPatch.Chunk
 
         public override void ApplyChunk(ZiPatchConfig config)
         {
-            Directory.CreateDirectory(config.GamePath + DirName);
+            Directory.CreateDirectory(WebLaunch.Core.SafePath.Resolve(config.GamePath, DirName.StartsWith('/') ? DirName[1..] : DirName));
         }
 
         public override string ToString()

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using XIVLauncher.Common.Patching.Util;
@@ -94,11 +94,11 @@ namespace XIVLauncher.Common.Patching.ZiPatch.Chunk.SqpkCommand
                     break;
 
                 case OperationKind.DeleteFile:
-                    File.Delete(config.GamePath + "/" + TargetFile.RelativePath);
+                    File.Delete(WebLaunch.Core.SafePath.Resolve(config.GamePath, TargetFile.RelativePath));
                     break;
 
                 case OperationKind.MakeDirTree:
-                    Directory.CreateDirectory(config.GamePath + "/" + TargetFile.RelativePath);
+                    Directory.CreateDirectory(WebLaunch.Core.SafePath.Resolve(config.GamePath, TargetFile.RelativePath));
                     break;
             }
         }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -38,7 +38,8 @@ namespace LibDalamud.Common.Dalamud
             }
         }
 
-        public static async Task<DirectoryInfo> EnsureAssets(DirectoryInfo baseDir, bool forceProxy)
+        public static Task<DirectoryInfo> EnsureAssets(DirectoryInfo baseDir, bool forceProxy) => EnsureAssets(baseDir, forceProxy, CancellationToken.None);
+        public static async Task<DirectoryInfo> EnsureAssets(DirectoryInfo baseDir, bool forceProxy, CancellationToken cancellationToken)
         {
             using var client = new HttpClient
             {
@@ -54,7 +55,7 @@ namespace LibDalamud.Common.Dalamud
 
             Console.WriteLine("[DASSET] Starting asset download");
 
-            var (isRefreshNeeded, info) = CheckAssetRefreshNeeded(baseDir);
+            var (isRefreshNeeded, info) = await CheckAssetRefreshNeeded(baseDir, client, cancellationToken);
 
             // NOTE(goat): We should use a junction instead of copying assets to a new folder. There is no C# API for junctions in .NET Framework.
 
@@ -63,8 +64,8 @@ namespace LibDalamud.Common.Dalamud
 
             foreach (var entry in info.Assets)
             {
-                var filePath = Path.Combine(assetsDir.FullName, entry.FileName);
-                var filePathDev = Path.Combine(devDir.FullName, entry.FileName);
+                var filePath = WebLaunch.Core.SafePath.Resolve(assetsDir.FullName, entry.FileName);
+                var filePathDev = WebLaunch.Core.SafePath.Resolve(devDir.FullName, entry.FileName);
 
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
@@ -106,9 +107,9 @@ namespace LibDalamud.Common.Dalamud
 
                     Console.WriteLine("[DASSET] Downloading {0} to {1}...", url, entry.FileName);
 
-                    var request = await client.GetAsync(url).ConfigureAwait(true);
+                    var request = await client.GetAsync(url, cancellationToken).ConfigureAwait(true);
                     request.EnsureSuccessStatusCode();
-                    File.WriteAllBytes(filePath, await request.Content.ReadAsByteArrayAsync().ConfigureAwait(true));
+                    File.WriteAllBytes(filePath, await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(true));
 
                     try
                     {
@@ -142,9 +143,8 @@ namespace LibDalamud.Common.Dalamud
         /// </summary>
         /// <param name="baseDir">Base directory for assets</param>
         /// <returns>Update state</returns>
-        private static (bool isRefreshNeeded, AssetInfo info) CheckAssetRefreshNeeded(DirectoryInfo baseDir)
+        private static async Task<(bool isRefreshNeeded, AssetInfo info)> CheckAssetRefreshNeeded(DirectoryInfo baseDir, HttpClient client, CancellationToken cancellationToken)
         {
-            using var client = new WebClient();
 
             var localVerFile = GetAssetVerPath(baseDir);
             var localVer = 0;
@@ -160,7 +160,7 @@ namespace LibDalamud.Common.Dalamud
                 Console.WriteLine(ex.Message, "[DASSET] Could not read asset.ver");
             }
 
-            var remoteVer = JsonSerializer.Deserialize<AssetInfo>(client.DownloadString(ASSET_STORE_URL));
+            var remoteVer = JsonSerializer.Deserialize<AssetInfo>(await client.GetStringAsync(ASSET_STORE_URL, cancellationToken));
 
             Console.WriteLine("[DASSET] Ver check - local:{0} remote:{1}", localVer, remoteVer.Version);
 

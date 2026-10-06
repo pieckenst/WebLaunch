@@ -225,7 +225,7 @@ public class Launcher
                                bool encryptArguments, DpiAwareness dpiAwareness)
     {
         Log.Information(
-            $"XivGame::LaunchGame(steamServiceAccount:{isSteamServiceAccount}, args:{additionalArguments})");
+            "XivGame::LaunchGame(steamServiceAccount:{IsSteam})", isSteamServiceAccount);
 
         var exePath = Path.Combine(gamePath.FullName, "game", "ffxiv_dx11.exe");
         if (!isDx11)
@@ -475,7 +475,7 @@ public class Launcher
 
         if (matches.Count == 0)
         {
-            Log.Error(text);
+            Log.Error("Authentication response was invalid.");
             throw new InvalidResponseException("Could not get STORED.", text);
         }
 
@@ -488,7 +488,7 @@ public class Launcher
 
             if (steamMatches.Count == 0)
             {
-                Log.Error(text);
+                Log.Error("Authentication response was invalid.");
                 throw new InvalidResponseException("Could not get steam username.", text);
             }
 
