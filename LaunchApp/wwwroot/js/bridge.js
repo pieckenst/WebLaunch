@@ -95,7 +95,7 @@ export async function connect() {
     const code = (new DataView(salt.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');
     channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: await derive('client'), receive: await derive('desktop'), sent: 0, received: 0, paired: false };
     if (response.knownBrowser) await confirmPairing();
-    return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '' };
+    return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '', canBrowseFolders: !!channel.canBrowseFolders };
 }
 function nonce(sequence) {
     const bytes = new Uint8Array(12);
@@ -112,7 +112,7 @@ async function exchange(command) {
         encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce(sequence), additionalData: encoder.encode(`${current.hash}\nclient\n${sequence}`), tagLength: 128 }, current.send, plaintext);
     } finally { plaintext.fill(0); }
     try {
-        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, command.action === 'confirm' ? 120000 : 15000);
+        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, ['confirm', 'browse'].includes(command.action) ? 120000 : 15000);
         if (response.sequence !== current.received + 1 || typeof response.ciphertext !== 'string' || response.ciphertext.length > 60000)
             throw new Error('Invalid desktop response.');
         const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce(response.sequence), additionalData: encoder.encode(`${current.hash}\ndesktop\n${response.sequence}`), tagLength: 128 }, current.receive, unb64(response.ciphertext)));
@@ -134,12 +134,17 @@ export async function confirmPairing() {
     await saveIdentity(current.identity);
     current.paired = true;
     current.desktopMode = reply.desktopMode || 'unknown';
+    current.canBrowseFolders = !!reply.canBrowseFolders;
     return reply;
 }
 export async function launch(request) {
     if (!channel?.paired) throw new Error('Complete pairing before signing in.');
     try { return await send({ action: 'launch', launch: request }); }
     finally { request.password = ''; request.otp = ''; }
+}
+export async function browseFolder() {
+    if (!channel?.paired) throw new Error('Pair the desktop launcher before choosing a folder.');
+    return send({ action: 'browse' });
 }
 export const status = () => send({ action: 'status' });
 export const cancel = () => channel?.paired ? send({ action: 'cancel' }) : Promise.resolve();

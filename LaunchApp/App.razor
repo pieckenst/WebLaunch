@@ -1,4 +1,7 @@
-﻿<Router AppAssembly="@typeof(App).Assembly">
+@inject NavigationManager Navigation
+<SafeErrorBoundary>
+<ChildContent>
+<Router AppAssembly="@typeof(App).Assembly">
     <Found Context="routeData">
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
@@ -10,3 +13,9 @@
         </LayoutView>
     </NotFound>
 </Router>
+</ChildContent>
+<ErrorContent>
+    <section class="app-recovery" role="alert"><h1>Let’s reload the launcher</h1><p>This page could not finish the action. Reload, then reconnect your desktop launcher. Sign-in details are not saved.</p><button type="button" @onclick="Reload">Reload launcher</button></section>
+</ErrorContent>
+</SafeErrorBoundary>
+@code { private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true); }

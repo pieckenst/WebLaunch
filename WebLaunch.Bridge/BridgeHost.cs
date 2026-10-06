@@ -21,13 +21,17 @@ public interface IPairingPrompt
 {
     Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken);
 }
+public interface IGameFolderPicker
+{
+    Task<string?> SelectAsync(CancellationToken cancellationToken);
+}
 public sealed class BridgeCommand
 {
     public string Action { get; set; } = "";
     public string Code { get; set; } = "";
     public LaunchRequest? Launch { get; set; }
 }
-public sealed record BridgeReply(bool Paired, LaunchStatus Status, string DesktopMode = "gui");
+public sealed record BridgeReply(bool Paired, LaunchStatus Status, string DesktopMode = "gui", bool CanBrowseFolders = false, string? FolderPath = null);
 
 public sealed class BridgeHost : IAsyncDisposable
 {
@@ -37,6 +41,7 @@ public sealed class BridgeHost : IAsyncDisposable
     private readonly ILaunchService launcher;
     private readonly HashSet<string> origins;
     private readonly string desktopMode;
+    private readonly IGameFolderPicker? folderPicker;
     private readonly ConcurrentDictionary<string, Session> sessions = new();
     private readonly ConcurrentDictionary<string, byte> usedRequestIds = new();
     private readonly CancellationTokenSource lifetime = new();
@@ -46,10 +51,10 @@ public sealed class BridgeHost : IAsyncDisposable
     private DateTimeOffset pairingRetryAfter;
     private int pairingFailures;
 
-    public BridgeHost(IBridgeTrustStore trust, IPairingPrompt prompt, ILaunchService launcher, IEnumerable<string>? developmentOrigins = null, string desktopMode = "gui")
+    public BridgeHost(IBridgeTrustStore trust, IPairingPrompt prompt, ILaunchService launcher, IEnumerable<string>? developmentOrigins = null, string desktopMode = "gui", IGameFolderPicker? folderPicker = null)
     {
         if (desktopMode is not ("gui" or "console" or "quiet")) throw new ArgumentException("Invalid desktop mode.");
-        this.desktopMode = desktopMode;
+        this.desktopMode = desktopMode; this.folderPicker = folderPicker;
         this.trust = trust; this.prompt = prompt; this.launcher = launcher;
         origins = new(StringComparer.Ordinal) { "https://pieckenst.github.io" };
         foreach (var origin in developmentOrigins ?? [])
@@ -170,6 +175,8 @@ public sealed class BridgeHost : IAsyncDisposable
                 session.Paired = true;
             }
             session.Expires = DateTimeOffset.UtcNow.AddMinutes(10);
+            string? folderPath = null;
+            LaunchStatus? replyStatus = null;
             switch (command.Action)
             {
                 case "confirm": break;
@@ -181,11 +188,23 @@ public sealed class BridgeHost : IAsyncDisposable
                     session.Status = new("connecting", "Launch request accepted.");
                     session.Job = RunLaunchAsync(session, request);
                     break;
+                case "browse":
+                    if (folderPicker is null) { replyStatus = new("unavailable", "Update the desktop launcher to choose folders, or enter the full path."); break; }
+                    if (session.Job is not null) throw new InvalidDataException("Reconnect before selecting another folder.");
+                    try
+                    {
+                        folderPath = await folderPicker.SelectAsync(timeout.Token);
+                        if (folderPath is not null) LaunchRequest.ValidateGamePath(folderPath);
+                        replyStatus = new("folder", folderPath is null ? "Folder selection cancelled." : "Installation folder selected.");
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch { folderPath = null; replyStatus = new("failed", "Could not select a local folder. Close any open folder chooser and retry, or enter the full path."); }
+                    break;
                 case "status": break;
                 case "cancel": session.JobCancellation.Cancel(); break;
                 default: throw new InvalidDataException("Unsupported command.");
             }
-            await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(session.Paired, session.Status, desktopMode)), timeout.Token);
+            await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(session.Paired, replyStatus ?? session.Status, desktopMode, folderPicker is not null, folderPath)), timeout.Token);
         }
         finally { session.Gate.Release(); }
     }

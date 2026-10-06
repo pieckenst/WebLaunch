@@ -8,7 +8,7 @@
         <button class="settings-button" type="button" aria-label="Game settings" title="Game settings" @onclick="OpenGame"><NavigationIcon /></button>
     </div>
     <button class="connection-summary" type="button" @onclick="OpenDesktop"><span class="status-dot @(paired ? "connected" : "")"></span>@PairingState</button>
-    <p class="launch-summary" role="status">@(launchAttempted ? message : "")</p>
+    <p class="launch-summary" role="status">@(launchAttempted || hasNotice ? message : "")</p>
 </section>
 <dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title">
     <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
@@ -58,10 +58,11 @@
         @if (!paired)
         { <p class="connection-notice">Connect your desktop launcher before playing. <button type="button" class="inline-action" @onclick="ShowDesktop">Set up connection</button></p> }
     <form @onsubmit="Launch" @onsubmit:preventDefault>
-        <fieldset disabled="@busy">
+        <fieldset disabled="@(busy || connecting)">
 
             <label for="game-path">Installation folder</label>
-            <input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" />
+            <div class="path-control"><input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" /><button type="button" @onclick="BrowseFolder" disabled="@(!paired || !canBrowseFolders || connecting)">Browse on desktop</button></div>
+            <small>Browsers cannot reveal an absolute Windows folder path. Browse through your paired desktop launcher, or enter the full path.</small>
             <small id="path-help">@(Game == "ffxiv" ? "Choose the folder containing the boot and game directories." : "Choose the folder where Spellborn is installed, or a writable folder for installation.")</small>
             @if (Game == "ffxiv")
             {
@@ -84,16 +85,20 @@
     private IJSObjectReference? module, dialogModule;
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
-    private bool desktopView, launchAttempted;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice;
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
     {
+        try
+        {
         desktopView = desktop;
         dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
         dialogReference ??= DotNetObjectReference.Create(this);
         await dialogModule.InvokeVoidAsync("open", dialog, dialogReference);
         focusTarget = desktop ? "desktop-mode" : "game-path";
+        }
+        catch (JSException ex) { Report("open-settings", ex, "Could not open settings. Reload the page and try again."); }
     }
     private void ShowGame() { desktopView = false; focusTarget = "game-path"; }
     private void ShowDesktop() { desktopView = true; focusTarget = "desktop-mode"; }
@@ -103,7 +108,7 @@
         password = otp = "";
         if (busy) await Cancel();
         if (pairingCode.Length > 0) await CancelPairing();
-        if (dialogModule is not null) await dialogModule.InvokeVoidAsync("close", dialog);
+        if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException ex) { Report("close-settings", ex, "Could not close settings. Reload the page to reset the launcher."); } }
         await InvokeAsync(StateHasChanged);
     }
     private readonly CancellationTokenSource lifetime = new();
@@ -116,16 +121,18 @@
     private Task? polling, connectionMonitor;
     private DateTimeOffset pairingExpires;
     private string? focusTarget;
-    private sealed record Connection(bool Paired, string Code, string DesktopMode);
-    private sealed record Reply(bool Paired, LaunchStatus Status, string DesktopMode);
+    private sealed record Connection(bool Paired, string Code, string DesktopMode, bool CanBrowseFolders);
+    private sealed record Reply(bool Paired, LaunchStatus Status, string DesktopMode, bool CanBrowseFolders, string? FolderPath);
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
         {
             if (focusTarget is { } target && module is not null)
-            { focusTarget = null; await module.InvokeVoidAsync("focus", target); }
+            { focusTarget = null; try { await module.InvokeVoidAsync("focus", target); } catch (JSException ex) { Report("focus", ex, "Could not focus the control. Select it manually or reload the page."); } }
             return;
         }
+        try
+        {
         module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
         supported = await module.InvokeAsync<bool>("supported"); platformChecked = true;
         path = await module.InvokeAsync<string?>("preference", Game + ".path") ?? "";
@@ -134,6 +141,8 @@
         try { savedPairing = await module.InvokeAsync<bool>("pairingSaved"); }
         catch (JSException) { message = "Pairing storage is unavailable. Allow site storage before connecting."; }
         connectionMonitor = MonitorConnection();
+        }
+        catch (JSException ex) { Report("initialize", ex, "Could not initialize the launcher. Reload the page; check that browser storage and scripts are allowed."); }
         StateHasChanged();
     }
     private async Task MonitorConnection()
@@ -162,8 +171,9 @@
     private async Task SaveMode()
     {
         if (module is null) return;
-        await module.InvokeAsync<string?>("preference", "desktopMode", desktopMode);
-        bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode);
+        try { await module.InvokeAsync<string?>("preference", "desktopMode", desktopMode);
+        bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode); }
+        catch (JSException ex) { Report("desktop-mode", ex, "Could not change desktop mode. Reload the page and retry."); }
     }
     private void OpeningDesktop() => message = "Approve opening the desktop launcher in your browser, then choose Connect. If nothing opens, install or repair the desktop launcher.";
     private async Task Connect()
@@ -173,23 +183,46 @@
         try
         {
             var result = await module.InvokeAsync<Connection>("connect");
-            paired = result.Paired; pairingCode = result.Code; actualMode = result.DesktopMode;
+            paired = result.Paired; pairingCode = result.Code; actualMode = result.DesktopMode; canBrowseFolders = result.CanBrowseFolders;
             if (paired) savedPairing = true;
             pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
             focusTarget = paired ? "launch-status" : "pairing-confirm";
             message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
         }
-        catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
+        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         finally { connecting = false; }
     }
     private async Task Confirm()
     {
         connecting = true;
-        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "launch-status"; }
-        catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
+        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; canBrowseFolders = result.CanBrowseFolders; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "launch-status"; }
+        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         finally { connecting = false; }
     }
-    private async Task CancelPairing() { await module!.InvokeVoidAsync("disconnect"); pairingCode = ""; paired = false; actualMode = ""; message = "Pairing cancelled. Connect again when ready."; }
+    private async Task CancelPairing()
+    {
+        try { if (module is not null) await module.InvokeVoidAsync("disconnect"); }
+        catch (JSException ex) { BrowserDiagnostics.Report("cancel-pairing", ex); }
+        pairingCode = ""; paired = false; actualMode = ""; message = "Pairing cancelled. Connect again when ready.";
+    }
+    private async Task BrowseFolder()
+    {
+        if (module is null || !paired || connecting || busy || !canBrowseFolders) return;
+        connecting = true; message = "Choose a folder in the desktop launcher. Cancel in that window to keep the current path.";
+        try
+        {
+            var reply = await module.InvokeAsync<Reply>("browseFolder");
+            if (reply.FolderPath is { } selected) { LaunchRequest.ValidateGamePath(selected); path = selected; }
+            message = reply.Status.Message;
+        }
+        catch (JSException ex) { paired = false; Report("browse-folder", ex, UserMessage(ex)); }
+        catch (ArgumentException ex) { Report("folder-path", ex, "The selected folder is not a supported local Windows path. Enter the full path manually."); }
+        finally { connecting = false; focusTarget = "game-path"; }
+    }
+    private void Report(string operation, Exception exception, string feedback)
+    {
+        BrowserDiagnostics.Report(operation, exception); message = feedback; hasNotice = true;
+    }
     private async Task Forget()
     {
         if (module is null) return;
@@ -198,7 +231,7 @@
     }
     private async Task Launch()
     {
-        if (busy || !paired || module is null) return;
+        if (busy || connecting || !paired || module is null) return;
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
         catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); return; }
@@ -212,7 +245,7 @@
             password = otp = ""; request.ClearCredentials();
             polling = Poll(); await polling;
         }
-        catch (JSException ex) { message = UserMessage(ex); paired = false; }
+        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); message = UserMessage(ex); paired = false; }
         catch (OperationCanceledException) { }
         finally
         {
@@ -234,7 +267,7 @@
     {
         password = otp = "";
         try { await module!.InvokeVoidAsync("cancel"); message = "Cancelling launch…"; }
-        catch (JSException ex) { paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
+        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
     }
     // JS errors are user-facing controlled messages; strip the runtime-added stack trace.
     private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];

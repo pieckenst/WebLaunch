@@ -124,7 +124,8 @@ export async function secureLaunch(page, base) {
     await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('gui');
     await gameSettings(page);
     const consoles = []; page.on('console', message => consoles.push(message.text()));
-    await page.getByLabel('Installation folder').fill('C:\\Games\\日本語');
+    await page.getByRole('button', { name: 'Browse on desktop', exact: true }).click();
+    await expect(page.getByLabel('Installation folder')).toHaveValue('C:\\Games\\日本語');
     await page.getByLabel('Username', { exact: true }).fill('synthetic-user');
     await page.getByLabel('Password', { exact: true }).fill('synthetic-secret:+?=é');
     await page.getByLabel('One-time password (optional)').fill('12');
@@ -197,4 +198,48 @@ export async function settingsDialogs(page, base) {
     await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 1280, height: 900 });
+}
+
+export async function browserRecovery(page, base) {
+    const diagnostics = [];
+    const observe = message => diagnostics.push(message.text());
+    page.on('console', observe);
+    try {
+        await page.goto(base + 'counter');
+        await page.getByRole('button', { name: 'Play now', exact: true }).click();
+        const alignment = await page.locator('.path-control').evaluate(el => {
+            const input = el.querySelector('input').getBoundingClientRect();
+            const button = el.querySelector('button').getBoundingClientRect();
+            return Math.abs(input.top - button.top) < 1 && Math.abs(input.height - button.height) < 1;
+        });
+        expect(alignment).toBe(true);
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => {
+            window.dispatchEvent(new ErrorEvent('error', { cancelable: true, message: 'synthetic-private-path-password', error: new Error('synthetic-private-path-password') }));
+            window.dispatchEvent(new PromiseRejectionEvent('unhandledrejection', { cancelable: true, promise: Promise.resolve(), reason: 'synthetic-otp-secret' }));
+        });
+        await expect(page.locator('#browser-notice')).toBeVisible();
+        expect(diagnostics.some(line => line.includes('BROWSER_SCRIPT_ERROR'))).toBe(true);
+        expect(diagnostics.some(line => line.includes('BROWSER_ASYNC_ERROR'))).toBe(true);
+        expect(diagnostics.join('\n')).not.toContain('synthetic-private-path-password');
+        expect(diagnostics.join('\n')).not.toContain('synthetic-otp-secret');
+        await page.route('**/js/dialog.js', route => route.abort());
+        await page.reload();
+        await page.getByRole('button', { name: 'Play now', exact: true }).click();
+        await expect(page.locator('.launch-summary')).toContainText('Could not open settings');
+        await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+        expect(diagnostics.some(line => line.includes('open-settings failed'))).toBe(true);
+        await page.unroute('**/js/dialog.js');
+        await page.reload();
+        await page.getByRole('button', { name: 'Play now', exact: true }).click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await page.route('**/js/navigation.js', route => route.abort());
+        await page.reload();
+        await expect(page.getByRole('heading', { name: 'Let’s reload the launcher' })).toBeVisible();
+        expect(diagnostics.some(line => line.includes('render failed'))).toBe(true);
+        await page.unroute('**/js/navigation.js');
+        await page.getByRole('button', { name: 'Reload launcher', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Final Fantasy XIV', exact: true })).toBeVisible();
+    } finally { page.off('console', observe); }
 }

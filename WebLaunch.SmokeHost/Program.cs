@@ -4,7 +4,7 @@ using WebLaunch.Core;
 
 // Test-only host: no native launcher references, provider APIs, or real account support.
 using var trust = new SyntheticTrust();
-await using var bridge = new BridgeHost(trust, new SyntheticPrompt(), new SyntheticLauncher(), ["http://localhost:5148", "http://127.0.0.1:5148"]);
+await using var bridge = new BridgeHost(trust, new SyntheticPrompt(), new SyntheticLauncher(), ["http://localhost:5148", "http://127.0.0.1:5148"], folderPicker: new SyntheticFolderPicker());
 await bridge.StartAsync();
 Console.WriteLine("Synthetic bridge ready at 127.0.0.1:47832");
 await Task.Delay(Timeout.Infinite);
@@ -28,6 +28,8 @@ sealed class SyntheticLauncher : ILaunchService
     {
         if (request.Game != "spellborn" && !request.Username.StartsWith("synthetic-", StringComparison.Ordinal))
             throw new InvalidOperationException("Only synthetic accounts are accepted by this test host.");
+        if (request.Username == "synthetic-user" && request.GamePath != @"C:\Games\日本語")
+            throw new InvalidOperationException("Synthetic folder handoff mismatch.");
         foreach (var state in new[] { "authenticating", "updating", "launching" })
         {
             progress.Report(new(state, "Synthetic " + state));
@@ -35,4 +37,9 @@ sealed class SyntheticLauncher : ILaunchService
         }
         if (request.Username == "synthetic-failure") throw new InvalidOperationException("Synthetic failure");
     }
+}
+
+sealed class SyntheticFolderPicker : IGameFolderPicker
+{
+    public Task<string?> SelectAsync(CancellationToken token) => Task.FromResult<string?>(@"C:\Games\日本語");
 }

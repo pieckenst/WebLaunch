@@ -91,3 +91,19 @@ and ask the user to close the current host before switching.
 
 Encrypted `disconnect` cancels pending pairing/launch work and expires the session.
 The browser can cancel pairing and retry immediately without waiting for expiry.
+
+### Optional desktop folder selection
+
+Encrypted replies advertise `canBrowseFolders`. A paired client can send
+`{"action":"browse"}`; a capable desktop opens its native Windows folder chooser
+and returns `folderPath` in the encrypted reply (null on cancel/failure). Paths
+must pass the same `LaunchRequest.ValidateGamePath` rules as a launch. The browser
+copies the selected absolute path into the editable field and submits that exact
+value in its later encrypted launch request. There is no browser-file-handle to
+absolute-path guessing and no path or credential added to a protocol URL.
+
+Missing capability means manual path entry. Unsupported picker requests return a
+controlled response, preserving the existing v2 client/desktop launch contract.
+Only one native chooser is allowed at once, on a dedicated STA thread. Timeout or
+host shutdown requests closure of that thread's dialog; responses are bounded by
+the existing two-minute command deadline. Credentials are never sent to the picker.

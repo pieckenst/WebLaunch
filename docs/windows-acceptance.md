@@ -42,3 +42,15 @@ The automated legacy fixture implements the original plugin API against the
 current contract assembly. It does not replace testing consumers compiled against
 older releases. Likewise, synthetic browser tests do not validate Square Enix,
 Steam or Spellborn service availability.
+
+## Browser-requested folder selection
+
+- Pair in GUI mode and in console mode; Browse on desktop should open exactly one
+  native chooser. Quiet console must still require prior pairing before this action.
+- Select a local folder containing spaces and Unicode; verify the browser receives
+  the exact absolute path and the test launcher receives the same path unchanged.
+- Cancel the chooser: the existing browser path must remain intact. Reject UNC,
+  device and traversal paths, and verify manual entry works with older handlers.
+- Let the request time out and shut down the host during selection: the native
+  chooser should close, with no stale result applied to a later connection.
+- Retry rapidly and from two paired tabs; only one chooser should be active.

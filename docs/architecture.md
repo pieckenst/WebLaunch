@@ -98,3 +98,11 @@ focus goes to the installation folder or desktop-mode selector. The dialog scrol
 within the viewport on mobile and at browser zoom. Icons are inline SVGs, avoiding
 an external font dependency. Lumex v2 owns navigation/theme controls; Masa remains
 in use for page content and the application theme.
+
+Folder browsing is an optional, authenticated bridge capability. The browser uses
+the desktop's native chooser because browser directory handles do not expose a
+reliable absolute Windows path. Shared validation is applied on both sides, and
+manual path entry remains supported. Browser diagnostics emit only operation/error
+types and fixed codes; they never format exception messages, stacks, URLs or state.
+Expected bridge and module failures remain in the launch UI. A safe render boundary
+and a reload notice cover unexpected failures without persisting sign-in details.

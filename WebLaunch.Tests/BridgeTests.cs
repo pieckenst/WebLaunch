@@ -67,6 +67,47 @@ public sealed class BridgeTests
         }
         public void Dispose() { Channel?.Dispose(); Http.Dispose(); }
     }
+
+    private sealed class FolderPicker(string? path) : IGameFolderPicker
+    {
+        public int Calls;
+        public Task<string?> SelectAsync(CancellationToken token) { Calls++; return Task.FromResult(path); }
+    }
+    [Theory]
+    [InlineData(@"C:\Games\日本語")]
+    [InlineData(null)]
+    [InlineData(@"\\server\unsafe")]
+    [InlineData(@"C:\Games\..\escape")]
+    public async Task FolderSelectionIsAuthenticatedValidatedAndOptional(string? selected)
+    {
+        using var trust = new TrustStore(); var picker = new FolderPicker(selected);
+        await using var host = new BridgeHost(trust, new Prompt(true), new Launcher(), folderPicker: picker); await host.StartAsync();
+        using (var unpaired = new Client())
+        {
+            await unpaired.ConnectAsync();
+            using var denied = await unpaired.Send(new() { Action = "browse" });
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode); Assert.Equal(0, picker.Calls);
+        }
+        using var client = new Client(); await client.ConnectAsync();
+        var confirmed = await client.Exchange(new() { Action = "confirm", Code = client.Code });
+        Assert.True(confirmed.CanBrowseFolders);
+        var reply = await client.Exchange(new() { Action = "browse" });
+        Assert.Equal(1, picker.Calls);
+        Assert.Equal(selected == @"C:\Games\日本語" ? selected : null, reply.FolderPath);
+        Assert.Equal(selected is null || selected == @"C:\Games\日本語" ? "folder" : "failed", reply.Status.State);
+        Assert.DoesNotContain("unsafe", reply.Status.Message);
+        Assert.DoesNotContain("escape", reply.Status.Message);
+        Assert.True((await client.Exchange(new() { Action = "status" })).Paired);
+    }
+    [Fact] public async Task OlderHostWithoutFolderPickerKeepsManualPathCompatibility()
+    {
+        using var trust = new TrustStore();
+        await using var host = new BridgeHost(trust, new Prompt(true), new Launcher()); await host.StartAsync();
+        using var client = new Client(); await client.ConnectAsync();
+        Assert.False((await client.Exchange(new() { Action = "confirm", Code = client.Code })).CanBrowseFolders);
+        Assert.Equal("unavailable", (await client.Exchange(new() { Action = "browse" })).Status.State);
+        Assert.True((await client.Exchange(new() { Action = "launch", Launch = new() { Game = "spellborn", GamePath = @"C:\Games\Manual" } })).Status.Success);
+    }
     [Fact] public async Task PairThenLaunchAndRejectDuplicateOrReplay()
     {
         using var trust = new TrustStore(); var launcher = new Launcher();

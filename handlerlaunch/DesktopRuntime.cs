@@ -19,7 +19,7 @@ internal sealed class DesktopRuntime : IAsyncDisposable
         Plugins = new CoreFunctions(Path.Combine(AppContext.BaseDirectory, "Plugins"), new ConsoleLogger(), false, false);
         Launcher = new DesktopLaunchService(Plugins, report);
         var development = (Environment.GetEnvironmentVariable("WEBLAUNCH_DEVELOPMENT_ORIGINS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries);
-        try { Bridge = new BridgeHost(Trust, prompt, Launcher, development, mode); }
+        try { Bridge = new BridgeHost(Trust, prompt, Launcher, development, mode, new WindowsGameFolderPicker()); }
         catch { Plugins.Dispose(); Trust.Dispose(); throw; }
     }
     public static async Task<DesktopRuntime> StartAsync(IPairingPrompt prompt, Action<LaunchStatus> report, CancellationToken token, string mode = "gui")

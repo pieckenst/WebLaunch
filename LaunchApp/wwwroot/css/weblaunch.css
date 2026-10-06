@@ -116,3 +116,9 @@ footer { padding: 2rem 1rem; text-align: center; font-size: .8rem; color: var(--
     .launcher-dialog { padding: 1.2rem; }
 }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none!important; transition: none!important; scroll-behavior: auto!important; } }
+.path-control { display: flex; align-items: stretch; gap: .5rem; }
+.path-control input { min-width: 0; flex: 1; }
+.path-control button { flex: none; font-size: .75rem; max-width: 8rem; }
+#browser-notice:not([hidden]), .app-recovery { padding: 1rem; background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+#browser-notice:not([hidden]) { position: fixed; left: 1rem; right: 1rem; bottom: 1rem; z-index: 99; }
+@media(max-width: 400px) { .path-control { flex-wrap: wrap; } .path-control input { flex-basis: 100%; } .path-control button { max-width: none; } }

@@ -13,7 +13,9 @@
 </head>
 <body>
     <div id="app"><p role="status" class="initial-loading">Opening your game library…</p></div>
-    <div id="blazor-error-ui" role="alert">Something went wrong. <a href="" class="reload">Reload WebLaunch</a></div>
+    <aside id="browser-notice" hidden role="alert">This action could not finish. Retry it, or <a href="">reload the launcher</a>. Safe diagnostic codes are available in the browser console.</aside>
+    <div id="blazor-error-ui" role="alert">The launcher stopped responding. Reload and reconnect your desktop launcher. <a href="" class="reload">Reload WebLaunch</a></div>
+    <script src="js/diagnostics.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>
     <script src="_content/Masa.Blazor/js/masa-blazor.js"></script>
     <script type="module" src="_content/LumexUI/js/LumexUI.js"></script>

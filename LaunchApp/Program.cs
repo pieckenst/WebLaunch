@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddProvider(new LaunchApp.Shared.SafeBrowserLoggerProvider());
 builder.RootComponents.Add<LaunchApp.App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
