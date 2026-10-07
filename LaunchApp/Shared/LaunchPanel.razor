@@ -299,7 +299,7 @@
         if (connectionMonitor is not null) await connectionMonitor;
         if (polling is not null) { try { await polling; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
         if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }
-        if (dialogModule is not null) { await dialogModule.InvokeVoidAsync("close", dialog); await dialogModule.DisposeAsync(); }
+        if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException) { } await dialogModule.DisposeAsync(); }
         dialogReference?.Dispose();
         password = otp = ""; lifetime.Dispose();
     }

@@ -104,6 +104,22 @@ public sealed class ReviewRegressionTests
         finally { Log.Logger = original; }
     }
 
+    [Fact] public void TraceLoggerRejectsSinkOpenFailure()
+    {
+        using var root = new TemporaryDirectory();
+        // Opening a directory as a file fails on both Windows and Linux, even as an administrator.
+        Assert.Throws<IOException>(() => FfxivTraceLogger.CreateTraceFileLogger(root.Path));
+    }
+
+    [Fact] public void TraceLoggerWritesToOpenedFile()
+    {
+        using var root = new TemporaryDirectory();
+        var path = Path.Combine(root.Path, "trace.log");
+        using (var logger = FfxivTraceLogger.CreateTraceFileLogger(path))
+            logger.Information("synthetic trace event");
+        Assert.Contains("synthetic trace event", File.ReadAllText(path));
+    }
+
     [Fact] public void TraceRetentionRemovesOnlyExpiredTraceFiles()
     {
         using var root = new TemporaryDirectory();

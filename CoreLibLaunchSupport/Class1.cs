@@ -1170,7 +1170,7 @@ namespace CoreLibLaunchSupport
 
         if (ffxivgame is null) throw new GameExitedException();
         var enabledAddons = AddonEntries.Where(x => x.IsEnabled).Select(x => (IAddon)x.Addon).ToArray();
-        DalamudGameSession.Start(ffxivgame, enabledAddons);
+        StartGameSession(ffxivgame, enabledAddons);
         Log.Information("[{Component}] Started addon session with {Count} addons", nameof(networklogic), enabledAddons.Length);
         return ffxivgame;
     }
@@ -1200,6 +1200,25 @@ namespace CoreLibLaunchSupport
     return null;
 }
 
+
+        internal static void StartGameSession(Process game, IEnumerable<IAddon> enabledAddons)
+        {
+            try { DalamudGameSession.Start(game, enabledAddons); }
+            catch
+            {
+                try
+                {
+                    if (!game.HasExited) game.Kill(entireProcessTree: true);
+                    game.WaitForExit();
+                }
+                catch (Exception cleanupError)
+                {
+                    Log.Warning(cleanupError, "[{Component}] Could not terminate game after session startup failed", nameof(networklogic));
+                }
+                finally { game.Dispose(); }
+                throw;
+            }
+        }
 
         public static async Task<string> GetSidAsync(string username, string password, string otp, bool isSteam, CancellationToken token = default)
         {

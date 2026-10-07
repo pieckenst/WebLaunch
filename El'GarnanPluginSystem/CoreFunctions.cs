@@ -114,7 +114,9 @@ namespace El_Garnan_Plugin_Loader
                 shadow = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(shadow);
                 var sourceDirectory = Path.GetDirectoryName(path)!;
-                foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+                var manifest = Path.Combine(sourceDirectory, "plugin.json");
+                var searchOption = File.Exists(manifest) ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", searchOption))
                 {
                     var relative = Path.GetRelativePath(sourceDirectory, file);
                     var source = SafePath.Resolve(sourceDirectory, relative);
@@ -126,7 +128,6 @@ namespace El_Garnan_Plugin_Loader
                 var assembly = context.LoadFromAssemblyPath(Path.Combine(shadow, Path.GetFileName(path)));
                 var types = assembly.GetTypes().Where(t => typeof(IGamePlugin).IsAssignableFrom(t) && !t.IsAbstract).ToArray();
                 if (types.Length == 0) return true;
-                var manifest = Path.Combine(sourceDirectory, "plugin.json");
                 string? manifestId = null;
                 if (File.Exists(manifest))
                 {

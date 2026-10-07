@@ -36,6 +36,20 @@ public sealed class LifecycleTests
         Assert.Contains(logger.Messages, message => message.StartsWith("Plugin shutdown failed"));
         Assert.Contains("fixture-initialize", logger.Messages); Assert.Contains("fixture-shutdown", logger.Messages);
     }
+    [Fact] public async Task LegacyShadowCopyExcludesNestedFiles()
+    {
+        using var root = new TemporaryDirectory();
+        CopyPlugin(root.Path, "");
+        Directory.CreateDirectory(Path.Combine(root.Path, "nested"));
+        File.WriteAllText(Path.Combine(root.Path, "nested", "unrelated.txt"), "unrelated");
+        File.WriteAllText(Path.Combine(root.Path, "dependency.txt"), "dependency");
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        await host.InitializeAsync();
+        var shadow = Path.GetDirectoryName(host.GetPlugin("legacy-fixture").GetType().Assembly.Location)!;
+        Assert.True(File.Exists(Path.Combine(shadow, "dependency.txt")));
+        Assert.False(Directory.Exists(Path.Combine(shadow, "nested")));
+    }
+
     [Fact] public async Task ReloadAndDeleteTrackPluginIdRatherThanFilename()
     {
         using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
@@ -207,6 +221,23 @@ public sealed class LifecycleTests
             Assert.Equal(1, worker.Closed); Assert.True(other.Closed);
         }
         finally { release.Set(); game.Kill(true); await game.WaitForExitAsync(); }
+    }
+
+    [Fact] public void FailedLaunchSessionTerminatesAndDisposesGame()
+    {
+        using var game = LongRunningGame();
+        using var observer = Process.GetProcessById(game.Id);
+        _ = observer.Handle;
+        var failure = new InvalidOperationException("synthetic startup failure");
+        var addon = new ControlledAddon { OnSetup = () => throw failure };
+        try
+        {
+            Assert.Same(failure, Assert.Throws<InvalidOperationException>(() => networklogic.StartGameSession(game, [addon])));
+            Assert.True(observer.WaitForExit(5000));
+            Assert.Throws<InvalidOperationException>(() => game.Id);
+            Assert.True(addon.Closed);
+        }
+        finally { if (!observer.HasExited) { observer.Kill(true); observer.WaitForExit(); } }
     }
 
     [Fact] public void StartupRollbackCleansEveryAddonDespiteCloseFailures()

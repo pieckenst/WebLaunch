@@ -24,8 +24,6 @@ jobs:
       - run: dotnet restore handlerlaunch.sln -p:EnableWindowsTargeting=true
       - run: dotnet build handlerlaunch.sln -c Release -p:EnableWindowsTargeting=true --no-restore
       - run: dotnet test WebLaunch.Tests/WebLaunch.Tests.csproj -c Release --no-build
-      - run: python3 scripts/audit-dependencies.py
-      - run: npm audit --prefix LaunchApp
       - run: bash scripts/publish-web.sh
       - name: Browser scenarios against production path and synthetic bridge
         run: |
@@ -52,6 +50,10 @@ jobs:
           name: website
           path: artifacts/web/wwwroot
           include-hidden-files: true
+      - run: python3 scripts/audit-dependencies.py
+        if: ${{ !cancelled() }}
+      - run: npm audit --prefix LaunchApp
+        if: ${{ !cancelled() }}
   windows:
     runs-on: windows-latest
     steps:

@@ -4,6 +4,7 @@ using System.Text;
 using Serilog;
 using Serilog.Context;
 using Serilog.Events;
+using Serilog.Sinks.File;
 
 namespace CoreLibLaunchSupport;
 
@@ -245,15 +246,7 @@ public static class FfxivTraceLogger
                 var fullPath = Path.Combine(logsDir, fileName);
                 _traceFilePath = fullPath;
 
-                _traceFileLogger = new LoggerConfiguration()
-                    .MinimumLevel.Verbose()
-                    .WriteTo.File(
-                        fullPath,
-                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
-                        shared: false,
-                        encoding: Encoding.UTF8,
-                        flushToDiskInterval: TimeSpan.FromSeconds(1))
-                    .CreateLogger();
+                _traceFileLogger = CreateTraceFileLogger(fullPath);
 
                 _traceFileLogger.Information("=== FFXIV trace log started ===");
                 _traceFileLogger.Information("WARNING: This file contains FULL HTTP payloads and may contain plaintext credentials.");
@@ -270,6 +263,38 @@ public static class FfxivTraceLogger
                 Log.Warning("FFXIV file tracing disabled: trace file initialization failed.");
             }
         }
+    }
+
+    private sealed class TraceFileHooks : FileLifecycleHooks
+    {
+        public bool Opened { get; private set; }
+        public override Stream OnFileOpened(string path, Stream underlyingStream, Encoding encoding)
+        {
+            Opened = true;
+            return underlyingStream;
+        }
+    }
+
+    internal static Serilog.Core.Logger CreateTraceFileLogger(string fullPath)
+    {
+        var hooks = new TraceFileHooks();
+        var logger = new LoggerConfiguration()
+            .MinimumLevel.Verbose()
+            .WriteTo.File(
+                fullPath,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                shared: false,
+                encoding: Encoding.UTF8,
+                flushToDiskInterval: TimeSpan.FromSeconds(1),
+                hooks: hooks)
+            .CreateLogger();
+        // Serilog can swallow file-open errors and return a logger without a working sink.
+        if (!hooks.Opened)
+        {
+            logger.Dispose();
+            throw new IOException("Trace file did not open.");
+        }
+        return logger;
     }
 
     // Timestamped files do not roll, so the sink's rolling retention cannot expire them.
