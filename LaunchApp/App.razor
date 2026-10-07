@@ -15,7 +15,10 @@
 </Router>
 </ChildContent>
 <ErrorContent>
-    <section class="app-recovery" role="alert"><h1>Let’s reload the launcher</h1><p>This page could not finish the action. Reload, then reconnect your desktop launcher. Sign-in details are not saved.</p><button type="button" @onclick="Reload">Reload launcher</button></section>
+    <section class="app-recovery" role="alert"><h1>Let’s reload the launcher</h1><p>This page could not finish the action. Reload, then reconnect your desktop launcher. Sign-in details are not saved.</p><button type="button" @onclick="Reload">Reload launcher</button><a href="@Navigation.BaseUri" @onclick="ReturnToLibrary" @onclick:preventDefault>Return to game library</a></section>
 </ErrorContent>
 </SafeErrorBoundary>
-@code { private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true); }
+@code {
+    private void Reload() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    private void ReturnToLibrary() => Navigation.NavigateTo(Navigation.BaseUri, forceLoad: true);
+}

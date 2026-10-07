@@ -12,7 +12,7 @@
 </section>
 <dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title">
     <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
-        <button type="button" class="close-dialog" aria-label="Close settings" disabled="@connecting" @onclick="CloseSettings">×</button>
+        <button type="button" class="close-dialog" aria-label="Close settings" disabled="@(connecting && pairingCancellation is null)" @onclick="CloseSettings">×</button>
     </div>
     <div class="dialog-tabs" aria-label="Settings views">
         <button type="button" aria-pressed="@(!desktopView)" @onclick="ShowGame">Game settings</button>
@@ -50,7 +50,7 @@
         <div class="pairing" role="group" aria-label="Confirm pairing">
             <p>Compare this code with the desktop launcher. Confirm in both windows only if they match.</p>
             <strong class="pairing-code">@pairingCode</strong>
-            <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@connecting">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@connecting">Cancel pairing</button></div>
+            <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@connecting">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@(pairingCancellation?.IsCancellationRequested == true)">Cancel pairing</button></div>
         </div>
     }
     </div>
@@ -104,7 +104,7 @@
     private void ShowDesktop() { desktopView = true; focusTarget = "desktop-mode"; }
     [JSInvokable] public async Task CloseSettings()
     {
-        if (connecting) return;
+        if (connecting && pairingCancellation is null) return;
         password = otp = "";
         if (busy) await Cancel();
         if (pairingCode.Length > 0) await CancelPairing();
@@ -112,6 +112,8 @@
         await InvokeAsync(StateHasChanged);
     }
     private readonly CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? pairingCancellation;
+    private Task? confirmation;
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
     private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
@@ -193,18 +195,36 @@
         catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         finally { connecting = false; }
     }
-    private async Task Confirm()
+    private Task Confirm() => confirmation = ConfirmPairing();
+    private async Task ConfirmPairing()
     {
+        if (connecting || module is null) return;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        cancellation.CancelAfter(TimeSpan.FromMinutes(2));
+        pairingCancellation = cancellation;
         connecting = true;
-        try { var result = await module!.InvokeAsync<Reply>("confirmPairing"); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; canBrowseFolders = result.CanBrowseFolders; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "launch-status"; }
-        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
-        finally { connecting = false; }
+        try { var result = await module.InvokeAsync<Reply>("confirmPairing", cancellation.Token); paired = result.Paired; savedPairing = paired; actualMode = result.DesktopMode; canBrowseFolders = result.CanBrowseFolders; pairingCode = ""; message = "Paired. Enter your game settings."; focusTarget = "launch-status"; }
+        catch (OperationCanceledException)
+        { await DisconnectPairing(); message = "Pairing expired. Connect again to compare a new code."; focusTarget = "launch-status"; }
+        catch (JSException ex)
+        { BrowserDiagnostics.Report("bridge", ex); await DisconnectPairing(); message = UserMessage(ex); focusTarget = "launch-status"; }
+        finally { pairingCancellation = null; connecting = false; }
     }
     private async Task CancelPairing()
     {
+        if (pairingCancellation is { } cancellation)
+        {
+            await cancellation.CancelAsync();
+            if (confirmation is not null) await confirmation;
+        }
+        else await DisconnectPairing();
+        message = "Pairing cancelled. Connect again when ready.";
+    }
+    private async Task DisconnectPairing()
+    {
+        pairingCode = ""; paired = false; actualMode = ""; canBrowseFolders = false;
         try { if (module is not null) await module.InvokeVoidAsync("disconnect"); }
         catch (JSException ex) { BrowserDiagnostics.Report("cancel-pairing", ex); }
-        pairingCode = ""; paired = false; actualMode = ""; message = "Pairing cancelled. Connect again when ready.";
     }
     private async Task BrowseFolder()
     {
@@ -275,6 +295,7 @@
     public async ValueTask DisposeAsync()
     {
         await lifetime.CancelAsync();
+        if (confirmation is not null) await confirmation;
         if (connectionMonitor is not null) await connectionMonitor;
         if (polling is not null) { try { await polling; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
         if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }

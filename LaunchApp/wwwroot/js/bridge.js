@@ -5,7 +5,6 @@ const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const unb64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 const digest = text => crypto.subtle.digest('SHA-256', encoder.encode(text));
 let channel;
-let pending = Promise.resolve();
 
 async function database() {
     return new Promise((resolve, reject) => {
@@ -37,13 +36,13 @@ async function saveIdentity(identity) {
         });
     } finally { db.close(); }
 }
-async function post(path, body, timeout = 15000) {
+async function post(path, body, timeout = 15000, signal) {
     let response;
     try {
         response = await fetch(endpoint + path, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body), credentials: 'omit', cache: 'no-store',
-            redirect: 'error', signal: AbortSignal.timeout(timeout)
+            redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
         });
     } catch {
         throw new Error('Cannot connect to WebLaunch. Open or update the desktop launcher, allow local network access, then retry.');
@@ -93,7 +92,7 @@ export async function connect() {
     secret.fill(0);
     const derive = direction => crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode('weblaunch-v2/' + direction) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
     const code = (new DataView(salt.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');
-    channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: await derive('client'), receive: await derive('desktop'), sent: 0, received: 0, paired: false };
+    channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: await derive('client'), receive: await derive('desktop'), sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve() };
     if (response.knownBrowser) await confirmPairing();
     return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '', canBrowseFolders: !!channel.canBrowseFolders };
 }
@@ -102,9 +101,8 @@ function nonce(sequence) {
     new DataView(bytes.buffer).setBigUint64(4, BigInt(sequence));
     return bytes;
 }
-async function exchange(command) {
-    const current = channel;
-    if (!current) throw new Error('Connect to the desktop launcher first.');
+async function exchange(current, command, signal = current.abort.signal) {
+    signal.throwIfAborted();
     const sequence = ++current.sent;
     const plaintext = encoder.encode(JSON.stringify(command));
     let encrypted;
@@ -112,23 +110,27 @@ async function exchange(command) {
         encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce(sequence), additionalData: encoder.encode(`${current.hash}\nclient\n${sequence}`), tagLength: 128 }, current.send, plaintext);
     } finally { plaintext.fill(0); }
     try {
-        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, ['confirm', 'browse'].includes(command.action) ? 120000 : 15000);
+        signal.throwIfAborted();
+        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, ['confirm', 'browse'].includes(command.action) ? 120000 : 15000, signal);
         if (response.sequence !== current.received + 1 || typeof response.ciphertext !== 'string' || response.ciphertext.length > 60000)
             throw new Error('Invalid desktop response.');
         const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce(response.sequence), additionalData: encoder.encode(`${current.hash}\ndesktop\n${response.sequence}`), tagLength: 128 }, current.receive, unb64(response.ciphertext)));
         try { current.received = response.sequence; return JSON.parse(decoder.decode(bytes)); }
         finally { bytes.fill(0); }
-    } catch (error) { channel = undefined; throw error; }
+    } catch (error) { if (channel === current) channel = undefined; throw error; }
 }
 function send(command) {
-    const result = pending.then(() => exchange(command));
-    pending = result.catch(() => {});
+    const current = channel;
+    if (!current) return Promise.reject(new Error('Connect to the desktop launcher first.'));
+    const result = current.pending.then(() => exchange(current, command));
+    current.pending = result.catch(() => {});
     return result;
 }
 export async function confirmPairing() {
     const current = channel;
     if (!current) throw new Error('Connect again to pair.');
     const reply = await send({ action: 'confirm', code: current.code });
+    current.abort.signal.throwIfAborted();
     if (!reply.paired) throw new Error('Pairing was not confirmed.');
     current.identity.desktop = current.desktop;
     await saveIdentity(current.identity);
@@ -149,7 +151,14 @@ export async function browseFolder() {
 export const status = () => send({ action: 'status' });
 export const cancel = () => channel?.paired ? send({ action: 'cancel' }) : Promise.resolve();
 export async function disconnect() {
-    try { if (channel) await send({ action: 'disconnect' }); } finally { channel = undefined; }
+    const current = channel;
+    if (!current) return;
+    // Invalidate locally before awaiting network work; an old request must never revive this channel.
+    channel = undefined;
+    current.abort.abort();
+    const timeout = AbortSignal.timeout(2000);
+    await current.pending;
+    await exchange(current, { action: 'disconnect' }, timeout);
 }
 export async function forget() {
     try { await disconnect(); } catch { /* Local revocation must work while the desktop is unavailable. */ }
