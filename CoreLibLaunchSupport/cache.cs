@@ -118,7 +118,11 @@ namespace CoreLibLaunchSupport
             }
 
             _cache = new();
-            if (!OperatingSystem.IsWindows()) return;
+            if (!OperatingSystem.IsWindows())
+            {
+                File.Delete(configFile.FullName);
+                return;
+            }
             try
             {
                 var plaintext = System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(configFile.FullName), null, System.Security.Cryptography.DataProtectionScope.CurrentUser);

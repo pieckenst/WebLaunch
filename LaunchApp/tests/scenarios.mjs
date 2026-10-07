@@ -37,6 +37,10 @@ export async function navigationAndPreferences(page, base) {
     await expect(page.getByRole('link', { name: 'Classes', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'Classes', exact: true }).click();
     await expect(page).toHaveURL(base + 'spellborn#classes');
+    await page.getByRole('link', { name: 'Skip to content', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(base + 'spellborn#main');
+    await expect(page.getByRole('heading', { level: 1, name: 'Chronicles of Spellborn' })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + 'counter');
     await openDesktop(page);

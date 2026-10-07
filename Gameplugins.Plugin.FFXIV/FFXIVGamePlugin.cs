@@ -104,14 +104,14 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
             correlationId,
             $"Credential input present: username={(!string.IsNullOrEmpty(credentials.Username))}; password={(!string.IsNullOrEmpty(credentials.Password))}; otp={(!string.IsNullOrEmpty(credentials.OTP))}");
 
-        if (!credentials.IsValid)
-            throw new ArgumentException("Username and password are required.");
-
-        if (!File.Exists(Path.Combine(parameters.GamePath, "game", "ffxiv_dx11.exe")))
-            throw new DirectoryNotFoundException("Select the FFXIV installation folder containing boot and game.");
-
         try
         {
+            if (!credentials.IsValid)
+                throw new ArgumentException("Username and password are required.");
+
+            if (!File.Exists(Path.Combine(parameters.GamePath, "game", "ffxiv_dx11.exe")))
+                throw new DirectoryNotFoundException("Select the FFXIV installation folder containing boot and game.");
+
             FfxivTraceLogger.Stage(correlationId, "Authentication stage starting");
             progress?.Report(new("authenticating", "Signing in to Final Fantasy XIV…"));
 

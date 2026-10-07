@@ -92,4 +92,136 @@ public sealed class LifecycleTests
         Assert.True(renderer.Disposed);
     }
 
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{\"version\":2,\"assembly\":\"bad.dll\"}")]
+    [InlineData("{\"version\":1,\"assembly\":\"../escape.dll\"}")]
+    [InlineData("{\"version\":1}")]
+    public async Task InvalidManifestDoesNotPreventOtherPluginsLoading(string manifest)
+    {
+        using var root = new TemporaryDirectory();
+        CopyPlugin(root.Path, "valid");
+        var invalid = Directory.CreateDirectory(Path.Combine(root.Path, "invalid")).FullName;
+        File.WriteAllText(Path.Combine(invalid, "plugin.json"), manifest);
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+        await host.InitializeAsync();
+        Assert.Equal(2, host.GetLoadedPlugins().Count());
+        Assert.Equal(Path.Combine(invalid, "plugin.json"), Assert.Single(errors).PluginPath);
+    }
+
+    [Fact] public async Task LinkedDirectoryDoesNotPreventOtherPluginsLoading()
+    {
+        using var root = new TemporaryDirectory(); using var outside = new TemporaryDirectory();
+        CopyPlugin(root.Path, "valid");
+        try { Directory.CreateSymbolicLink(Path.Combine(root.Path, "invalid"), outside.Path); }
+        catch (UnauthorizedAccessException) when (OperatingSystem.IsWindows()) { return; }
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+        await host.InitializeAsync();
+        Assert.Equal(2, host.GetLoadedPlugins().Count());
+        Assert.Equal(Path.Combine(root.Path, "invalid"), Assert.Single(errors).PluginPath);
+    }
+
+    private sealed class ControlledAddon : IRunnableAddon, INotifyAddonAfterClose
+    {
+        public string Name => "controlled";
+        public Action OnSetup = () => { }, OnClose = () => { };
+        public bool Ran, Closed;
+        public void Setup(int pid) => OnSetup();
+        public void Run() => Ran = true;
+        public void GameClosed() { Closed = true; OnClose(); }
+    }
+    private sealed class WorkerAddon(Action<CancellationToken> work) : IPersistentAddon, INotifyAddonAfterClose
+    {
+        public string Name => "worker";
+        public int Closed;
+        public void Setup(int pid) { }
+        public void DoWork(object state) => work((CancellationToken)state);
+        public void GameClosed() => Closed++;
+    }
+    private static Process LongRunningGame() => Process.Start(OperatingSystem.IsWindows()
+        ? new ProcessStartInfo("cmd.exe", "/c ping -n 30 127.0.0.1 > nul") { UseShellExecute = false }
+        : new ProcessStartInfo("/bin/sleep", "30") { UseShellExecute = false })!;
+
+    [Fact] public async Task StopDuringStartupWaitsForRollbackAndSkipsFurtherAddonWork()
+    {
+        using var game = LongRunningGame();
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new ControlledAddon { OnSetup = () => { entered.SetResult(); release.Wait(TimeSpan.FromSeconds(10)); } };
+        var second = new ControlledAddon();
+        var start = Task.Run(() => DalamudGameSession.Start(game, [first, second]));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var stop = DalamudGameSession.StopAllAsync();
+            Assert.False(stop.IsCompleted);
+            release.Set();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await start);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stop);
+            Assert.True(first.Closed);
+            Assert.False(first.Ran || second.Ran || second.Closed);
+        }
+        finally { release.Set(); game.Kill(true); await game.WaitForExitAsync(); }
+    }
+
+    [Fact] public async Task BackgroundAddonFailureTriggersCleanupBeforeGameExit()
+    {
+        using var game = LongRunningGame();
+        using var fail = new ManualResetEventSlim();
+        var worker = new WorkerAddon(_ => { fail.Wait(TimeSpan.FromSeconds(10)); throw new IOException("synthetic worker failure"); });
+        var other = new ControlledAddon();
+        try
+        {
+            var session = DalamudGameSession.Start(game, [worker, other]);
+            fail.Set();
+            await Assert.ThrowsAsync<IOException>(() => session.Completion.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.False(game.HasExited);
+            Assert.Equal(1, worker.Closed); Assert.True(other.Closed);
+        }
+        finally { fail.Set(); game.Kill(true); await game.WaitForExitAsync(); }
+    }
+
+    [Fact] public async Task StopWaitsForWorkerAndContinuesAfterCancellationCallbackFailure()
+    {
+        using var game = LongRunningGame();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var worker = new WorkerAddon(token =>
+        {
+            using var registration = token.Register(() => throw new IOException("synthetic cancellation failure"));
+            entered.SetResult(); release.Wait(TimeSpan.FromSeconds(10));
+        });
+        var other = new ControlledAddon();
+        try
+        {
+            var session = DalamudGameSession.Start(game, [worker, other]);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var stop = session.StopAsync();
+            Assert.False(stop.IsCompleted);
+            release.Set();
+            await Assert.ThrowsAsync<AggregateException>(() => stop.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, worker.Closed); Assert.True(other.Closed);
+        }
+        finally { release.Set(); game.Kill(true); await game.WaitForExitAsync(); }
+    }
+
+    [Fact] public void StartupRollbackCleansEveryAddonDespiteCloseFailures()
+    {
+        using var game = LongRunningGame();
+        var first = new ControlledAddon { OnClose = () => throw new IOException("first cleanup") };
+        var second = new ControlledAddon { OnClose = () => throw new IOException("second cleanup") };
+        var third = new ControlledAddon { OnSetup = () => throw new InvalidOperationException("setup") };
+        try
+        {
+            var error = Assert.Throws<AggregateException>(() => DalamudGameSession.Start(game, [first, second, third]));
+            Assert.Equal(3, error.Flatten().InnerExceptions.Count);
+            Assert.True(first.Closed && second.Closed && third.Closed);
+        }
+        finally { game.Kill(true); game.WaitForExit(); }
+    }
+
 }

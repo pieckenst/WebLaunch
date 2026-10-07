@@ -105,7 +105,13 @@ public static class FfxivTraceLogger
     public static void Error(string correlationId, string message, Exception? ex = null)
     {
         if (ex is not null)
-            Log.Error(ex, "[FFXIV:{CorrelationId}] {Message}", correlationId, message);
+            Log.Error("[FFXIV:{CorrelationId}] {Message}; Reason={Reason}", correlationId, message, ex switch
+            {
+                OperationCanceledException => "cancelled",
+                UnauthorizedAccessException => "access denied",
+                IOException => "I/O failure",
+                _ => "launch failure"
+            });
         else
             Log.Error("[FFXIV:{CorrelationId}] {Message}", correlationId, message);
 
@@ -224,33 +230,68 @@ public static class FfxivTraceLogger
             if (_traceFileLogger is not null)
                 return;
 
-            var logsDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "WebLaunch",
-                "Logs");
+            if (!TraceEnabled) return;
+            try
+            {
+                var logsDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "WebLaunch",
+                    "Logs");
 
-            Directory.CreateDirectory(logsDir);
+                Directory.CreateDirectory(logsDir);
+                CleanupTraceFiles(logsDir);
 
-            var fileName = $"ffxiv-trace-{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.log";
-            var fullPath = Path.Combine(logsDir, fileName);
-            _traceFilePath = fullPath;
+                var fileName = $"ffxiv-trace-{DateTime.Now:yyyy-MM-dd_HH-mm-ss}-{Environment.ProcessId}-{Guid.NewGuid():N}.log";
+                var fullPath = Path.Combine(logsDir, fileName);
+                _traceFilePath = fullPath;
 
-            _traceFileLogger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .WriteTo.File(
-                    fullPath,
-                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
-                    shared: false,
-                    encoding: Encoding.UTF8,
-                    flushToDiskInterval: TimeSpan.FromSeconds(1))
-                .CreateLogger();
+                _traceFileLogger = new LoggerConfiguration()
+                    .MinimumLevel.Verbose()
+                    .WriteTo.File(
+                        fullPath,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                        shared: false,
+                        encoding: Encoding.UTF8,
+                        flushToDiskInterval: TimeSpan.FromSeconds(1))
+                    .CreateLogger();
 
-            _traceFileLogger.Information("=== FFXIV trace log started ===");
-            _traceFileLogger.Information("WARNING: This file contains FULL HTTP payloads and may contain plaintext credentials.");
-            _traceFileLogger.Information("WARNING: Do NOT commit or share this file without reviewing and redacting it.");
-            _traceFileLogger.Information("File: {Path}", fullPath);
-            _traceFileLogger.Information("");
+                _traceFileLogger.Information("=== FFXIV trace log started ===");
+                _traceFileLogger.Information("WARNING: This file contains FULL HTTP payloads and may contain plaintext credentials.");
+                _traceFileLogger.Information("WARNING: Do NOT commit or share this file without reviewing and redacting it.");
+                _traceFileLogger.Information("File: {Path}", fullPath);
+                _traceFileLogger.Information("");
+            }
+            catch (Exception)
+            {
+                _traceEnabled = false;
+                (_traceFileLogger as IDisposable)?.Dispose();
+                _traceFileLogger = null;
+                _traceFilePath = null;
+                Log.Warning("FFXIV file tracing disabled: trace file initialization failed.");
+            }
         }
+    }
+
+    // Timestamped files do not roll, so the sink's rolling retention cannot expire them.
+    internal static void CleanupTraceFiles(string logsDir)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(logsDir, "ffxiv-trace-*.log").Take(1000))
+            {
+                try
+                {
+                    var file = new FileInfo(path);
+                    if ((file.Attributes & FileAttributes.ReparsePoint) == 0 && file.LastWriteTimeUtc < cutoff)
+                        file.Delete();
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     /// <summary>

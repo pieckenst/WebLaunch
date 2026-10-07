@@ -1067,7 +1067,16 @@ namespace CoreLibLaunchSupport
         public static CommonUniqueIdCache UniqueIdCache;
         public static List<AddonEntry> AddonEntries { get; } = new();
         private static readonly string UserAgentTemplate = "SQEXAuthor/2.0.0(Windows 6.2; ja-jp; {0})";
-        public List<AddonEntry>? Addons { get; set; }
+        public List<AddonEntry>? Addons
+        {
+            get => AddonEntries;
+            set
+            {
+                var entries = value?.ToArray() ?? Array.Empty<AddonEntry>();
+                AddonEntries.Clear();
+                AddonEntries.AddRange(entries);
+            }
+        }
         static string DalamudRolloutBucket { get; set; }
         private static readonly string UserAgent = GenerateUserAgent();
         private static readonly LauncherPaths Paths = new();

@@ -80,6 +80,13 @@ namespace El_Garnan_Plugin_Loader.Interfaces
                 _cl = _gd.ResourceFactory.CreateCommandList();
                 _imgui = new ImGuiBindings(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
 
+                _window.Resized += () =>
+                {
+                    if (_window.Width <= 0 || _window.Height <= 0) return;
+                    _gd.MainSwapchain.Resize((uint)_window.Width, (uint)_window.Height);
+                    _imgui.WindowResized(_window.Width, _window.Height);
+                };
+
                 _isInitialized = true;
                 _logger.Information("ImGui renderer initialized successfully");
 

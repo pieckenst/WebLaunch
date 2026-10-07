@@ -32,10 +32,15 @@ jobs:
           npx --prefix LaunchApp playwright install --with-deps chromium
           python3 scripts/serve-preview.py > /tmp/web.log 2>&1 &
           dotnet run --project WebLaunch.SmokeHost -c Release --no-build > /tmp/bridge.log 2>&1 &
+          ready=false
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:5148/WebLaunch/ >/dev/null && curl -fsS -X OPTIONS -H 'Origin: http://localhost:5148' http://127.0.0.1:47832/v2/hello >/dev/null; then break; fi
+            if curl -fsS http://localhost:5148/WebLaunch/ >/dev/null && curl -fsS -X OPTIONS -H 'Origin: http://localhost:5148' http://127.0.0.1:47832/v2/hello >/dev/null; then ready=true; break; fi
             sleep 1
           done
+          if [ "$ready" != true ]; then
+            cat /tmp/web.log /tmp/bridge.log || true
+            exit 1
+          fi
           npm test --prefix LaunchApp
       - uses: actions/upload-artifact@v4
         if: failure()

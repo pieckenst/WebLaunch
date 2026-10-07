@@ -156,7 +156,8 @@
                 if (pairingCode.Length > 0 && DateTimeOffset.UtcNow >= pairingExpires)
                 {
                     pairingCode = ""; message = "Pairing expired. Connect again to compare a new code.";
-                    await module.InvokeVoidAsync("disconnect");
+                    try { await module.InvokeVoidAsync("disconnect"); }
+                    catch (JSException ex) { paired = false; actualMode = ""; message = UserMessage(ex); }
                     await InvokeAsync(StateHasChanged);
                 }
                 if (!paired) continue;

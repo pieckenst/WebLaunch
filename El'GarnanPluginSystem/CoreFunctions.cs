@@ -71,25 +71,34 @@ namespace El_Garnan_Plugin_Loader
             directories.Push(pluginsPath);
             while (directories.TryPop(out var directory))
             {
-                SafePath.RejectLinks(directory);
-                var manifest = Path.Combine(directory, "plugin.json");
-                if (File.Exists(manifest))
+                var affectedPath = directory;
+                string[] assemblies;
+                try
                 {
-                    SafePath.RejectLinks(manifest);
-                    using var json = JsonDocument.Parse(File.ReadAllText(manifest));
-                    if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
-                    var assembly = json.RootElement.GetProperty("assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
-                    yield return SafePath.Resolve(directory, assembly);
-                }
-                else
-                {
-                    foreach (var dll in Directory.EnumerateFiles(directory, "*.dll").Order(StringComparer.Ordinal)) yield return dll;
-                    foreach (var child in Directory.EnumerateDirectories(directory))
+                    SafePath.RejectLinks(directory);
+                    var manifest = Path.Combine(directory, "plugin.json");
+                    if (File.Exists(manifest))
                     {
-                        SafePath.RejectLinks(child);
-                        directories.Push(child);
+                        affectedPath = manifest;
+                        SafePath.RejectLinks(manifest);
+                        using var json = JsonDocument.Parse(File.ReadAllText(manifest));
+                        if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
+                        var assembly = json.RootElement.GetProperty("assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
+                        assemblies = [SafePath.Resolve(directory, assembly)];
+                    }
+                    else
+                    {
+                        assemblies = Directory.EnumerateFiles(directory, "*.dll").Order(StringComparer.Ordinal).ToArray();
+                        foreach (var child in Directory.EnumerateDirectories(directory))
+                            directories.Push(child); // Each directory is checked when popped, isolating link failures.
                     }
                 }
+                catch (Exception ex)
+                {
+                    PluginError?.Invoke(this, new PluginErrorEventArgs(affectedPath, ex));
+                    continue;
+                }
+                foreach (var assembly in assemblies) yield return assembly;
             }
         }
         private async Task<bool> LoadAsync(string path)
