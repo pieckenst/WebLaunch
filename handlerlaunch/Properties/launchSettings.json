@@ -2,7 +2,7 @@
   "profiles": {
     "handlerlaunch": {
       "commandName": "Project",
-      "commandLineArgs": "?debugtest=yes-type=imguidebug"
+      "commandLineArgs": "--console"
     }
   }
 }

@@ -289,12 +289,13 @@ public sealed class DesktopPairingPrompt(Window owner) : IPairingPrompt
     }
 }
 
-// Untrusted plugin diagnostic strings must never become credential-bearing logs.
+// Plugin diagnostic strings are forwarded to the SafeDiagnosticLog with message text preserved.
+// Secrets must never be passed here; the SafeDiagnosticLog only stores the event code and minimal fields.
 public class ConsoleLogger : ILogger
 {
-    public void Debug(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginDebug);
-    public void Information(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginInformation);
-    public void Warning(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginWarning);
-    public void Error(string message) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError);
-    public void Error(string message, Exception ex) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError);
+    public void Debug(string message) => Serilog.Log.Verbose("[Plugin] {Message}", message);
+    public void Information(string message) => Serilog.Log.Information("[Plugin] {Message}", message);
+    public void Warning(string message) => Serilog.Log.Warning("[Plugin] {Message}", message);
+    public void Error(string message) => Serilog.Log.Error("[Plugin] {Message}", message);
+    public void Error(string message, Exception ex) => Serilog.Log.Error(ex, "[Plugin] {Message}", message);
 }

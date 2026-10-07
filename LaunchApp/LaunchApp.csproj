@@ -13,6 +13,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+	  <PackageReference Include="System.Net.Http" Version="4.3.4" />
+	  <PackageReference Include="System.Private.Uri" Version="4.3.2" />
+	  <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
+	  <PackageReference Include="AKSoftware.Blazor.Utilities" Version="1.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
     <PackageReference Include="LumexUI" Version="2.4.0" />
