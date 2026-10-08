@@ -1,4 +1,11 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+/* Lumex v2 tokens. Masa owns the shared reset; Tailwind preflight is intentionally omitted. */
+:root, .light {
+    --lumex-primary: var(--color-blue-700);
+    --lumex-primary-foreground: white;
+    --lumex-focus: var(--color-blue-600);
+}
+.dark {
+    --lumex-primary: var(--color-blue-300);
+    --lumex-primary-foreground: var(--color-slate-950);
+    --lumex-focus: var(--color-blue-300);
+}

@@ -7,3 +7,15 @@
 .nx/installation
 .nx/cache
 .nx/workspace-data
+**/bin/
+**/obj/
+**/node_modules/
+*.user
+*.Backup.tmp
+artifacts/
+TestResults/
+playwright-report/
+Plugins/
+**/test-results/
+
+LaunchApp/wwwroot/css/lumex.generated.css

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
@@ -9,10 +9,14 @@
 
   <ItemGroup>
     <PackageReference Include="Serilog" Version="2.12.0" />
+	  <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LibDalamud\LibDalamud.csproj" />
   </ItemGroup>
 
+  <ItemGroup><ProjectReference Include="../WebLaunch.Core/WebLaunch.Core.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="WebLaunch.Tests" /></ItemGroup>
 </Project>

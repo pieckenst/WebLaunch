@@ -1,389 +1,86 @@
-﻿@using LumexUI
-@using LumexUI.Common
-@using LaunchApp.Pages
-@using LaunchApp.Models
-@using AKSoftware.Blazor.Utilities
-
 @inherits LayoutComponentBase
-@inject MasaBlazor MasaBlazor
-@inject IJSRuntime JSRuntime
+@inject LaunchApp.Services.GameNavigation GameNavigation
 @inject NavigationManager Navigation
-@implements IDisposable
+@inject IJSRuntime JS
+@inject MasaBlazor Masa
+@implements IAsyncDisposable
 
-
-<LumexThemeProvider />
-<MApp Dark="@MasaBlazor.Theme.Dark">
-    <MErrorHandler DisablePopupIfErrorContentRender>
-        <ChildContent>
-            <div class="navbar-wrapper">
-                <LumexNavbar Class="default-app-bar" ShouldHideOnScroll>
-                    <LumexNavbarContent>
-                        <LumexNavbarMenuToggle Class="sm:hidden" />
-                        <LumexNavbarBrand Class="ml-4">
-                            <svg fill="none" height="36" viewBox="0 0 32 32" width="36">
-                                <path clip-rule="evenodd" d="M17.6482 10.1305L15.8785 7.02583L7.02979 22.5499H10.5278L17.6482 10.1305ZM19.8798 14.0457L18.11 17.1983L19.394 19.4511H16.8453L15.1056 22.5499H24.7272L19.8798 14.0457Z" fill="currentColor" />
-                            </svg>
-                            <span class="font-bold text-xl ml-2">Game Launcher</span>
-                        </LumexNavbarBrand>
-                    </LumexNavbarContent>
-
-                    <LumexNavbarContent Class="hidden sm:flex justify-center flex-1">
-                        <LumexNavbarItem>
-                            <LumexLink Href="" Color="@ThemeColor.None">
-                                <MIcon>mdi-home</MIcon>
-                                Home
-                            </LumexLink>
-                        </LumexNavbarItem>
-                    </LumexNavbarContent>
-
-                    <LumexNavbarContent Justify="End">
-                        <LumexNavbarItem>
-                            <LumexSwitch StartIcon="@LumexUI.Icons.Rounded.LightMode"
-                                        EndIcon="@LumexUI.Icons.Rounded.DarkMode"
-                                        Size="@Size.Small"
-                                        Value="@MasaBlazor.Theme.Dark"
-                                        ValueChanged="@(async (v) => {
-                                            MasaBlazor.ToggleTheme();
-                                            await JSRuntime.InvokeVoidAsync("switchTheme", MasaBlazor.Theme.Dark);
-                                        })" />
-                        </LumexNavbarItem>
-                        <LumexNavbarItem Class="desktop-launch-button">
-                            <LumexButton Size="@Size.Small" Color="@ThemeColor.Primary" Variant="@Variant.Flat">
-                                Launch Game
-                            </LumexButton>
-                        </LumexNavbarItem>
-                    </LumexNavbarContent>
-
-                    <LumexNavbarMenu Class="sm:hidden">
-                        <LumexNavbarMenuItem>
-                            <LumexLink Href="" Color="@ThemeColor.None">Home</LumexLink>
-                        </LumexNavbarMenuItem>
-                        @if (ShowGameNav)
-                        {
-                            <MDivider Class="my-2"></MDivider>
-                            @foreach (var link in GameNavLinks)
-                            {
-                                <LumexNavbarMenuItem>
-                                    <LumexLink Href="@link.Url" Color="@ThemeColor.None">
-                                        @if (!string.IsNullOrEmpty(link.Icon))
-                                        {
-                                            <MIcon Size="20" Class="mr-2">@link.Icon</MIcon>
-                                        }
-                                        @link.Text
-                                    </LumexLink>
-                                </LumexNavbarMenuItem>
-                            }
-                            <MDivider Class="my-2"></MDivider>
-                            <LumexNavbarMenuItem>
-                                <LumexButton Block Color="@ThemeColor.Primary" Variant="@Variant.Flat">
-                                    Launch Game
-                                </LumexButton>
-                            </LumexNavbarMenuItem>
-                        }
-                    </LumexNavbarMenu>
-                </LumexNavbar>
-
-                @if (ShowGameNav && !MasaBlazor.Breakpoint.Mobile)
-                {               
-                    <div class="game-subheader @(isHiding ? "hiding" : "")">
-                        <LumexNavbar Dense ShouldHideOnScroll>
-                            <LumexNavbarContent Class="justify-center">
-    @foreach (var link in GameNavLinks)
+<MApp Dark="@dark">
+    <a class="skip-link" href="@(Navigation.ToBaseRelativePath(Navigation.Uri).Split('#')[0] + "#main")">Skip to content</a>
+    <LumexNavbar Class="site-header" Height="auto" Blurred="false" Classes="@(new NavbarSlots { Wrapper = "main-nav-content" })">
+        <LumexNavbarContent As="div" Class="brand-group">
+            <LumexNavbarBrand><LumexLink Class="brand" Href="./" Color="LumexUI.Common.ThemeColor.None"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 32 32" fill="currentColor"><path d="M17.648 10.13 15.879 7.026 7.03 22.55h3.498ZM19.88 14.046l-1.77 3.152 1.284 2.253h-2.549l-1.743 3.099h9.625Z" /></svg>Game Launcher</LumexLink></LumexNavbarBrand>
+        </LumexNavbarContent>
+        <LumexNavbarContent Class="main-links">
+            <LumexNavbarItem><LumexLink Href="./" Color="LumexUI.Common.ThemeColor.None"><NavigationIcon Name="overview" /> Home</LumexLink></LumexNavbarItem>
+            <LumexNavbarItem><LumexLink Href="counter" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "counter" ? "page" : null)">Final Fantasy XIV</LumexLink></LumexNavbarItem>
+            <LumexNavbarItem><LumexLink Href="spellborn" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "spellborn" ? "page" : null)">Spellborn</LumexLink></LumexNavbarItem>
+        </LumexNavbarContent>
+        <LumexNavbarContent Class="theme-control">
+            <LumexNavbarItem><LumexSwitch tabindex="-1" Class="theme-toggle" Value="@dark" ValueChanged="SetTheme" Size="LumexUI.Common.Size.Small">Dark theme</LumexSwitch></LumexNavbarItem>
+            <LumexNavbarItem><a class="nav-launch" href="@(GameNavigation.Route is { } route ? route + "#launch" : "./")">Launch Game</a></LumexNavbarItem>
+        </LumexNavbarContent>
+    </LumexNavbar>
+    @if (GameNavigation.Route is not null)
     {
-        <LumexNavbarItem>
-            <LumexLink @onclick="@(() => SelectSection(link.Url, link.PageName))"
-                      Color="@ThemeColor.None"
-                      Class="@(link.IsActive ? "active-link" : "")">
-                @if (!string.IsNullOrEmpty(link.Icon))
-                {
-                    <MIcon Size="20" Class="mr-2">@link.Icon</MIcon>
-                }
-                @link.Text
-            </LumexLink>
-        </LumexNavbarItem>
+        <SectionTabBar Route="@GameNavigation.Route" Sections="@GameNavigation.Sections" ActiveSection="@GameNavigation.ActiveSection">
+            <Menu>
+                <a href="https://github.com/pieckenst/WebLaunch/releases/">Download desktop launcher</a>
+                <a href="@(GameNavigation.Route + "#launch")">Pairing and desktop mode</a>
+            </Menu>
+        </SectionTabBar>
     }
-</LumexNavbarContent>
-                        </LumexNavbar>
-                    </div>
-                }
-            </div>
-
-            <MMain>
-                <MTransition Name="fade-transition" Mode="@TransitionMode.OutIn">
-                    <div class="game-content @(ShowGameNav && !MasaBlazor.Breakpoint.Mobile ? "with-subheader" : "")">
-                        @Body
-                    </div>
-                </MTransition>
-            </MMain>
-        </ChildContent>
-    </MErrorHandler>
+    <main id="main" tabindex="-1">@Body</main>
+    <footer>WebLaunch requires the Windows desktop launcher to start games. <a href="https://github.com/pieckenst/WebLaunch/releases/">Downloads</a></footer>
 </MApp>
-
-<style>
-    ::deep .fade-transition-enter-active,
-    ::deep .fade-transition-leave-active {
-        transition: opacity 0.15s ease;
-    }
-
-    ::deep .fade-transition-enter,
-    ::deep .fade-transition-leave-to {
-        opacity: 0;
-    }
-    .navbar-wrapper {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: 100;
-    }
-
-    .game-content {
-        min-height: 100vh;
-        background-color: var(--theme-background);
-        transition: background-color 0.3s ease;
-        padding-top: var(--navbar-height);
-        margin-top: 0;
-    }
-
-    .game-content.with-subheader {
-        padding-top: calc(var(--navbar-height) + 48px);
-    }
-
-    .default-app-bar {
-        border-bottom: 1px solid rgba(255,255,255,0.12);
-    }
-
-    .game-subheader {
-        width: 100%;
-        background: var(--background-secondary);
-        border-bottom: 1px solid var(--subheader-border);
-        animation: slideDown 0.3s ease-out forwards;
-        transform-origin: top;
-    }
-
-    @@keyframes slideDown {
-        0% {
-            transform: translateY(-100%);
-            opacity: 0;
-        }
-        100% {
-            transform: translateY(0);
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideUp {
-        0% {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        100% {
-            transform: translateY(-100%);
-            opacity: 0;
-        }
-    }
-
-    .game-subheader.hiding {
-        animation: slideUp 0.3s ease-in forwards;
-    }
-
-    .active-link {
-        color: var(--primary) !important;
-        border-bottom: 2px solid var(--primary);
-    }
-
-    .header-content {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        padding: 2rem;
-        color: var(--foreground);
-        animation: fadeIn 0.5s ease-out 0.2s forwards;
-    }
-
-    [data-theme="light"] .header-content {
-        color: var(--background);
-    }
-
-    @@media (max-width: 600px) {
-        .play-card {
-            display: none;
-        }
-    }
-    @@media (max-width: 600px) {
-        .desktop-launch-button {
-            display: none;
-        }
-    }
-
-</style>
-
 @code {
-
-    [Inject]
-    private NavigationManager NavigationManager { get; set; }
-
+    private bool dark;
+    private DotNetObjectReference<MainLayout>? reference;
+    private bool syncNavigation = true;
+    private IJSObjectReference? navigationModule;
+    private IJSObjectReference? module;
     protected override void OnInitialized()
     {
-        NavigationManager.LocationChanged += HandleLocationChanged;
-        base.OnInitialized();
+        GameNavigation.Changed += Update;
+        reference = DotNetObjectReference.Create(this);
+
     }
-
-    
-private void SelectSection(string url, string pageName)
-{
-    Console.WriteLine($"SelectSection called with url: {url}, pageName: {pageName}");
-    
-    var currentUri = new Uri(Navigation.Uri);
-    var pathSegments = currentUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-    var currentPage = pathSegments.Length > 0 ? pathSegments[0] : "";
-    
-    Console.WriteLine($"Current page: {currentPage}");
-    
-    GameNavLinks = GameNavLinks.Select(link => (
-        link.Text,
-        link.Url,
-        link.Icon,
-        link.Url == url && link.PageName == pageName,
-        link.PageName
-    )).ToList();
-    
-    var navigationTarget = $"/{currentPage}?section={url}";
-    Console.WriteLine($"Navigation target: {navigationTarget}");
-    
-    Navigation.NavigateTo(navigationTarget);
-}
-
-
-    private void HandleLocationChanged(object sender, LocationChangedEventArgs e)
-{
-    Console.WriteLine($"Location changed to: {e.Location}");
-    var uri = new Uri(e.Location);
-    var currentPage = uri.AbsolutePath.TrimStart('/');
-    var fragment = uri.Fragment;
-    Console.WriteLine($"Current page: {currentPage}, Fragment: {fragment}");
-
-    if (GameNavLinks.Any(l => l.PageName == currentPage))
+    [JSInvokable] public void BrowserLocationChanged(string location) => GameNavigation.RefreshLocation(location);
+    private void Update()
     {
-        var section = !string.IsNullOrEmpty(fragment) ? fragment.TrimStart('#') : "overview";
-        GameNavLinks = GameNavLinks.Select(link => (
-            link.Text,
-            link.Url,
-            link.Icon,
-            link.Url == section && link.PageName == currentPage,
-            link.PageName
-        )).ToList();
-        StateHasChanged();
+        syncNavigation = true;
+        _ = InvokeAsync(StateHasChanged);
     }
-}
-
-
-    private bool isHiding = false;
-
-    private DotNetObjectReference<MainLayout>? _objRef;
-    public bool ShowGameNav { get; set; }
-    public List<(string Text, string Url, string Icon, bool IsActive, string PageName)> GameNavLinks { get; set; } = new();
-
-
-
-
-
-   
-
-private void NavigateToSection(string url, string pageName)
-{
-    Console.WriteLine($"Navigating to section: {url} on page: {pageName}");
-    var navigationTarget = $"/{pageName}/{url}";
-    Console.WriteLine($"Navigation target: {navigationTarget}");
-    
-    Navigation.NavigateTo(navigationTarget);
-}
-private void UpdateActiveSection(string url)
-{
-    Console.WriteLine($"Updating active section: {url}");
-    GameNavLinks = GameNavLinks.Select(link => (
-        link.Text,
-        link.Url,
-        link.Icon,
-        link.Url == url,
-        link.PageName
-    )).ToList();
-    StateHasChanged();
-}
-
-    
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _objRef = DotNetObjectReference.Create(this);
-        MasaBlazor.MobileChanged += MasaBlazorOnMobileChanged;
-        await InitializeTheme();
-        
-        MessagingCenter.Subscribe<FFXIVpage, List<(string, string, string, bool,string)>>(
-            this, "update_nav", (sender, links) =>
-            {
-                GameNavLinks = links;
-                ShowGameNav = true;
-                StateHasChanged();
-            });
-
-        
-        MessagingCenter.Subscribe<ChroniclesOfSpellborn, List<(string, string, string, bool,string)>>(
-            this, "update_nav", (sender, links) =>
-            {
-                GameNavLinks = links;
-                ShowGameNav = true;
-                StateHasChanged();
-        });
-
-        MessagingCenter.Subscribe<LaunchApp.Pages.Index>(this, "hide_subheader", async (sender) =>
+        if (firstRender)
         {
-            if (ShowGameNav)
-            {
-                isHiding = true;
-                StateHasChanged();
-                await Task.Delay(300);
-                ShowGameNav = false;
-                isHiding = false;
-                GameNavLinks.Clear();
-                StateHasChanged();
-            }
-        });
-    }
-
-    private async Task InitializeTheme()
-    {
-        try
-        {
-            var isDarkPreferred = await JSRuntime.InvokeAsync<bool>("isDarkMode");
-            if (isDarkPreferred != MasaBlazor.Theme.Dark)
-            {
-                MasaBlazor.ToggleTheme();
-                await JSRuntime.InvokeVoidAsync("switchTheme", MasaBlazor.Theme.Dark);
-            }
+            module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
+            navigationModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/navigation.js");
+            var preference = await module.InvokeAsync<string?>("preference", "theme");
+            dark = await module.InvokeAsync<bool>("applyTheme", preference);
+            if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
+            StateHasChanged();
         }
-        catch (Exception ex)
+        if (syncNavigation && navigationModule is not null)
         {
-            Console.WriteLine($"Theme initialization error: {ex.Message}");
-            await JSRuntime.InvokeVoidAsync("switchTheme", MasaBlazor.Theme.Dark);
+            syncNavigation = false;
+            await navigationModule.InvokeVoidAsync("sync", GameNavigation.Route, GameNavigation.ActiveSection, reference);
         }
     }
-
-    private void MasaBlazorOnMobileChanged(object? sender, MobileChangedEventArgs e)
+    private async Task SetTheme(bool enabled)
     {
-        InvokeAsync(StateHasChanged);
+        if (module is null) return;
+        dark = enabled;
+        if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
+        await module.InvokeVoidAsync("preference", "theme", dark ? "dark" : "light");
+        await module.InvokeVoidAsync("applyTheme", dark ? "dark" : "light");
     }
-
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        MasaBlazor.MobileChanged -= MasaBlazorOnMobileChanged;
-        _objRef?.Dispose();
-        MessagingCenter.Unsubscribe<FFXIVpage, List<(string, string, string, bool)>>(this, "update_nav");
-        MessagingCenter.Unsubscribe<ChroniclesOfSpellborn, List<(string, string, string, bool)>>(this, "update_nav");
-
-
-        MessagingCenter.Unsubscribe<LaunchApp.Pages.Index>(this, "hide_subheader");
-
-        NavigationManager.LocationChanged -= HandleLocationChanged;
+        GameNavigation.Changed -= Update;
+        if (navigationModule is not null) { await navigationModule.InvokeVoidAsync("dispose"); await navigationModule.DisposeAsync(); }
+        if (module is not null) await module.DisposeAsync();
+        reference?.Dispose();
     }
 }

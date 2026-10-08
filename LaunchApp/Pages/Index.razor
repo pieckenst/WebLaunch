@@ -1,112 +1,21 @@
-﻿@page "/"
-@inject NavigationManager Navigation
-@inject MasaBlazor MasaBlazor
-
-<PageTitle>Game Launcher</PageTitle>
-
-<MTransition Name="fade-transition" Mode="@TransitionMode.OutIn">
-    <MContainer Fluid>
-        <div class="RatingVersions_ratingVersionsWrapper__Bqq_l">
-            <MImage Src="https://assets.4game.com/frontend/frontend/mmo_logos_v2/GameLauncher.svg" 
-                   Class="RatingVersions_ratingVersionsIcon__IHPnF" />
+@page "/"
+@inject LaunchApp.Services.GameNavigation GameNavigation
+<PageTitle>WebLaunch — your game library</PageTitle>
+<section class="library"><h1 class="visually-hidden">Your game library</h1>
+<div class="game-grid">
+@foreach (var game in _games)
+{
+    <article class="game-card">
+        <div class="game-cover" style="background-image: linear-gradient(0deg, #000d, #0001), url('@game.CoverImage')">
+            <h2>@game.Name</h2><div class="game-tags">@foreach (var tag in game.Tags) { <span>@tag</span> }</div>
         </div>
-        
-        <MRow Class="fill-height" Justify="JustifyTypes.Center">
-            <MCol Cols="12">
-                <div class="game-showcase">
-                    <MRow>
-                        @foreach (var (game, index) in _games.Select((g, i) => (g, i)))
-                        {
-                            <MCol Cols="12" Sm="6" Md="4" Lg="3">
-                                <MCard Class="mx-auto game-card" Style=@($"animation-delay: {index * 0.1}s") Height="400" @onclick="@(() => Navigation.NavigateTo(game.Route))">
-                                    <MImage Src="@game.CoverImage" Height="200" Class="white--text align-end" Gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)">
-                                        <div class="game-card-overlay">
-                                            <MCardTitle>@game.Name</MCardTitle>
-                                            <div class="game-tags">
-                                                @foreach (var tag in game.Tags)
-                                                {
-                                                    <span class="game-tag">@tag</span>
-                                                }
-                                            </div>
-                                        </div>
-                                    </MImage>
-                                    <MCardText>
-                                        <div class="text-subtitle-1 mb-2">@game.Description</div>
-                                        <div class="text-caption">@game.ShortInfo</div>
-                                    </MCardText>
-                                    <MCardActions>
-                                        @if (!MasaBlazor.Breakpoint.Mobile)
-                                        {
-                                            <MButton Color="primary" Text Block>
-                                                Play Now
-                                            </MButton>
-                                        }
-                                    </MCardActions>
-                                </MCard>
-                            </MCol>
-                        }
-                    </MRow>
-                </div>
-            </MCol>
-        </MRow>
-    </MContainer>
-</MTransition>
-
-<style>
-    .game-card {
-        transition: transform 0.2s;
-        cursor: pointer;
-        opacity: 0;
-        animation: fadeIn 0.5s forwards;
-    }
-
-    .game-card:hover {
-        transform: translateY(-5px);
-    }
-
-    .game-showcase {
-        padding: 24px;
-    }
-
-    .game-card-overlay {
-        padding: 16px;
-        background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
-    }
-
-    .game-tags {
-        margin-top: 8px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .game-tag {
-        background: var(--theme-colors-primary);
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.8rem;
-        opacity: 0.8;
-    }
-
-    @@keyframes fadeIn {
-        0% { 
-            opacity: 0; 
-            transform: translateY(20px); 
-        }
-        100% { 
-            opacity: 1; 
-            transform: translateY(0); 
-        }
-    }
-</style>
-
+        <div class="game-card-body"><p>@game.Description</p><small>@game.ShortInfo</small><a class="card-play" href="@game.Route" aria-label="Play now, @game.Name">Play now</a></div>
+    </article>
+}
+</div></section>
 @code {
 
-    protected override void OnInitialized()
-    {
-        // Send message to hide subheader when landing page loads
-        MessagingCenter.Send(this, "hide_subheader");
-    }
+    protected override void OnInitialized() => GameNavigation.Set(null);
     private List<GameInfo> _games = new()
     {
         new GameInfo 
@@ -131,11 +40,11 @@
 
     public class GameInfo
     {
-        public string Name { get; set; }
-        public string Description { get; set; }
-        public string ShortInfo { get; set; }
-        public string Route { get; set; }
-        public string CoverImage { get; set; }
-        public string[] Tags { get; set; }
+        public string Name { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string ShortInfo { get; set; } = "";
+        public string Route { get; set; } = "";
+        public string CoverImage { get; set; } = "";
+        public string[] Tags { get; set; } = [];
     }
 }

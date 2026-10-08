@@ -26,7 +26,7 @@ namespace XIVLauncher.Common.Http
 
         public HttpServer(int port, string version)
         {
-            this.listener = new TcpListener(IPAddress.Any, port);
+            this.listener = new TcpListener(IPAddress.Loopback, port);
 
             this.httpResponse = Encoding.Default.GetBytes(
                 "HTTP/1.0 200 OK\n" +
@@ -52,6 +52,8 @@ namespace XIVLauncher.Common.Http
 
                     var client = this.listener.AcceptTcpClient();
 
+                    client.ReceiveTimeout = 5000;
+                    client.SendTimeout = 5000;
                     while (client.Connected)
                     {
                         var networkStream = client.GetStream();
@@ -60,7 +62,6 @@ namespace XIVLauncher.Common.Http
                         networkStream.Read(message, 0, message.Length);
 
                         var messageString = Encoding.Default.GetString(message);
-                        Debug.WriteLine(Encoding.Default.GetString(message));
 
                         networkStream.Write(httpResponse, 0, httpResponse.Length);
 

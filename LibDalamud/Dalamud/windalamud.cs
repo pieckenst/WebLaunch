@@ -110,7 +110,7 @@ namespace LibDalamud.Common.Dalamud
                 }
                 catch (JsonReaderException ex)
                 {
-                    Console.WriteLine(ex.Message, $"Couldn't parse Dalamud output: {output}");
+                    Console.WriteLine("Could not parse Dalamud process result.");
                     return null;
                 }
             }

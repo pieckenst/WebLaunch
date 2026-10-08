@@ -100,30 +100,19 @@ namespace LibDalamud.Common.Dalamud
             Overlay.ReportProgress(size, downloaded, progress);
         }
 
-        public void Run()
+        private CancellationToken updateCancellation;
+        public void Run() => _ = RunAsync(CancellationToken.None);
+        public async Task RunAsync(CancellationToken cancellationToken)
         {
-            Log.Information("[DUPDATE] Starting...");
-
-            Task.Run(async () =>
+            updateCancellation = cancellationToken;
+            for (var attempt = 0; attempt < 3; attempt++)
             {
-                const int MAX_TRIES = 10;
-
-                for (var tries = 0; tries < MAX_TRIES; tries++)
-                {
-                    try
-                    {
-                        await UpdateDalamud().ConfigureAwait(true);
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error(ex, "[DUPDATE] Update failed, try {TryCnt}/{MaxTries}...", tries, MAX_TRIES);
-                        this.forceProxy = true;
-                    }
-                }
-
-                if (this.State != DownloadState.Done) this.State = DownloadState.Failed;
-            });
+                cancellationToken.ThrowIfCancellationRequested();
+                try { await UpdateDalamud().ConfigureAwait(false); return; }
+                catch (OperationCanceledException) { State = DownloadState.Failed; throw; }
+                catch when (attempt < 2) { forceProxy = true; await Task.Delay(TimeSpan.FromSeconds(attempt + 1), cancellationToken); }
+                catch { State = DownloadState.Failed; throw; }
+            }
         }
 
         private static string GetBetaTrackName(DalamudSettings settings) =>
@@ -141,7 +130,7 @@ namespace LibDalamud.Common.Dalamud
                 NoCache = true,
             };
 
-            var versionInfoJsonRelease = await client.GetStringAsync(DalamudLauncher.REMOTE_BASE + $"release&bucket={this.RolloutBucket}").ConfigureAwait(false);
+            var versionInfoJsonRelease = await client.GetStringAsync(DalamudLauncher.REMOTE_BASE + $"release&bucket={this.RolloutBucket}", updateCancellation).ConfigureAwait(false);
 
             DalamudVersionInfo versionInfoRelease = JsonConvert.DeserializeObject<DalamudVersionInfo>(versionInfoJsonRelease);
 
@@ -149,10 +138,10 @@ namespace LibDalamud.Common.Dalamud
 
             if (!string.IsNullOrEmpty(settings.DalamudBetaKey))
             {
-                var versionInfoJsonStaging = await client.GetAsync(DalamudLauncher.REMOTE_BASE + GetBetaTrackName(settings)).ConfigureAwait(false);
+                var versionInfoJsonStaging = await client.GetAsync(DalamudLauncher.REMOTE_BASE + GetBetaTrackName(settings), updateCancellation).ConfigureAwait(false);
 
                 if (versionInfoJsonStaging.StatusCode != HttpStatusCode.BadRequest)
-                    versionInfoStaging = JsonConvert.DeserializeObject<DalamudVersionInfo>(await versionInfoJsonStaging.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    versionInfoStaging = JsonConvert.DeserializeObject<DalamudVersionInfo>(await versionInfoJsonStaging.Content.ReadAsStringAsync(updateCancellation).ConfigureAwait(false));
             }
 
             return (versionInfoRelease, versionInfoStaging);
@@ -182,8 +171,9 @@ namespace LibDalamud.Common.Dalamud
 
             var versionInfoJson = JsonConvert.SerializeObject(remoteVersionInfo);
 
+            WebLaunch.Core.SafePath.Resolve(this.runtimeDirectory.FullName, remoteVersionInfo.RuntimeVersion);
             var addonPath = new DirectoryInfo(Path.Combine(this.addonDirectory.FullName, "Hooks"));
-            var currentVersionPath = new DirectoryInfo(Path.Combine(addonPath.FullName, remoteVersionInfo.AssemblyVersion));
+            var currentVersionPath = new DirectoryInfo(WebLaunch.Core.SafePath.Resolve(addonPath.FullName, remoteVersionInfo.AssemblyVersion));
             var runtimePaths = new DirectoryInfo[]
             {
                 new(Path.Combine(this.runtimeDirectory.FullName, "host", "fxr", remoteVersionInfo.RuntimeVersion)),
@@ -253,7 +243,7 @@ namespace LibDalamud.Common.Dalamud
             {
                 this.SetOverlayProgress(IDalamudLoadingOverlay.DalamudUpdateStep.Assets);
                 this.ReportOverlayProgress(null, 0, null);
-                AssetDirectory = await AssetManager.EnsureAssets(this.assetDirectory, this.forceProxy).ConfigureAwait(true);
+                AssetDirectory = await AssetManager.EnsureAssets(this.assetDirectory, this.forceProxy, updateCancellation).ConfigureAwait(true);
             }
             catch (Exception ex)
             {
@@ -336,7 +326,7 @@ namespace LibDalamud.Common.Dalamud
 
                 foreach (var hash in hashes)
                 {
-                    var file = Path.Combine(directory.FullName, hash.Key.Replace("\\", "/"));
+                    var file = WebLaunch.Core.SafePath.Resolve(directory.FullName, hash.Key);
                     using var fileStream = File.OpenRead(file);
                     using var md5 = MD5.Create();
 
@@ -402,7 +392,7 @@ namespace LibDalamud.Common.Dalamud
                 File.Delete(downloadPath);
 
             await this.DownloadFile(version.DownloadUrl, downloadPath, this.defaultTimeout).ConfigureAwait(false);
-            ZipFile.ExtractToDirectory(downloadPath, addonPath.FullName);
+            await new WebLaunch.Core.ArchiveInstaller().InstallAsync(downloadPath, addonPath.FullName, updateCancellation);
 
             File.Delete(downloadPath);
 
@@ -444,7 +434,7 @@ namespace LibDalamud.Common.Dalamud
                 Log.Verbose("Hashes file does not exist, redownloading...");
 
                 using var client = new HttpClient();
-                runtimeHashes = await client.GetStringAsync($"https://kamori.goats.dev/Dalamud/Release/Runtime/Hashes/{version}").ConfigureAwait(false);
+                runtimeHashes = await client.GetStringAsync($"https://kamori.goats.dev/Dalamud/Release/Runtime/Hashes/{version}", updateCancellation).ConfigureAwait(false);
 
                 File.WriteAllText(hashesFile.FullName, runtimeHashes);
             }
@@ -478,10 +468,10 @@ namespace LibDalamud.Common.Dalamud
                 File.Delete(downloadPath);
 
             await this.DownloadFile(dotnetUrl, downloadPath, this.defaultTimeout).ConfigureAwait(false);
-            ZipFile.ExtractToDirectory(downloadPath, runtimePath.FullName);
+            await new WebLaunch.Core.ArchiveInstaller().InstallAsync(downloadPath, runtimePath.FullName, updateCancellation);
 
             await this.DownloadFile(desktopUrl, downloadPath, this.defaultTimeout).ConfigureAwait(false);
-            ZipFile.ExtractToDirectory(downloadPath, runtimePath.FullName);
+            await new WebLaunch.Core.ArchiveInstaller().InstallAsync(downloadPath, runtimePath.FullName, updateCancellation);
 
             File.Delete(downloadPath);
         }
@@ -496,7 +486,7 @@ namespace LibDalamud.Common.Dalamud
             using var downloader = new HttpClientDownloadWithProgress(url, path);
             downloader.ProgressChanged += this.ReportOverlayProgress;
 
-            await downloader.Download(timeout).ConfigureAwait(false);
+            await downloader.Download(timeout, updateCancellation).ConfigureAwait(false);
         }
     }
 }

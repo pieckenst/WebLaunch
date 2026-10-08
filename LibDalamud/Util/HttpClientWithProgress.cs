@@ -22,12 +22,15 @@ public class HttpClientDownloadWithProgress : IDisposable
         this.destinationFilePath = destinationFilePath;
     }
 
-    public async Task Download(TimeSpan? timeout = null)
+    private System.Threading.CancellationToken cancellationToken;
+    public Task Download(TimeSpan? timeout = null) => Download(timeout, System.Threading.CancellationToken.None);
+    public async Task Download(TimeSpan? timeout, System.Threading.CancellationToken token)
     {
+        cancellationToken = token;
         timeout ??= TimeSpan.FromDays(1);
         this.httpClient = new HttpClient { Timeout = timeout.Value };
 
-        using var response = await this.httpClient.GetAsync(this.downloadUrl, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        using var response = await this.httpClient.GetAsync(this.downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         await this.DownloadFileFromHttpResponseMessage(response).ConfigureAwait(false);
     }
 
@@ -37,7 +40,7 @@ public class HttpClientDownloadWithProgress : IDisposable
 
         var totalBytes = response.Content.Headers.ContentLength;
 
-        using var contentStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await this.ProcessContentStream(totalBytes, contentStream).ConfigureAwait(false);
     }
 
@@ -52,7 +55,7 @@ public class HttpClientDownloadWithProgress : IDisposable
 
         do
         {
-            var bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+            var bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
 
             if (bytesRead == 0)
             {
@@ -61,7 +64,7 @@ public class HttpClientDownloadWithProgress : IDisposable
                 continue;
             }
 
-            await fileStream.WriteAsync(buffer, 0, bytesRead).ConfigureAwait(false);
+            await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken).ConfigureAwait(false);
 
             totalBytesRead += bytesRead;
             readCount += 1;
