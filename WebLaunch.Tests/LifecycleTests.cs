@@ -62,6 +62,32 @@ public sealed class LifecycleTests
         Assert.True(File.Exists(host.GetPlugin("legacy-fixture").GetType().Assembly.Location));
     }
 
+    [Fact] public async Task AnotherManagerCannotRemoveLiveShadowFiles()
+    {
+        using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
+        File.WriteAllText(Path.Combine(root.Path, "one", "dependency.txt"), "lazy dependency");
+        await using var first = new CoreFunctions(root.Path, new Logger(), false, false);
+        await first.InitializeAsync();
+        var firstShadow = Path.GetDirectoryName(first.GetPlugin("legacy-fixture").GetType().Assembly.Location)!;
+        var firstRoot = Path.GetDirectoryName(firstShadow)!;
+        var second = new CoreFunctions(root.Path, new Logger(), false, false);
+        string secondRoot;
+        await using (second)
+        {
+            await second.InitializeAsync();
+            var secondShadow = Path.GetDirectoryName(second.GetPlugin("legacy-fixture").GetType().Assembly.Location)!;
+            secondRoot = Path.GetDirectoryName(secondShadow)!;
+            Assert.NotEqual(firstRoot, secondRoot);
+            Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
+            Assert.Throws<IOException>(() => new FileStream(firstRoot + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None));
+        }
+        Assert.False(Directory.Exists(secondRoot));
+        Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
+        await first.DisposeAsync();
+        Assert.False(Directory.Exists(firstRoot));
+        Assert.False(File.Exists(firstRoot + ".lock"));
+    }
+
     [Fact] public async Task PluginActionsRunConcurrentlyAndUnloadWaitsForEveryLease()
     {
         using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");

@@ -27,6 +27,8 @@ namespace El_Garnan_Plugin_Loader
             }
         }
         private static readonly string ShadowRoot = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins");
+        private readonly string managerShadowRoot = Path.Combine(ShadowRoot, Guid.NewGuid().ToString("N"));
+        private FileStream? shadowRootLock;
         private readonly string pluginsPath;
         private readonly ILogger logger;
         private readonly bool hotReload;
@@ -63,9 +65,21 @@ namespace El_Garnan_Plugin_Loader
                 if (initialized) return;
                 Directory.CreateDirectory(pluginsPath);
                 Directory.CreateDirectory(ShadowRoot);
+                // Lock before publishing the directory so concurrent cleanup cannot claim it.
+                shadowRootLock ??= LockShadowRoot(managerShadowRoot);
+                Directory.CreateDirectory(managerShadowRoot);
                 try
                 {
-                    foreach (var directory in Directory.EnumerateDirectories(ShadowRoot)) TryDeleteShadow(directory);
+                    foreach (var directory in Directory.EnumerateDirectories(ShadowRoot))
+                    {
+                        try
+                        {
+                            using (LockShadowRoot(directory)) TryDeleteShadow(directory);
+                            if (!Directory.Exists(directory)) File.Delete(directory + ".lock");
+                        }
+                        catch (IOException) { } // A live manager or another cleaner owns this root.
+                        catch (UnauthorizedAccessException) { }
+                    }
                 }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
@@ -136,7 +150,7 @@ namespace El_Garnan_Plugin_Loader
             {
                 SafePath.RejectLinks(path);
                 // Shadow copies let Windows replace plugin files while an old context finishes unloading.
-                shadow = Path.Combine(ShadowRoot, Guid.NewGuid().ToString("N"));
+                shadow = Path.Combine(managerShadowRoot, Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(shadow);
                 var sourceDirectory = Path.GetDirectoryName(path)!;
                 var manifest = Path.Combine(sourceDirectory, "plugin.json");
@@ -258,6 +272,8 @@ namespace El_Garnan_Plugin_Loader
                 PluginUnloaded?.Invoke(this, new PluginUnloadEventArgs(id));
             }
         }
+        private static FileStream LockShadowRoot(string path) =>
+            new(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         private static void TryDeleteShadow(string path)
         {
             try { Directory.Delete(path, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
@@ -338,8 +354,16 @@ namespace El_Garnan_Plugin_Loader
             disposed = true; watcher?.Dispose(); await lifetime.CancelAsync();
             if (watchTask is not null) await watchTask;
             if (renderStopped is not null) await renderStopped.Task;
-            await UnloadAllPluginsAsync();
-            lifetime.Dispose();
+            try { await UnloadAllPluginsAsync(); }
+            finally
+            {
+                TryDeleteShadow(managerShadowRoot);
+                shadowRootLock?.Dispose();
+                try { if (!Directory.Exists(managerShadowRoot)) File.Delete(managerShadowRoot + ".lock"); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                lifetime.Dispose();
+            }
         }
     }
     public class PluginValidationException : Exception

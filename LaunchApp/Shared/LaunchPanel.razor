@@ -262,6 +262,7 @@
         launchCancellation = cancellation;
         launchCancellationConfirmed = false;
         launchAttempted = true; busy = true; message = "Submitting launch request…";
+        var completed = false;
         try
         {
             await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
@@ -270,6 +271,7 @@
             message = reply.Status.Message;
             password = otp = ""; request.ClearCredentials();
             await Poll(cancellation.Token);
+            completed = true;
         }
         catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); message = UserMessage(ex); paired = false; }
         catch (OperationCanceledException)
@@ -280,6 +282,8 @@
         finally
         {
             launchCancellation = null;
+            // The desktop bridge accepts one launch per session.
+            if (completed) message += " Reconnect to launch again or browse folders.";
             request.ClearCredentials(); password = otp = ""; busy = false; paired = false; actualMode = ""; focusTarget = "launch-status";
             try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { }
         }

@@ -32,7 +32,7 @@ public sealed class SpellbornPlugin : GamePluginBase, ICancellableGamePlugin
         var versions = new SpellbornVersionStore();
         var updater = new SpellbornUpdater(client, versions, new ArchiveInstaller());
         try { await updater.EnsureUpdatedAsync(parameters.GamePath, progress, token); }
-        catch (Exception ex) when (ex is not OperationCanceledException && !updater.InstallationStarted)
+        catch (Exception) when (!token.IsCancellationRequested && !updater.InstallationStarted)
         {
             token.ThrowIfCancellationRequested();
             var installed = versions.Read(parameters.GamePath);

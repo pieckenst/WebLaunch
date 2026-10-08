@@ -139,7 +139,9 @@ export async function secureLaunch(page, base) {
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel launch' })).toBeVisible();
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
-    await expect(page.locator('.launch-status')).toHaveText('Game process started.', { timeout: 15000 });
+    await expect(page.locator('.launch-status')).toHaveText('Game process started. Reconnect to launch again or browse folders.', { timeout: 15000 });
+    await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeDisabled();
     await desktopSettings(page);
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Pairing saved · disconnected');
     expect(page.url()).not.toContain('synthetic');
@@ -151,7 +153,7 @@ export async function secureLaunch(page, base) {
     await page.getByLabel('Password', { exact: true }).fill('synthetic-cancel');
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel launch' }).click();
-    await expect(page.locator('.launch-status')).toHaveText('Launch cancelled.', { timeout: 15000 });
+    await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
 }
 export async function unavailableHandler(page, base) {
     await page.goto(base + 'spellborn');
@@ -293,7 +295,7 @@ export async function disconnect() { window.launchDisconnected = true; }
             await expect.poll(() => page.evaluate(() => window.launchStatusStarted)).toBe(2);
             expect(await page.evaluate(() => !!window.launchDisconnected)).toBe(false);
             await page.evaluate(state => window.finishLaunchStatus({ status: { state, message: 'Terminal: ' + state, completed: true } }), terminalState);
-            await expect(page.locator('.launch-status')).toHaveText('Terminal: ' + terminalState);
+            await expect(page.locator('.launch-status')).toHaveText('Terminal: ' + terminalState + ' Reconnect to launch again or browse folders.');
         }
     } else if (action === 'timeout') {
         await page.clock.fastForward(2 * 60 * 60 * 1000 + 1000);

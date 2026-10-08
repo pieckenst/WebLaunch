@@ -34,6 +34,22 @@ public sealed class SpellbornLaunchTests
         if (version == "1.0") Assert.IsType<FileNotFoundException>(error);
         else Assert.IsType<HttpRequestException>(error);
     }
+    [Theory][InlineData(null)][InlineData("1.0")]
+    public async Task ServerTimeoutOnlyFallsBackForRecordedInstallation(string? version)
+    {
+        using var root = new TemporaryDirectory();
+        if (version is not null) File.WriteAllText(Path.Combine(root.Path, ".weblaunch-version"), version);
+        using var http = new HttpClient(new Transport(async token =>
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return new(HttpStatusCode.OK);
+        })) { Timeout = TimeSpan.FromMilliseconds(100) };
+        var plugin = new SpellbornPlugin(new Logger(), http);
+        var error = await Record.ExceptionAsync(() => plugin.LaunchAsync(new() { GamePath = root.Path }, new Progress<LaunchStatus>(), default));
+        if (version is not null) Assert.IsType<FileNotFoundException>(error);
+        else Assert.IsAssignableFrom<OperationCanceledException>(error);
+    }
+
     [Fact] public async Task VersionWriteFailureAfterCommitDoesNotLaunchStaleInstallation()
     {
         using var root = new TemporaryDirectory();
