@@ -106,3 +106,13 @@ for (const action of ['cancel', 'timeout', 'navigate']) {
         await pendingLaunchStatus(page, base, action);
     });
 }
+
+for (const state of ['cancelled', 'launched', 'failed']) {
+    test(`nonterminal cancel keeps polling until ${state}`, async ({ page }) => {
+        await pendingLaunchStatus(page, base, 'cancel-pending', state);
+    });
+}
+
+test('nonterminal cancel retains the launch monitoring deadline', async ({ page }) => {
+    await pendingLaunchStatus(page, base, 'cancel-pending-timeout');
+});

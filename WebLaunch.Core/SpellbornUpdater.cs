@@ -12,6 +12,8 @@ public interface IInstalledVersionStore
 }
 public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore versions, ArchiveInstaller installer)
 {
+    // Once installation starts, recovery or a failed commit may leave changed files.
+    public bool InstallationStarted { get; private set; }
     private static readonly Uri BaseUri = new("https://files.spellborn.org/");
     private sealed class Release
     {
@@ -64,6 +66,7 @@ public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore v
                     throw new InvalidDataException("Download checksum mismatch.");
             }
             progress.Report(new("updating", "Installing verified game files…"));
+            InstallationStarted = true;
             await installer.InstallAsync(temporary, root, token, () => versions.Write(root, release.Version));
         }
         finally { File.Delete(temporary); }

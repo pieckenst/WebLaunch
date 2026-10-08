@@ -248,7 +248,7 @@ export async function browserRecovery(page, base) {
     } finally { page.off('console', observe); }
 }
 
-export async function pendingLaunchStatus(page, base, action) {
+export async function pendingLaunchStatus(page, base, action, terminalState = 'cancelled') {
     await page.route('**/js/bridge.js', async route => {
         const response = await route.fetch();
         let body = await response.text();
@@ -259,26 +259,42 @@ export async function pendingLaunchStatus(page, base, action) {
         body += `
 export async function connect() { return { paired: true, code: '', desktopMode: 'gui' }; }
 export async function launch() { return { status: { message: 'Synthetic pending launch', completed: false } }; }
-export function status() { window.launchStatusStarted = true; return new Promise(resolve => { window.finishLaunchStatus = resolve; }); }
-export async function cancel() { window.launchCancelSent = true; }
+export function status() { window.launchStatusStarted = (window.launchStatusStarted || 0) + 1; return new Promise(resolve => { window.finishLaunchStatus = resolve; }); }
+export async function cancel() { window.launchCancelSent = true; return { status: ${JSON.stringify(action.startsWith('cancel-pending') ? { message: 'Cancellation requested; still updating.', completed: false } : { message: 'Launch cancelled.', completed: true })} }; }
 export async function disconnect() { window.launchDisconnected = true; }
 `;
         await route.fulfill({ response, body });
     });
     await prepare(page, base);
     await page.goto(base + 'spellborn');
-    if (action === 'timeout') await page.clock.install();
+    if (action.endsWith('timeout')) await page.clock.install();
     await page.locator('.connection-summary').click();
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
     await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
-    if (action === 'timeout') await page.clock.runFor(1100);
+    if (action.endsWith('timeout')) await page.clock.runFor(1100);
     await expect.poll(() => page.evaluate(() => !!window.launchStatusStarted)).toBe(true);
     if (action === 'cancel') {
         await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
         await expect(page.locator('.launch-status')).toHaveText('Launch cancelled.');
         expect(await page.evaluate(() => window.launchCancelSent)).toBe(true);
+    } else if (action.startsWith('cancel-pending')) {
+        await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
+        await expect(page.locator('.launch-status')).toHaveText('Cancellation requested; still updating.');
+        expect(await page.evaluate(() => !!window.launchDisconnected)).toBe(false);
+        await expect(page.getByRole('button', { name: 'Cancel launch', exact: true })).toBeVisible();
+        if (action.endsWith('timeout')) {
+            await page.clock.fastForward(2 * 60 * 60 * 1000 + 1000);
+            await expect(page.locator('.launch-status')).toContainText('monitoring timed out');
+        } else {
+            await page.evaluate(() => window.finishLaunchStatus({ status: { message: 'Still updating after cancel', completed: false } }));
+            await expect(page.locator('.launch-status')).toHaveText('Still updating after cancel');
+            await expect.poll(() => page.evaluate(() => window.launchStatusStarted)).toBe(2);
+            expect(await page.evaluate(() => !!window.launchDisconnected)).toBe(false);
+            await page.evaluate(state => window.finishLaunchStatus({ status: { state, message: 'Terminal: ' + state, completed: true } }), terminalState);
+            await expect(page.locator('.launch-status')).toHaveText('Terminal: ' + terminalState);
+        }
     } else if (action === 'timeout') {
         await page.clock.fastForward(2 * 60 * 60 * 1000 + 1000);
         await expect(page.locator('.launch-status')).toContainText('monitoring timed out');

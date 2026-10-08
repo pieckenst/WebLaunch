@@ -85,7 +85,7 @@
     private IJSObjectReference? module, dialogModule;
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
-    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancelRequested;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed;
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
@@ -260,7 +260,7 @@
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         cancellation.CancelAfter(TimeSpan.FromHours(2));
         launchCancellation = cancellation;
-        launchCancelRequested = false;
+        launchCancellationConfirmed = false;
         launchAttempted = true; busy = true; message = "Submitting launch request…";
         try
         {
@@ -274,7 +274,7 @@
         catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); message = UserMessage(ex); paired = false; }
         catch (OperationCanceledException)
         {
-            if (!lifetime.IsCancellationRequested && !launchCancelRequested)
+            if (!lifetime.IsCancellationRequested && !launchCancellationConfirmed)
                 message = "Launch monitoring timed out. Check the desktop launcher before trying again.";
         }
         finally
@@ -298,16 +298,21 @@
     {
         password = otp = "";
         var cancellation = launchCancellation;
-        launchCancelRequested = true;
         using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         requestTimeout.CancelAfter(TimeSpan.FromSeconds(10));
-        try { await module!.InvokeVoidAsync("cancel", requestTimeout.Token); message = "Launch cancelled."; }
+        try
+        {
+            var reply = await module!.InvokeAsync<Reply>("cancel", requestTimeout.Token);
+            if (cancellation is null || !ReferenceEquals(launchCancellation, cancellation)) return;
+            message = reply.Status.Message;
+            if (reply.Status.Completed)
+            {
+                launchCancellationConfirmed = true;
+                cancellation.Cancel();
+            }
+        }
         catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
         catch (OperationCanceledException) { message = "Could not confirm cancellation. Check the desktop launcher."; }
-        finally
-        {
-            if (ReferenceEquals(launchCancellation, cancellation)) cancellation?.Cancel();
-        }
     }
     // JS errors are user-facing controlled messages; strip the runtime-added stack trace.
     private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];
