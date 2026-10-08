@@ -987,6 +987,7 @@ namespace CoreLibLaunchSupport
                     _ => null
                 };
             }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
             catch (HttpRequestException) { return null; }
             catch (JsonException) { return null; }
         }
@@ -1172,7 +1173,7 @@ namespace CoreLibLaunchSupport
         Log.Information("[{Component}] Started addon session with {Count} addons", nameof(networklogic), enabledAddons.Length);
         return ffxivgame;
     }
-    catch (OperationCanceledException) { throw; }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
     catch (Exception exc)
     {
         Log.Error(exc, "[{Component}] Game launch failed", nameof(networklogic));
@@ -1276,7 +1277,7 @@ namespace CoreLibLaunchSupport
                 Log.Information("[{Component}] Acquired unique session identifier", nameof(networklogic));
                 return uniqueId;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (NoValidSubscriptionException)
             {
                 Log.Warning("[{Component}] Subscription validation failed", nameof(networklogic));

@@ -26,7 +26,7 @@ export async function navigationAndPreferences(page, base) {
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     expect(await page.evaluate(() => localStorage.getItem('unrelated-app'))).toBe('keep');
-    await page.getByRole('link', { name: 'Open Final Fantasy XIV', exact: true }).focus();
+    await page.getByRole('link', { name: 'Play now, Final Fantasy XIV', exact: true }).focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { level: 1, name: 'Final Fantasy XIV' })).toBeVisible();
     await page.getByRole('link', { name: 'Story', exact: true }).click();

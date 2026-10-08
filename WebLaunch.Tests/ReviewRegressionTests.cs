@@ -18,17 +18,19 @@ public sealed class ReviewRegressionTests
 {
     private sealed class PluginLogger : El_Garnan_Plugin_Loader.Interfaces.ILogger
     {
+        public List<(string Message, Exception? Exception)> Errors { get; } = [];
         public void Debug(string message) { }
         public void Information(string message) { }
         public void Warning(string message) { }
-        public void Error(string message) { }
-        public void Error(string message, Exception exception) { }
+        public void Error(string message) => Errors.Add((message, null));
+        public void Error(string message, Exception exception) => Errors.Add((message, exception));
     }
     [Theory][InlineData(false)][InlineData(true)]
     public async Task ValidationFailuresStillClearCredentials(bool validCredentials)
     {
         using var root = new TemporaryDirectory();
-        var plugin = new FFXIVGamePlugin(new PluginLogger());
+        var logger = new PluginLogger();
+        var plugin = new FFXIVGamePlugin(logger);
         var credentials = new GameCredentials
         {
             Username = validCredentials ? "test" : "",
@@ -48,6 +50,10 @@ public sealed class ReviewRegressionTests
             Assert.IsType<ArgumentException>(error);
             Assert.Equal("Username and password are required.", error.Message);
         }
+        var logged = Assert.Single(logger.Errors);
+        Assert.Equal($"FFXIV launch failed: {error!.GetType().Name}", logged.Message);
+        Assert.Null(logged.Exception);
+        Assert.DoesNotContain(error.Message, logged.Message);
         Assert.Equal("", credentials.Password); Assert.Equal("", credentials.OTP); Assert.Equal("", credentials.Token);
         Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_PASSWORD"));
         Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_OTP"));

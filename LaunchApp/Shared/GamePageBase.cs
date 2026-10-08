@@ -15,9 +15,12 @@ public abstract class GamePageBase : ComponentBase
     {
         GameNavigation.Set(GameRoute, PageSections);
         var fragment = new Uri(GameNavigation.Location).Fragment.TrimStart('#');
-        var requested = Section ?? QuerySection ?? (fragment.Length > 0 ? Uri.UnescapeDataString(fragment) : null);
+        var explicitRequest = Section ?? QuerySection;
+        var requested = explicitRequest ?? (fragment.Length > 0 ? Uri.UnescapeDataString(fragment) : null);
         if (requested is null) return;
-        var selected = GameNavigation.Sections.FirstOrDefault(s => s.Id.Equals(requested, StringComparison.OrdinalIgnoreCase))?.Id ?? "overview";
+        var selected = GameNavigation.Sections.FirstOrDefault(s => s.Id.Equals(requested, StringComparison.OrdinalIgnoreCase))?.Id;
+        if (selected is null && explicitRequest is null) return;
+        selected ??= "overview";
         var target = GameRoute + "#" + selected;
         if (Navigation.ToBaseRelativePath(GameNavigation.Location) != target)
             Navigation.NavigateTo(target, replace: true);

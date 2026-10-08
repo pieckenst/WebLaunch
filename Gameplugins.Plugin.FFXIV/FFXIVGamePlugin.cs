@@ -167,7 +167,7 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
         }
         catch (Exception ex)
         {
-            Logger.Error($"FFXIV launch failed: {ex.Message}", ex);
+            Logger.Error($"FFXIV launch failed: {ex.GetType().Name}");
             FfxivTraceLogger.Error(correlationId, "Plugin launch failed", ex);
             throw;
         }

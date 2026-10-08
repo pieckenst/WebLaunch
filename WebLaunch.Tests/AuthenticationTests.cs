@@ -66,6 +66,15 @@ public sealed class AuthenticationTests
         using var http = new HttpClient(new Transport((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"status\":1}") })));
         Assert.Null(await new WorldStatusService(http, "test").CheckGateStatusAsync(default));
     }
+    [Fact] public async Task WorldAvailabilityTimeoutIsUnknown()
+    {
+        using var http = new HttpClient(new Transport((_, _) => throw new TaskCanceledException("HTTP timeout")));
+        using var cancellation = new CancellationTokenSource();
+        var service = new WorldStatusService(http, "test");
+        Assert.Null(await service.CheckGateStatusAsync(cancellation.Token));
+        Assert.Null(await service.CheckLoginStatusAsync(cancellation.Token));
+        Assert.False(cancellation.IsCancellationRequested);
+    }
     [Fact] public async Task WorldAvailabilityCancellationPropagates()
     {
         using var http = new HttpClient(new Transport(async (_, token) => { await Task.Delay(Timeout.Infinite, token); return new(HttpStatusCode.OK); }));
