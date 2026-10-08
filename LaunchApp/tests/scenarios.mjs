@@ -247,3 +247,49 @@ export async function browserRecovery(page, base) {
         await expect(page.getByRole('heading', { name: 'Final Fantasy XIV', exact: true })).toBeVisible();
     } finally { page.off('console', observe); }
 }
+
+export async function pendingLaunchStatus(page, base, action) {
+    await page.route('**/js/bridge.js', async route => {
+        const response = await route.fetch();
+        let body = await response.text();
+        for (const name of ['connect', 'launch', 'disconnect'])
+            body = body.replace(`export async function ${name}(`, `async function original_${name}(`);
+        body = body.replace('export const status =', 'const original_status =');
+        body = body.replace('export const cancel =', 'const original_cancel =');
+        body += `
+export async function connect() { return { paired: true, code: '', desktopMode: 'gui' }; }
+export async function launch() { return { status: { message: 'Synthetic pending launch', completed: false } }; }
+export function status() { window.launchStatusStarted = true; return new Promise(resolve => { window.finishLaunchStatus = resolve; }); }
+export async function cancel() { window.launchCancelSent = true; }
+export async function disconnect() { window.launchDisconnected = true; }
+`;
+        await route.fulfill({ response, body });
+    });
+    await prepare(page, base);
+    await page.goto(base + 'spellborn');
+    if (action === 'timeout') await page.clock.install();
+    await page.locator('.connection-summary').click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
+    await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
+    await page.getByRole('button', { name: 'Launch game', exact: true }).click();
+    if (action === 'timeout') await page.clock.runFor(1100);
+    await expect.poll(() => page.evaluate(() => !!window.launchStatusStarted)).toBe(true);
+    if (action === 'cancel') {
+        await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
+        await expect(page.locator('.launch-status')).toHaveText('Launch cancelled.');
+        expect(await page.evaluate(() => window.launchCancelSent)).toBe(true);
+    } else if (action === 'timeout') {
+        await page.clock.fastForward(2 * 60 * 60 * 1000 + 1000);
+        await expect(page.locator('.launch-status')).toContainText('monitoring timed out');
+    } else {
+        // Force an internal route change while the modal and JS status promise are pending.
+        await page.evaluate(() => document.querySelector('a[href="./"]').click());
+        await expect(page.getByRole('heading', { name: 'Your game library' })).toBeVisible();
+    }
+    await expect.poll(() => page.evaluate(() => !!window.launchDisconnected)).toBe(true);
+    await expect(page.getByRole('button', { name: 'Cancel launch', exact: true })).not.toBeVisible();
+    await page.evaluate(() => window.finishLaunchStatus({ status: { message: 'Late launch result', completed: true } }));
+    await expect(page.getByText('Late launch result', { exact: true })).toHaveCount(0);
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+}

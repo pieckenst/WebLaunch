@@ -22,15 +22,15 @@ public sealed class DesktopLaunchService(CoreFunctions plugins, Action<LaunchSta
         };
         try
         {
-            var ok = await plugins.UsePluginAsync(request.Game + "-launcher", async plugin =>
+            var ok = await plugins.UsePluginAsync(request.Game + "-launcher", async (plugin, token) =>
             {
                 if (plugin is ICancellableGamePlugin modern)
-                    return await modern.LaunchAsync(parameters, new WebLaunch.Bridge.InlineProgress<LaunchStatus>(s => { progress.Report(s); desktopStatus(s); }), cancellationToken);
+                    return await modern.LaunchAsync(parameters, new WebLaunch.Bridge.InlineProgress<LaunchStatus>(s => { progress.Report(s); desktopStatus(s); }), token);
                 // Compatibility values are handed only to trusted, in-process plugins, never ProcessStartInfo.Environment.
                 parameters.EnvironmentVariables["FFXIV_USERNAME"] = request.Username;
                 parameters.EnvironmentVariables["FFXIV_PASSWORD"] = request.Password;
                 parameters.EnvironmentVariables["FFXIV_OTP"] = request.Otp;
-                cancellationToken.ThrowIfCancellationRequested();
+                token.ThrowIfCancellationRequested();
                 return await plugin.LaunchGameAsync(parameters);
             }, cancellationToken);
             if (!ok) throw new InvalidOperationException("The game could not start.");

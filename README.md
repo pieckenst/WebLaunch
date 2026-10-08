@@ -55,6 +55,8 @@ install/register the handler or copy plugins into arbitrary directories.
 LaunchApp uses LumexUI 2.4.0 alongside MasaBlazor. Its build invokes the pinned
 Tailwind v4 CLI through `npm run build:css`. Package theme inputs are resolved from
 NuGet restore metadata and staged under `obj`; generated CSS stays out of Git.
+For builds without Node/npm dependencies, pass `-p:SkipLumexStyles=true` to skip
+CSS generation (browser styling requires previously generated CSS).
 The Tailwind 4.3.0 lockfile uses Parcel watcher 2.6.0, avoiding the vulnerable
 watcher dependency pinned by CLI 4.3.3. Both themes use Lumex CSS tokens, synchronized
 with Masa and the namespaced WebLaunch preference.

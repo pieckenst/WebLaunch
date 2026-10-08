@@ -6,6 +6,7 @@
 <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
 <ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
 <ProjectReference Include="../CoreLibLaunchSupport/CoreLibLaunchSupport.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
 <ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
 <ProjectReference Include="../El'GarnanPluginSystem/El'GarnanPluginSystem.csproj" />
 <ProjectReference Include="../WebLaunch.TestPlugin/WebLaunch.TestPlugin.csproj" ReferenceOutputAssembly="false" />

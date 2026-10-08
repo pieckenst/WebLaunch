@@ -40,7 +40,12 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
                     var gate = networklogic.CheckGateStatusAsync(token);
                     var login = networklogic.CheckLoginStatusAsync(token);
                     await Task.WhenAll(gate, login);
-                    serverStatus = await gate && await login ? "Servers available" : "Servers unavailable";
+                    serverStatus = (await gate, await login) switch
+                    {
+                        (null, _) or (_, null) => "Server status unknown",
+                        (true, true) => "Servers available",
+                        _ => "Servers unavailable"
+                    };
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
                 catch (Exception ex)

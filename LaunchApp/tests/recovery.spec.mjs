@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { prepare } from './scenarios.mjs';
+import { prepare, pendingLaunchStatus } from './scenarios.mjs';
 
 const base = process.env.WEBLAUNCH_TEST_URL || 'http://localhost:5148/WebLaunch/';
 
@@ -100,3 +100,9 @@ test('disconnect aborts the bridge request without saving late pairing approval'
     });
     expect(result).toEqual({ aborted: true, outcome: 'cancelled', saved: false, freshCode: expect.stringMatching(/^\d{6}$/) });
 });
+
+for (const action of ['cancel', 'timeout', 'navigate']) {
+    test(`pending launch status stops on ${action}`, async ({ page }) => {
+        await pendingLaunchStatus(page, base, action);
+    });
+}

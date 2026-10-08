@@ -43,4 +43,33 @@ public sealed class AuthenticationTests
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new FfxivAuthenticationService(http, "test").FetchStoredValueAsync(false, cancellation.Token));
     }
+    [Theory]
+    [InlineData("{\"status\":1}", true)]
+    [InlineData("{\"status\":0}", false)]
+    [InlineData("{\"status\":true}", true)]
+    [InlineData("{\"status\":false}", false)]
+    [InlineData("{", null)]
+    [InlineData("null", null)]
+    [InlineData("{}", null)]
+    [InlineData("{\"status\":null}", null)]
+    [InlineData("{\"status\":2}", null)]
+    [InlineData("{\"status\":\"yes\"}", null)]
+    public async Task WorldAvailabilityDistinguishesUnknownPayloads(string payload, bool? expected)
+    {
+        using var http = new HttpClient(new Transport((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(payload) })));
+        var service = new WorldStatusService(http, "test");
+        Assert.Equal(expected, await service.CheckGateStatusAsync(default));
+        Assert.Equal(expected, await service.CheckLoginStatusAsync(default));
+    }
+    [Fact] public async Task WorldAvailabilityHttpFailureIsUnknownEvenWithValidStatusPayload()
+    {
+        using var http = new HttpClient(new Transport((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("{\"status\":1}") })));
+        Assert.Null(await new WorldStatusService(http, "test").CheckGateStatusAsync(default));
+    }
+    [Fact] public async Task WorldAvailabilityCancellationPropagates()
+    {
+        using var http = new HttpClient(new Transport(async (_, token) => { await Task.Delay(Timeout.Infinite, token); return new(HttpStatusCode.OK); }));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new WorldStatusService(http, "test").CheckGateStatusAsync(cancellation.Token));
+    }
 }

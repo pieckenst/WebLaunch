@@ -964,11 +964,11 @@ namespace CoreLibLaunchSupport
             this.userAgent = userAgent ?? throw new ArgumentNullException(nameof(userAgent));
         }
 
-        public Task<bool> CheckGateStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(GateStatusUri, cancellationToken);
+        public Task<bool?> CheckGateStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(GateStatusUri, cancellationToken);
 
-        public Task<bool> CheckLoginStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(LoginStatusUri, cancellationToken);
+        public Task<bool?> CheckLoginStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(LoginStatusUri, cancellationToken);
 
-        private async Task<bool> CheckStatusAsync(Uri uri, CancellationToken cancellationToken)
+        private async Task<bool?> CheckStatusAsync(Uri uri, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.TryAddWithoutValidation("user-agent", userAgent);
@@ -977,20 +977,18 @@ namespace CoreLibLaunchSupport
             {
                 using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
-
-                response.EnsureSuccessStatusCode();
-            var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var jsonData = JsonConvert.DeserializeObject<dynamic>(payload);
-                return Convert.ToBoolean(jsonData.status);
+                var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var status = Newtonsoft.Json.Linq.JObject.Parse(payload)["status"];
+                return status?.Type switch
+                {
+                    Newtonsoft.Json.Linq.JTokenType.Boolean => (bool)status,
+                    Newtonsoft.Json.Linq.JTokenType.Integer when status.ToString() == "0" => false,
+                    Newtonsoft.Json.Linq.JTokenType.Integer when status.ToString() == "1" => true,
+                    _ => null
+                };
             }
-            catch (TaskCanceledException)
-            {
-                return true;
-            }
-            catch
-            {
-                return true;
-            }
+            catch (HttpRequestException) { return null; }
+            catch (JsonException) { return null; }
         }
     }
 
@@ -1311,15 +1309,17 @@ namespace CoreLibLaunchSupport
         }
 
         public static bool CheckGateStatus() =>
-            StatusService.CheckGateStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+            StatusService.CheckGateStatusAsync(CancellationToken.None).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("Server availability is unknown.");
 
         public static bool CheckLoginStatus() =>
-            StatusService.CheckLoginStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+            StatusService.CheckLoginStatusAsync(CancellationToken.None).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("Server availability is unknown.");
 
-        public static Task<bool> CheckGateStatusAsync(CancellationToken cancellationToken = default) =>
+        public static Task<bool?> CheckGateStatusAsync(CancellationToken cancellationToken = default) =>
             StatusService.CheckGateStatusAsync(cancellationToken);
 
-        public static Task<bool> CheckLoginStatusAsync(CancellationToken cancellationToken = default) =>
+        public static Task<bool?> CheckLoginStatusAsync(CancellationToken cancellationToken = default) =>
             StatusService.CheckLoginStatusAsync(cancellationToken);
 
         private static string GenerateUserAgent()

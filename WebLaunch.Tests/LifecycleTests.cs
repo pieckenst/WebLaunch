@@ -50,6 +50,71 @@ public sealed class LifecycleTests
         Assert.False(Directory.Exists(Path.Combine(shadow, "nested")));
     }
 
+    [Fact] public async Task InitializationRemovesStaleShadowDirectoriesBeforeLoading()
+    {
+        var stale = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stale);
+        File.WriteAllText(Path.Combine(stale, "stale.txt"), "stale");
+        using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        await host.InitializeAsync();
+        Assert.False(Directory.Exists(stale));
+        Assert.True(File.Exists(host.GetPlugin("legacy-fixture").GetType().Assembly.Location));
+    }
+
+    [Fact] public async Task PluginActionsRunConcurrentlyAndUnloadWaitsForEveryLease()
+    {
+        using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
+        var logger = new Logger();
+        await using var host = new CoreFunctions(root.Path, logger, false, false);
+        await host.InitializeAsync();
+        var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = host.UsePluginAsync("legacy-fixture", _ => firstRelease.Task);
+        var second = host.UsePluginAsync("legacy-fixture", _ => { secondStarted.SetResult(); return secondRelease.Task; });
+        try
+        {
+            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(await host.UsePluginAsync("second-legacy-fixture", _ => Task.FromResult(true)).WaitAsync(TimeSpan.FromSeconds(5)));
+            var unload = host.UnloadAllPluginsAsync();
+            Assert.False(unload.IsCompleted);
+            firstRelease.SetResult(true); await first;
+            Assert.False(unload.IsCompleted);
+            Assert.DoesNotContain("fixture-shutdown", logger.Messages);
+            secondRelease.SetResult(true); await second;
+            await unload.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(host.GetLoadedPlugins());
+            Assert.Contains("fixture-shutdown", logger.Messages);
+        }
+        finally { firstRelease.TrySetResult(true); secondRelease.TrySetResult(true); }
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task PluginActionReceivesCallerAndHostCancellation(bool disposeHost)
+    {
+        using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        await host.InitializeAsync();
+        using var caller = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var action = host.UsePluginAsync("legacy-fixture", async (_, token) =>
+        {
+            started.SetResult();
+            await Task.Delay(Timeout.Infinite, token);
+            return true;
+        }, caller.Token);
+        await started.Task;
+        if (disposeHost) await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        else caller.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => action.WaitAsync(TimeSpan.FromSeconds(5)));
+        if (!disposeHost)
+        {
+            await Assert.ThrowsAsync<IOException>(() => host.UsePluginAsync<bool>("legacy-fixture", _ => throw new IOException("synthetic")));
+            await host.UnloadAllPluginsAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
     [Fact] public async Task ReloadAndDeleteTrackPluginIdRatherThanFilename()
     {
         using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");

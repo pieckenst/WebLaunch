@@ -85,7 +85,7 @@
     private IJSObjectReference? module, dialogModule;
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
-    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancelRequested;
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
@@ -112,7 +112,7 @@
         await InvokeAsync(StateHasChanged);
     }
     private readonly CancellationTokenSource lifetime = new();
-    private CancellationTokenSource? pairingCancellation;
+    private CancellationTokenSource? pairingCancellation, launchCancellation;
     private Task? confirmation;
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
@@ -120,7 +120,7 @@
     private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
     private string PairingState => paired ? "Paired · connected" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
-    private Task? polling, connectionMonitor;
+    private Task? launch, connectionMonitor;
     private DateTimeOffset pairingExpires;
     private string? focusTarget;
     private sealed record Connection(bool Paired, string Code, string DesktopMode, bool CanBrowseFolders);
@@ -250,36 +250,46 @@
         try { await module.InvokeVoidAsync("forget"); paired = false; savedPairing = false; actualMode = ""; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; }
         catch (JSException) { message = "Could not clear pairing. Close this tab and clear WebLaunch site data in browser settings."; }
     }
-    private async Task Launch()
+    private Task Launch() => busy ? Task.CompletedTask : launch = LaunchCore();
+    private async Task LaunchCore()
     {
         if (busy || connecting || !paired || module is null) return;
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
         catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); return; }
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        cancellation.CancelAfter(TimeSpan.FromHours(2));
+        launchCancellation = cancellation;
+        launchCancelRequested = false;
         launchAttempted = true; busy = true; message = "Submitting launch request…";
         try
         {
-            await module.InvokeAsync<string?>("preference", Game + ".path", path);
+            await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
             password = otp = "";
-            var reply = await module.InvokeAsync<Reply>("launch", request);
+            var reply = await module.InvokeAsync<Reply>("launch", cancellation.Token, request);
             message = reply.Status.Message;
             password = otp = ""; request.ClearCredentials();
-            polling = Poll(); await polling;
+            await Poll(cancellation.Token);
         }
         catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); message = UserMessage(ex); paired = false; }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            if (!lifetime.IsCancellationRequested && !launchCancelRequested)
+                message = "Launch monitoring timed out. Check the desktop launcher before trying again.";
+        }
         finally
         {
+            launchCancellation = null;
             request.ClearCredentials(); password = otp = ""; busy = false; paired = false; actualMode = ""; focusTarget = "launch-status";
             try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { }
         }
     }
-    private async Task Poll()
+    private async Task Poll(CancellationToken token)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-        while (await timer.WaitForNextTickAsync(lifetime.Token))
+        while (await timer.WaitForNextTickAsync(token))
         {
-            var reply = await module!.InvokeAsync<Reply>("status");
+            var reply = await module!.InvokeAsync<Reply>("status", token);
             message = reply.Status.Message; await InvokeAsync(StateHasChanged);
             if (reply.Status.Completed) return;
         }
@@ -287,8 +297,17 @@
     private async Task Cancel()
     {
         password = otp = "";
-        try { await module!.InvokeVoidAsync("cancel"); message = "Cancelling launch…"; }
+        var cancellation = launchCancellation;
+        launchCancelRequested = true;
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        requestTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try { await module!.InvokeVoidAsync("cancel", requestTimeout.Token); message = "Launch cancelled."; }
         catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
+        catch (OperationCanceledException) { message = "Could not confirm cancellation. Check the desktop launcher."; }
+        finally
+        {
+            if (ReferenceEquals(launchCancellation, cancellation)) cancellation?.Cancel();
+        }
     }
     // JS errors are user-facing controlled messages; strip the runtime-added stack trace.
     private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];
@@ -297,7 +316,7 @@
         await lifetime.CancelAsync();
         if (confirmation is not null) await confirmation;
         if (connectionMonitor is not null) await connectionMonitor;
-        if (polling is not null) { try { await polling; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
+        if (launch is not null) { try { await launch; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
         if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }
         if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException) { } await dialogModule.DisposeAsync(); }
         dialogReference?.Dispose();

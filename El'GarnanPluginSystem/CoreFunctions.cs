@@ -8,7 +8,25 @@ namespace El_Garnan_Plugin_Loader
 {
     public class CoreFunctions : IDisposable, IAsyncDisposable
     {
-        private sealed record Entry(string Path, string ShadowDirectory, IGamePlugin Plugin, PluginLoadContext Context);
+        private sealed record Entry(string Path, string ShadowDirectory, IGamePlugin Plugin, PluginLoadContext Context)
+        {
+            private readonly object leaseLock = new();
+            private int activeLeases;
+            private TaskCompletionSource? drained;
+            public void AcquireLease() { lock (leaseLock) activeLeases++; }
+            public void ReleaseLease()
+            {
+                lock (leaseLock)
+                    if (--activeLeases == 0) drained?.TrySetResult();
+            }
+            public Task WaitForLeasesAsync()
+            {
+                lock (leaseLock)
+                    return activeLeases == 0 ? Task.CompletedTask
+                        : (drained ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            }
+        }
+        private static readonly string ShadowRoot = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins");
         private readonly string pluginsPath;
         private readonly ILogger logger;
         private readonly bool hotReload;
@@ -44,6 +62,13 @@ namespace El_Garnan_Plugin_Loader
                 ObjectDisposedException.ThrowIf(disposed, this);
                 if (initialized) return;
                 Directory.CreateDirectory(pluginsPath);
+                Directory.CreateDirectory(ShadowRoot);
+                try
+                {
+                    foreach (var directory in Directory.EnumerateDirectories(ShadowRoot)) TryDeleteShadow(directory);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
                 var candidates = DiscoverPlugins().ToList();
                 // Dependencies may appear later in directory order. Retry deferred candidates once other plugins load.
                 while (candidates.Count > 0)
@@ -111,7 +136,7 @@ namespace El_Garnan_Plugin_Loader
             {
                 SafePath.RejectLinks(path);
                 // Shadow copies let Windows replace plugin files while an old context finishes unloading.
-                shadow = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins", Guid.NewGuid().ToString("N"));
+                shadow = Path.Combine(ShadowRoot, Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(shadow);
                 var sourceDirectory = Path.GetDirectoryName(path)!;
                 var manifest = Path.Combine(sourceDirectory, "plugin.json");
@@ -218,6 +243,7 @@ namespace El_Garnan_Plugin_Loader
             Entry? entry;
             lock (renderLock) entries.TryRemove(id, out entry);
             if (entry is null) return;
+            await entry.WaitForLeasesAsync();
             try { await entry.Plugin.ShutdownAsync(); }
             catch (Exception ex) { logger.Warning($"Plugin shutdown failed ({ex.GetType().Name})."); }
             finally
@@ -238,11 +264,30 @@ namespace El_Garnan_Plugin_Loader
         }
         public IGamePlugin GetPlugin(string pluginId) => entries.TryGetValue(pluginId, out var entry) ? entry.Plugin : throw new KeyNotFoundException("Requested game plugin is not installed.");
         public IEnumerable<IGamePlugin> GetLoadedPlugins() => entries.Values.Select(e => e.Plugin).ToArray();
-        public async Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, Task<T>> action, CancellationToken token = default)
+        public Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, Task<T>> action, CancellationToken token = default) =>
+            UsePluginAsync(id, (plugin, _) => action(plugin), token);
+        public async Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, CancellationToken, Task<T>> action, CancellationToken token = default)
         {
+            Entry entry;
+            CancellationTokenSource cancellation;
             await lifecycle.WaitAsync(token);
-            try { ObjectDisposedException.ThrowIf(disposed, this); return await action(GetPlugin(id)); }
+            try
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                entry = entries.TryGetValue(id, out var found) ? found : throw new KeyNotFoundException("Requested game plugin is not installed.");
+                cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
+                entry.AcquireLease();
+            }
             finally { lifecycle.Release(); }
+            using (cancellation)
+            {
+                try
+                {
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    return await action(entry.Plugin, cancellation.Token);
+                }
+                finally { entry.ReleaseLease(); }
+            }
         }
         public async Task UnloadAllPluginsAsync()
         {

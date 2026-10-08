@@ -30,9 +30,9 @@
   <ItemGroup><ProjectReference Include="../WebLaunch.Core/WebLaunch.Core.csproj" /></ItemGroup>
   <ItemGroup>
     <Content Remove="wwwroot/css/lumex.generated.css" />
-    <Content Include="wwwroot/css/lumex.generated.css" />
+    <Content Include="wwwroot/css/lumex.generated.css" Condition="'$(SkipLumexStyles)' != 'true' Or Exists('wwwroot/css/lumex.generated.css')" />
   </ItemGroup>
-  <Target Name="BuildLumexStyles" BeforeTargets="PrepareForBuild">
+  <Target Name="BuildLumexStyles" BeforeTargets="PrepareForBuild" Condition="'$(SkipLumexStyles)' != 'true'">
     <Exec Command="npm run build:css" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 </Project>

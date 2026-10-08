@@ -8,8 +8,9 @@ namespace GamePlugins.Spellborn;
 
 public sealed class SpellbornPlugin : GamePluginBase, ICancellableGamePlugin
 {
-    private readonly HttpClient client = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromHours(2) };
-    public SpellbornPlugin(ILogger logger) : base(logger) { }
+    private readonly HttpClient client;
+    public SpellbornPlugin(ILogger logger) : this(logger, new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromHours(2) }) { }
+    internal SpellbornPlugin(ILogger logger, HttpClient client) : base(logger) => this.client = client;
     public override string PluginId => "spellborn-launcher";
     public override string Name => "Chronicles of Spellborn";
     public override string Description => "Installs, updates and launches Chronicles of Spellborn";
@@ -28,8 +29,16 @@ public sealed class SpellbornPlugin : GamePluginBase, ICancellableGamePlugin
     }
     private async Task<bool> LaunchCoreAsync(GameLaunchParameters parameters, IProgress<LaunchStatus> progress, CancellationToken token)
     {
-        var updater = new SpellbornUpdater(client, new SpellbornVersionStore(), new ArchiveInstaller());
-        await updater.EnsureUpdatedAsync(parameters.GamePath, progress, token);
+        var versions = new SpellbornVersionStore();
+        var updater = new SpellbornUpdater(client, versions, new ArchiveInstaller());
+        try { await updater.EnsureUpdatedAsync(parameters.GamePath, progress, token); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            token.ThrowIfCancellationRequested();
+            var installed = versions.Read(parameters.GamePath);
+            if (string.IsNullOrWhiteSpace(installed) || installed == "false") throw;
+            Logger.Warning("Spellborn update failed; launching the installed version.");
+        }
         var exe = SafePath.Resolve(parameters.GamePath, "bin/client/Sb_client.exe");
         if (!File.Exists(exe)) throw new FileNotFoundException("Spellborn executable is missing.");
         token.ThrowIfCancellationRequested();
