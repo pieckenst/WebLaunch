@@ -1,0 +1,6 @@
+reviews:
+  path_filters:
+    - '!**/bin/**'
+    - '!**/obj/**'
+    - '!**/node_modules/**'
+    - '!Plugins/**'

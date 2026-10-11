@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable></PropertyGroup>
+<ItemGroup>
+<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+<PackageReference Include="xunit" Version="2.9.3" />
+<PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+<ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
+<ProjectReference Include="../CoreLibLaunchSupport/CoreLibLaunchSupport.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
+<ProjectReference Include="../El'GarnanPluginSystem/El'GarnanPluginSystem.csproj" />
+<ProjectReference Include="../WebLaunch.TestPlugin/WebLaunch.TestPlugin.csproj" ReferenceOutputAssembly="false" />
+</ItemGroup>
+<Target Name="CopyFixture" AfterTargets="Build"><ItemGroup><FixtureFiles Include="../WebLaunch.TestPlugin/bin/$(Configuration)/net10.0/WebLaunch.TestPlugin.dll" /></ItemGroup><Copy SourceFiles="@(FixtureFiles)" DestinationFolder="$(OutDir)fixtures" /></Target>
+<ItemGroup>
+<None Update="crypto-interop.mjs" CopyToOutputDirectory="PreserveNewest" />
+<None Include="../LaunchApp/wwwroot/js/bridge.js" Link="fixtures/bridge.mjs" CopyToOutputDirectory="PreserveNewest" />
+</ItemGroup>
+</Project>

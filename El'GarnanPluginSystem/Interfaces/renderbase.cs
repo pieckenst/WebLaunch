@@ -67,16 +67,10 @@ namespace El_Garnan_Plugin_Loader.Interfaces
                 int y = (mode.h - height) / 2;
 
                 // *** ФИКС CS1503: Явно приводим uint к нужному enum-типу SDL_WindowFlags ***
-                var windowFlags = (SDL_WindowFlags)0x00000010 | (SDL_WindowFlags)0x00000008; // BORDERLESS | HIDDEN
+                var windowFlags = (SDL_WindowFlags)0x00000020 | (SDL_WindowFlags)0x00000008; // RESIZABLE | HIDDEN
 
                 // Sdl2Native.SDL_CreateWindow ожидает uint, поэтому здесь приведение не нужно, если windowFlags уже uint.
                 // Но для ясности, лучше сразу объявить его как SDL_WindowFlags.
-                var sdlWindowHandle = Sdl2Native.SDL_CreateWindow(
-                    "Plugin Interface", x, y, width, height,
-                    windowFlags
-                );
-
-                // *** ФИКС CS1503: Передаем в конструктор правильный enum-тип SDL_WindowFlags ***
                 _window = new Sdl2Window("Plugin Interface", x, y, width, height, windowFlags, false);
 
                 var options = new GraphicsDeviceOptions(true, null, true, ResourceBindingModel.Improved, true, true);
@@ -85,6 +79,13 @@ namespace El_Garnan_Plugin_Loader.Interfaces
 
                 _cl = _gd.ResourceFactory.CreateCommandList();
                 _imgui = new ImGuiBindings(_gd, _gd.MainSwapchain.Framebuffer.OutputDescription, _window.Width, _window.Height);
+
+                _window.Resized += () =>
+                {
+                    if (_window.Width <= 0 || _window.Height <= 0) return;
+                    _gd.MainSwapchain.Resize((uint)_window.Width, (uint)_window.Height);
+                    _imgui.WindowResized(_window.Width, _window.Height);
+                };
 
                 _isInitialized = true;
                 _logger.Information("ImGui renderer initialized successfully");
@@ -110,13 +111,12 @@ namespace El_Garnan_Plugin_Loader.Interfaces
 
             try
             {
-                while (_window.Exists)
+                if (_window.Exists)
                 {
                     var snapshot = _window.PumpEvents();
-                    if (!_window.Exists) break;
+                    if (!_window.Exists) { _isInitialized = false; return; }
 
                     _imgui.Update(1f / 60f, snapshot);
-                    ImGui.NewFrame();
 
                     // Отрисовка фона напрямую (этот вариант для случая без дочернего окна)
                     var drawList = ImGui.GetBackgroundDrawList();
@@ -132,7 +132,6 @@ namespace El_Garnan_Plugin_Loader.Interfaces
                         }
                     }
 
-                    ImGui.Render();
                     _cl.Begin();
                     _cl.SetFramebuffer(_gd.MainSwapchain.Framebuffer);
                     _cl.ClearColorTarget(0, new RgbaFloat(0, 0, 0, 1));
@@ -144,20 +143,19 @@ namespace El_Garnan_Plugin_Loader.Interfaces
             }
             catch (Exception ex)
             {
-                _logger.Error($"Error in render loop: {ex}");
+                _isInitialized = false;
+                _logger.Error("Renderer stopped after a frame failure.", ex);
             }
-            finally
-            {
-                _logger.Information("Render window closed. Shutting down application.");
-                Environment.Exit(0);
-            }
+            if (!_window.Exists) _isInitialized = false;
         }
 
         public void Dispose()
         {
+            _isInitialized = false;
             _imgui?.Dispose();
             _cl?.Dispose();
             _gd?.Dispose();
+            if (_window?.Exists == true) _window.Close();
         }
     }
 }

@@ -1,36 +1,38 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <WasmEnableSIMD>false</WasmEnableSIMD>
     <PublishTrimmed>false</PublishTrimmed>
-    <BlazorCacheBootResources>false</BlazorCacheBootResources>
-    <BlazorEnableCompression>false</BlazorEnableCompression>
-    <BlazorWebAssemblyEnableLinking>false</BlazorWebAssemblyEnableLinking>
     
     <RunAOTCompilation>false</RunAOTCompilation>
     <UseBlazorWebAssembly>true</UseBlazorWebAssembly>
-    <WasmBuildNative>true</WasmBuildNative>
-    <DisableIntegrityValidation>true</DisableIntegrityValidation>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AKSoftware.Blazor.Utilities" Version="1.1.0" />
-    <PackageReference Include="LumexUI" Version="1.0.0-preview.3" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.10" PrivateAssets="all" />
+	  <PackageReference Include="System.Net.Http" Version="4.3.4" />
+	  <PackageReference Include="System.Private.Uri" Version="4.3.2" />
+	  <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
+	  <PackageReference Include="AKSoftware.Blazor.Utilities" Version="1.1.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" PrivateAssets="all" />
+    <PackageReference Include="LumexUI" Version="2.4.0" />
     <PackageReference Include="Masa.Blazor" Version="1.7.7" />
-    <PackageReference Include="System.Net.Http" Version="4.3.4" />
-    <PackageReference Include="System.Private.Uri" Version="4.3.2" />
-    <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
   </ItemGroup>
 
+  <ItemGroup><ProjectReference Include="../WebLaunch.Core/WebLaunch.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <Content Remove="wwwroot/css/lumex.generated.css" />
+    <Content Include="wwwroot/css/lumex.generated.css" Condition="'$(SkipLumexStyles)' != 'true' Or Exists('wwwroot/css/lumex.generated.css')" />
+  </ItemGroup>
+  <Target Name="BuildLumexStyles" BeforeTargets="PrepareForBuild" Condition="'$(SkipLumexStyles)' != 'true'">
+    <Exec Command="npm run build:css" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
 </Project>

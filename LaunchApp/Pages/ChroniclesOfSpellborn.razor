@@ -1,45 +1,19 @@
-﻿@page "/spellborn"
+@page "/spellborn"
+@page "/spellborn/{Section}"
 @inject NavigationManager navigationManager
 @inject IJSRuntime jsRuntime
 @inject MasaBlazor MasaBlazor
-@using AKSoftware.Blazor.Utilities
+@inherits GamePageBase
 
 <PageTitle>Chronicles of Spellborn</PageTitle>
 
 <MContainer Fluid>
-    <div class="game-header">
-        <MImage Src="https://www.mobygames.com/images/promo/l/123769-the-chronicles-of-spellborn-wallpaper.jpg" 
-                Height="600" 
-                Style="position: relative;">
-            <div class="header-content d-flex align-center">
-                <div class="flex-grow-1">
-                    <h1 class="text-h2">Chronicles of Spellborn</h1>
-                    <div class="text-subtitle-1">A Unique Fantasy Experience</div>
-                </div>
-                <MSpacer></MSpacer>
-                @if (!MasaBlazor.Breakpoint.Mobile)
-                {
-                    <MCard Class="play-card">
-                        <MButton Color="primary"
-                                OnClick="processlaunchusespl"
-                                XLarge
-                                Class="play-button">
-                            Play Now
-                        </MButton>
-                        <MButton Icon
-                                Class="settings-button"
-                                OnClick="ModalShow">
-                            <MIcon>mdi-cog</MIcon>
-                        </MButton>
-                    </MCard>
-                }
-            </div>
-        </MImage>
-    </div>
-
+    <GameHeader Title="Chronicles of Spellborn" Description="A unique fantasy experience.">
+        <LaunchPanel Game="spellborn" Title="Chronicles of Spellborn" />
+    </GameHeader>
     <MRow Class="mt-6">
         <MCol Cols="12" Md="8">
-            <MCard Class="pa-6 mb-6">
+            <MCard id="overview" Class="pa-6 mb-6">
                 <div class="text-h4 mb-4">About Chronicles of Spellborn</div>
                 <p class="text-body-1">
                     Enter a unique fantasy world where ancient technology meets magic. The Chronicles of Spellborn offers an innovative combat system and a rich, mysterious world to explore.
@@ -47,7 +21,7 @@
             </MCard>
 
             <MCard Class="pa-6 mb-6">
-                <div class="text-h4 mb-4">Character Classes</div>
+                <div id="classes" class="text-h4 mb-4">Character Classes</div>
                 <MRow>
                     <MCol Cols="12" Md="4">
                         <div class="text-h6 mb-2">Warrior</div>
@@ -97,125 +71,8 @@
     </MRow>
 </MContainer>
 
-<MDialog @bind-Value="showModal"
-         MaxWidth="500"
-         Persistent>
-    <MCard>
-        <MCardTitle>
-            <span class="text-h5">Game Settings</span>
-        </MCardTitle>
-        <MCardText>
-            <MTextField @bind-Value="gamepathersinp"
-                       Label="Game Path"
-                       Filled
-                       Clearable
-                       Class="mb-4" />
-        </MCardText>
-        <MCardActions>
-            <MSpacer></MSpacer>
-            <MButton Color="primary"
-                     OnClick="ModalOk"
-                     Class="mr-2">
-                OK
-            </MButton>
-            <MButton OnClick="ModalCancel">
-                Cancel
-            </MButton>
-        </MCardActions>
-    </MCard>
-</MDialog>
-
-<style>
-    .game-header {
-        width: 100vw;
-        position: relative;
-        left: 50%;
-        right: 50%;
-        margin-left: -50vw;
-        margin-right: -50vw;
-        opacity: 0;
-        animation: fadeIn 0.3s ease-out forwards;
-    }
-
-    .header-content {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        padding: 2rem;
-        color: var(--foreground);
-        opacity: 0;
-        animation: fadeIn 0.3s ease-out 0.15s forwards;
-    }
-
-    .play-card {
-        padding: 1rem;
-        background-color: rgb(var(--theme-background-rgb)) !important;
-        opacity: 0;
-        border: 1px solid var(--theme-dividers);
-        display: flex;
-        gap: 0.5rem;
-        animation: fadeIn 0.3s ease-out 0.3s forwards;
-        box-shadow: var(--theme-shadow-4);
-        transition: background-color 0.3s ease;
-    }
-
-    .play-button {
-        background: var(--theme-colors-primary);
-        color: var(--theme-colors-on-primary);
-        font-weight: 500;
-    }
-
-    .settings-button {
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-
-    @@keyframes fadeIn {
-        0% {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-        100% {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@media (max-width: 600px) {
-        .play-card {
-            display: none;
-        }
-    }
-</style>
 
 @code {
-    private string gamepathersinp = "";
-    bool showModal = false;
-
-    protected override void OnInitialized()
-    {
-        var links = new List<(string Text, string Url, string Icon, bool IsActive)>
-        {
-            ("Overview", "", "", true),
-            ("World", "world", "", false),
-            ("Classes", "classes", "", false),
-            ("Community", "community", "", false)
-        };
-
-        MessagingCenter.Send(this, "update_nav", links);
-    }
-
-    void ModalOk()
-    {
-        Console.WriteLine("Modal ok");
-        showModal = false;
-    }
-
-    void ModalShow() => showModal = true;
-    void ModalCancel() => showModal = false;
-
-    void processlaunchusespl()
-    {
-        navigationManager.NavigateTo($"HandleWebRequest:HandleReqLaunch?spellbornhandle=yes:?gamepath={gamepathersinp}");
-    }
+    protected override string GameRoute => "spellborn";
+    protected override LaunchApp.Services.GameSection[] PageSections => [new("overview", "Overview"), new("classes", "Classes")];
 }

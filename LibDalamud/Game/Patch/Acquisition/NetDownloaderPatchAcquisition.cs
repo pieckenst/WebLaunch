@@ -19,7 +19,7 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition
             ParallelDownload = true, // download parts of file as parallel or not
             BufferBlockSize = 8000, // usually, hosts support max to 8000 bytes
             ChunkCount = 8, // file parts to download
-            MaxTryAgainOnFailover = int.MaxValue, // the maximum number of times to fail.
+            MaxTryAgainOnFailover = 3, // the maximum number of times to fail.
             OnTheFlyDownload = false, // caching in-memory mode
             Timeout = 10000, // timeout (millisecond) per stream block reader
             TempDirectory = Path.GetTempPath(), // this is the library default
@@ -37,6 +37,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition
 
             this._downloadOpt.TempDirectory = this.DownloadTempPath;
         }
+
+        private Task? _downloadTask;
 
         public override async Task StartDownloadAsync(string url, FileInfo outFile)
         {
@@ -82,12 +84,14 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition
                 OnComplete(AcquisitionResult.Success);
             };
 
-            await _dlService.DownloadFileTaskAsync(url, outFile.FullName);
+            _downloadTask = _dlService.DownloadFileTaskAsync(url, outFile.FullName);
+            await _downloadTask;
         }
 
         public override async Task CancelAsync()
         {
-            this._dlService.CancelAsync();
+            this._dlService?.CancelAsync();
+            if (_downloadTask != null) { try { await _downloadTask; } catch (OperationCanceledException) { } }
         }
     }
 }

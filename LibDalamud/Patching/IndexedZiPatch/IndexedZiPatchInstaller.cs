@@ -344,9 +344,9 @@ namespace XIVLauncher.Common.Patching.IndexedZiPatch
             for (var i = 0; i < Index.Length; i++)
             {
                 var file = Index[i];
-                var fileInfo = new FileInfo(Path.Combine(rootPath, file.RelativePath));
+                var fileInfo = new FileInfo(WebLaunch.Core.SafePath.Resolve(rootPath, file.RelativePath));
                 if (fileInfo.Exists)
-                    SetTargetStreamForRead(i, new FileStream(Path.Combine(rootPath, file.RelativePath), FileMode.Open, FileAccess.Read));
+                    SetTargetStreamForRead(i, new FileStream(WebLaunch.Core.SafePath.Resolve(rootPath, file.RelativePath), FileMode.Open, FileAccess.Read));
                 else
                     MarkFileAsMissing(i);
             }
@@ -377,7 +377,7 @@ namespace XIVLauncher.Common.Patching.IndexedZiPatch
                     continue;
 
                 var file = Index[i];
-                var fileInfo = new FileInfo(Path.Combine(rootPath, file.RelativePath));
+                var fileInfo = new FileInfo(WebLaunch.Core.SafePath.Resolve(rootPath, file.RelativePath));
                 SetTargetStreamForWriteFromFile(i, fileInfo, useSetFileValidData);
             }
         }
@@ -425,10 +425,10 @@ namespace XIVLauncher.Common.Patching.IndexedZiPatch
 
         public void WriteVersionFiles(string localRootPath)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(localRootPath, Index.VersionFileVer)));
-            using (var writer = new StreamWriter(new FileStream(Path.Combine(localRootPath, Index.VersionFileVer), FileMode.Create, FileAccess.Write)))
+            Directory.CreateDirectory(Path.GetDirectoryName(WebLaunch.Core.SafePath.Resolve(localRootPath, Index.VersionFileVer)));
+            using (var writer = new StreamWriter(new FileStream(WebLaunch.Core.SafePath.Resolve(localRootPath, Index.VersionFileVer), FileMode.Create, FileAccess.Write)))
                 writer.Write(Index.VersionName);
-            using (var writer = new StreamWriter(new FileStream(Path.Combine(localRootPath, Index.VersionFileBck), FileMode.Create, FileAccess.Write)))
+            using (var writer = new StreamWriter(new FileStream(WebLaunch.Core.SafePath.Resolve(localRootPath, Index.VersionFileBck), FileMode.Create, FileAccess.Write)))
                 writer.Write(Index.VersionName);
         }
 

@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,7 +26,7 @@ namespace CoreLibLaunchSupport
 
         public void SetInvisible()
         {
-            this.IsVisible = true;
+            this.IsVisible = false;
         }
 
         public void ReportProgress(long? size, long downloaded, double? progress)
@@ -97,18 +97,46 @@ namespace CoreLibLaunchSupport
 
         public void Save()
         {
-            File.WriteAllText(configFile.FullName, JsonConvert.SerializeObject(_cache, Formatting.Indented));
+            if (!OperatingSystem.IsWindows()) return; // Session credentials are memory-only on unsupported platforms.
+            var plaintext = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(_cache));
+            var temporary = configFile.FullName + ".tmp";
+            try
+            {
+                var encrypted = System.Security.Cryptography.ProtectedData.Protect(plaintext, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                File.WriteAllBytes(temporary, encrypted);
+                File.Move(temporary, configFile.FullName, true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteFile(temporary);
+            }
+            finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext); }
         }
 
         public void Load()
         {
-            if (!File.Exists(configFile.FullName))
+            _cache = new();
+            if (!File.Exists(configFile.FullName)) return;
+            try
             {
-                _cache = new List<UniqueIdCacheEntry>();
-                return;
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.Delete(configFile.FullName);
+                    return;
+                }
+                var plaintext = System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(configFile.FullName), null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                try { _cache = JsonConvert.DeserializeObject<List<UniqueIdCacheEntry>>(Encoding.UTF8.GetString(plaintext)) ?? new(); }
+                finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext); }
             }
+            catch (System.Security.Cryptography.CryptographicException) { TryDeleteFile(configFile.FullName); } // Discard old plaintext caches.
+            catch (JsonException) { TryDeleteFile(configFile.FullName); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
 
-            _cache = JsonConvert.DeserializeObject<List<UniqueIdCacheEntry>>(File.ReadAllText(configFile.FullName)) ?? new List<UniqueIdCacheEntry>();
+        private static void TryDeleteFile(string path)
+        {
+            try { File.Delete(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
 
         public void Reset()

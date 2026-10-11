@@ -1,481 +1,371 @@
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Runtime.Loader;
-using System.IO;
-using System.Linq;
+using System.Text.Json;
 using El_Garnan_Plugin_Loader.Interfaces;
-using El_Garnan_Plugin_Loader.Models;
+using WebLaunch.Core;
 
 namespace El_Garnan_Plugin_Loader
 {
-    /// <summary>
-    /// Core functions for managing plugins.
-    /// </summary>
-    public class CoreFunctions : IDisposable
+    public class CoreFunctions : IDisposable, IAsyncDisposable
     {
-        private readonly string _pluginsPath;
-        private readonly ILogger _logger;
-        private readonly ConcurrentDictionary<string, IGamePlugin> _loadedPlugins;
-        private readonly ConcurrentDictionary<string, FileSystemWatcher> _pluginWatchers;
-        private readonly bool _enableHotReload;
-        private readonly SemaphoreSlim _reloadLock = new(1, 1);
-        private readonly HashSet<string> _loadedFiles = new();
-        private readonly HashSet<string> _erroredFiles = new();
-        private bool _isInitialized;
-        private bool _isDisposed;
-        private int _loadedCount;
-        private int _failedCount;
-
-        /// <summary>
-        /// Event triggered when a plugin is loaded.
-        /// </summary>
-        public event EventHandler<PluginLoadEventArgs> PluginLoaded;
-
-        /// <summary>
-        /// Event triggered when a plugin is unloaded.
-        /// </summary>
-        public event EventHandler<PluginUnloadEventArgs> PluginUnloaded;
-
-        /// <summary>
-        /// Event triggered when a plugin is reloaded.
-        /// </summary>
-        public event EventHandler<PluginReloadEventArgs> PluginReloaded;
-
-        /// <summary>
-        /// Event triggered when a plugin encounters an error.
-        /// </summary>
-        public event EventHandler<PluginErrorEventArgs> PluginError;
-
-        private IPluginRenderer _renderer;
-        private bool _useStandaloneWindow;
-        private bool _renderingStarted;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="CoreFunctions"/> class.
-        /// </summary>
-        /// <param name="pluginsPath">The path to the plugins directory.</param>
-        /// <param name="logger">The logger instance.</param>
-        /// <param name="enableHotReload">Whether hot reload is enabled.</param>
-        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false, bool useStandaloneWindow = true)
+        private sealed record Entry(string Path, string ShadowDirectory, IGamePlugin Plugin, PluginLoadContext Context)
         {
-            _pluginsPath = pluginsPath;
-            _logger = logger;
-            _enableHotReload = enableHotReload;
-            _loadedPlugins = new ConcurrentDictionary<string, IGamePlugin>();
-            _pluginWatchers = new ConcurrentDictionary<string, FileSystemWatcher>();
-            _useStandaloneWindow = useStandaloneWindow;
-            if (_useStandaloneWindow)
+            private readonly object leaseLock = new();
+            private int activeLeases;
+            private TaskCompletionSource? drained;
+            public void AcquireLease() { lock (leaseLock) activeLeases++; }
+            public void ReleaseLease()
             {
-                _renderer = new ImGuiPluginRenderer(logger);
+                lock (leaseLock)
+                    if (--activeLeases == 0) drained?.TrySetResult();
+            }
+            public Task WaitForLeasesAsync()
+            {
+                lock (leaseLock)
+                    return activeLeases == 0 ? Task.CompletedTask
+                        : (drained ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             }
         }
-
-        /// <summary>
-        /// Asynchronously initializes the plugin system.
-        /// </summary>
+        private static readonly string ShadowRoot = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins");
+        private readonly string managerShadowRoot = Path.Combine(ShadowRoot, Guid.NewGuid().ToString("N"));
+        private FileStream? shadowRootLock;
+        private readonly string pluginsPath;
+        private readonly ILogger logger;
+        private readonly bool hotReload;
+        private readonly Func<IPluginRenderer> rendererFactory;
+        private readonly ConcurrentDictionary<string, Entry> entries = new(StringComparer.Ordinal);
+        private readonly SemaphoreSlim lifecycle = new(1, 1);
+        private readonly object renderLock = new();
+        private readonly CancellationTokenSource lifetime = new();
+        private readonly ConcurrentDictionary<string, byte> pendingChanges = new(StringComparer.OrdinalIgnoreCase);
+        private FileSystemWatcher? watcher;
+        private Task? watchTask;
+        private IPluginRenderer? renderer;
+        private Thread? renderThread;
+        private TaskCompletionSource? renderStopped;
+        private bool standalone, initialized, disposed;
+        public event EventHandler<PluginLoadEventArgs>? PluginLoaded;
+        public event EventHandler<PluginUnloadEventArgs>? PluginUnloaded;
+        public event EventHandler<PluginReloadEventArgs>? PluginReloaded;
+        public event EventHandler<PluginErrorEventArgs>? PluginError;
+        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false, bool useStandaloneWindow = true)
+            : this(pluginsPath, logger, enableHotReload, useStandaloneWindow, () => new ImGuiPluginRenderer(logger)) { }
+        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload, bool useStandaloneWindow, Func<IPluginRenderer> rendererFactory)
+        {
+            this.pluginsPath = Path.GetFullPath(pluginsPath);
+            this.logger = logger; hotReload = enableHotReload; standalone = useStandaloneWindow;
+            this.rendererFactory = rendererFactory ?? throw new ArgumentNullException(nameof(rendererFactory));
+        }
         public async Task InitializeAsync()
         {
-            if (_isInitialized)
-                return;
-
-            _logger.Information("Initializing plugin system...");
-            
+            await lifecycle.WaitAsync();
             try
             {
-                if (!Directory.Exists(_pluginsPath))
-                {
-                    Directory.CreateDirectory(_pluginsPath);
-                }
-
-                await LoadPluginsAsync();
-                
-                if (_enableHotReload)
-                {
-                    SetupHotReload();
-                }
-
-                _isInitialized = true;
-                _logger.Information($"Plugin system initialized successfully. Loaded: {_loadedCount}, Failed: {_failedCount}");
-            }
-            catch (Exception ex)
-            {
-                _logger.Error("Failed to initialize plugin system", ex);
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// Asynchronously loads plugins from the plugins directory.
-        /// </summary>
-        private async Task LoadPluginsAsync()
-        {
-            _logger.Information($"Loading plugins from {_pluginsPath}");
-            var pluginFiles = Directory.GetFiles(_pluginsPath, "*.dll", SearchOption.AllDirectories);
-            
-            foreach (var pluginPath in pluginFiles)
-            {
-                if (_loadedFiles.Contains(pluginPath) || _erroredFiles.Contains(pluginPath))
-                {
-                    continue;
-                }
-
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (initialized) return;
+                Directory.CreateDirectory(pluginsPath);
+                Directory.CreateDirectory(ShadowRoot);
+                // Lock before publishing the directory so concurrent cleanup cannot claim it.
+                shadowRootLock ??= LockShadowRoot(managerShadowRoot);
+                Directory.CreateDirectory(managerShadowRoot);
                 try
                 {
-                    _logger.Debug($"Attempting to load plugin: {pluginPath}");
-                    
-                    var loadContext = new PluginLoadContext(pluginPath);
-                    var assembly = loadContext.LoadFromAssemblyPath(pluginPath);
-                    
-                    foreach (var type in assembly.GetTypes())
+                    foreach (var directory in Directory.EnumerateDirectories(ShadowRoot))
                     {
-                        if (!typeof(IGamePlugin).IsAssignableFrom(type) || type.IsAbstract)
-                            continue;
-
-                        var plugin = (IGamePlugin)Activator.CreateInstance(type, _logger);
-                        
-                        if (await ValidatePlugin(plugin))
+                        try
                         {
-                            await plugin.InitializeAsync();
-                            
-                            if (_loadedPlugins.TryAdd(plugin.PluginId, plugin))
-                            {
-                                _loadedCount++;
-                                _loadedFiles.Add(pluginPath);
-                                _logger.Information($"Loaded plugin: {plugin.Name} v{plugin.Version}");
-                                PluginLoaded?.Invoke(this, new PluginLoadEventArgs(plugin));
-                            }
+                            using (LockShadowRoot(directory)) TryDeleteShadow(directory);
+                            if (!Directory.Exists(directory)) File.Delete(directory + ".lock");
                         }
+                        catch (IOException) { } // A live manager or another cleaner owns this root.
+                        catch (UnauthorizedAccessException) { }
+                    }
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                var candidates = DiscoverPlugins().ToList();
+                // Dependencies may appear later in directory order. Retry deferred candidates once other plugins load.
+                while (candidates.Count > 0)
+                {
+                    var before = entries.Count;
+                    foreach (var path in candidates.ToArray())
+                        if (await LoadAsync(path)) candidates.Remove(path);
+                    if (entries.Count == before) break;
+                }
+                initialized = true;
+                if (hotReload)
+                {
+                    watcher = new FileSystemWatcher(pluginsPath) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName };
+                    watcher.Changed += Changed; watcher.Created += Changed; watcher.Deleted += Changed;
+                    watcher.Renamed += (_, e) => { pendingChanges[e.OldFullPath] = 0; pendingChanges[e.FullPath] = 0; };
+                    watcher.EnableRaisingEvents = true;
+                    watchTask = WatchAsync();
+                }
+            }
+            finally { lifecycle.Release(); }
+        }
+        private IEnumerable<string> DiscoverPlugins()
+        {
+            var directories = new Stack<string>();
+            directories.Push(pluginsPath);
+            while (directories.TryPop(out var directory))
+            {
+                var affectedPath = directory;
+                string[] assemblies;
+                try
+                {
+                    SafePath.RejectLinks(directory);
+                    var manifest = Path.Combine(directory, "plugin.json");
+                    if (File.Exists(manifest))
+                    {
+                        affectedPath = manifest;
+                        SafePath.RejectLinks(manifest);
+                        using var json = JsonDocument.Parse(File.ReadAllText(manifest));
+                        if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
+                        var assembly = json.RootElement.GetProperty("assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
+                        assemblies = [SafePath.Resolve(directory, assembly)];
+                    }
+                    else
+                    {
+                        assemblies = Directory.EnumerateFiles(directory, "*.dll").Order(StringComparer.Ordinal).ToArray();
+                        foreach (var child in Directory.EnumerateDirectories(directory))
+                            directories.Push(child); // Each directory is checked when popped, isolating link failures.
                     }
                 }
                 catch (Exception ex)
                 {
-                    _failedCount++;
-                    _erroredFiles.Add(pluginPath);
-                    _logger.Error($"Failed to load plugin {pluginPath}", ex);
-                    PluginError?.Invoke(this, new PluginErrorEventArgs(pluginPath, ex));
+                    PluginError?.Invoke(this, new PluginErrorEventArgs(affectedPath, ex));
+                    continue;
                 }
+                foreach (var assembly in assemblies) yield return assembly;
             }
         }
-
-        /// <summary>
-        /// Validates the specified plugin.
-        /// </summary>
-        /// <param name="plugin">The plugin to validate.</param>
-        /// <returns>A task representing the asynchronous operation, with a boolean result indicating success.</returns>
-        private async Task<bool> ValidatePlugin(IGamePlugin plugin)
+        private async Task<bool> LoadAsync(string path)
         {
+            if (!File.Exists(path) || entries.Values.Any(e => string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase))) return true;
+            PluginLoadContext? context = null;
+            var candidates = new List<IGamePlugin>();
+            string? shadow = null;
             try
             {
-                if (plugin.Dependencies?.Any() == true)
+                SafePath.RejectLinks(path);
+                // Shadow copies let Windows replace plugin files while an old context finishes unloading.
+                shadow = Path.Combine(managerShadowRoot, Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(shadow);
+                var sourceDirectory = Path.GetDirectoryName(path)!;
+                var manifest = Path.Combine(sourceDirectory, "plugin.json");
+                var searchOption = File.Exists(manifest) ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", searchOption))
                 {
-                    foreach (var dependency in plugin.Dependencies)
-                    {
-                        // First check if it's a plugin dependency
-                        if (!_loadedPlugins.TryGetValue(dependency.Name, out var dependencyPlugin))
-                        {
-                            // If not a plugin, check if it's a library in the base directory
-                            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{dependency.Name}.dll");
-                            if (!File.Exists(assemblyPath))
-                            {
-                                // Finally check in the plugin directory
-                                assemblyPath = Path.Combine(_pluginsPath, $"{dependency.Name}.dll");
-                                if (!File.Exists(assemblyPath))
-                                {
-                                    throw new PluginValidationException($"Missing dependency: {dependency.Name}");
-                                }
-                            }
-
-                            var assembly = Assembly.LoadFrom(assemblyPath);
-                            var assemblyVersion = assembly.GetName().Version;
-                            if (assemblyVersion < dependency.MinVersion)
-                            {
-                                throw new PluginValidationException($"Invalid dependency version: {dependency.Name} (>= {dependency.MinVersion})");
-                            }
-                        }
-                    }
+                    var relative = Path.GetRelativePath(sourceDirectory, file);
+                    var source = SafePath.Resolve(sourceDirectory, relative);
+                    var target = SafePath.Resolve(shadow, relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.Copy(source, target);
                 }
-
-                return await plugin.ValidateConfigurationAsync();
+                context = new PluginLoadContext(Path.Combine(shadow, Path.GetFileName(path)));
+                var assembly = context.LoadFromAssemblyPath(Path.Combine(shadow, Path.GetFileName(path)));
+                var types = assembly.GetTypes().Where(t => typeof(IGamePlugin).IsAssignableFrom(t) && !t.IsAbstract).ToArray();
+                if (types.Length == 0) return true;
+                string? manifestId = null;
+                if (File.Exists(manifest))
+                {
+                    SafePath.RejectLinks(manifest);
+                    using var json = JsonDocument.Parse(File.ReadAllText(manifest));
+                    if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
+                    manifestId = json.RootElement.GetProperty("id").GetString();
+                    if (types.Length != 1) throw new InvalidDataException("Manifest bundles must identify one plugin.");
+                }
+                foreach (var type in types)
+                {
+                    var candidate = (IGamePlugin?)Activator.CreateInstance(type, logger) ?? throw new InvalidDataException("Invalid plugin constructor.");
+                    candidates.Add(candidate);
+                    if (string.IsNullOrWhiteSpace(candidate.PluginId) || entries.ContainsKey(candidate.PluginId) || candidates.Count(p => p.PluginId == candidate.PluginId) != 1)
+                        throw new InvalidDataException("Duplicate or empty plugin ID.");
+                    if (manifestId is not null && manifestId != candidate.PluginId) throw new InvalidDataException("Plugin ID differs from manifest.");
+                }
+                foreach (var candidate in candidates)
+                {
+                    foreach (var dependency in candidate.Dependencies)
+                    {
+                        var pluginDependency = candidates.FirstOrDefault(p => p.PluginId == dependency.Name)
+                            ?? (entries.TryGetValue(dependency.Name, out var entry) ? entry.Plugin : null);
+                        var version = pluginDependency?.Version ?? context.LoadFromAssemblyName(new AssemblyName(dependency.Name)).GetName().Version;
+                        if (version < dependency.MinVersion) throw new PluginValidationException("Dependency version is too old.");
+                    }
+                    if (!await candidate.ValidateConfigurationAsync()) throw new PluginValidationException("Plugin configuration is invalid.");
+                    await candidate.InitializeAsync();
+                }
+                var loaded = candidates.ToArray();
+                lock (renderLock)
+                    foreach (var candidate in loaded) entries[candidate.PluginId] = new(path, shadow, candidate, context);
+                candidates.Clear(); context = null; shadow = null;
+                foreach (var candidate in loaded) PluginLoaded?.Invoke(this, new PluginLoadEventArgs(candidate));
+                return true;
             }
+            catch (BadImageFormatException) { return true; } // Native dependencies in legacy bundles.
             catch (Exception ex)
             {
-                _logger.Error($"Plugin validation failed for {plugin.Name}", ex);
+                logger.Warning($"Plugin could not load ({ex.GetType().Name}).");
+                PluginError?.Invoke(this, new PluginErrorEventArgs(path, ex));
                 return false;
-            }
-        }
-
-
-        /// <summary>
-        /// Sets up hot reload monitoring for the plugins directory.
-        /// </summary>
-        private void SetupHotReload()
-        {
-            foreach (var directory in Directory.GetDirectories(_pluginsPath, "*", SearchOption.AllDirectories))
-            {
-                var watcher = new FileSystemWatcher(directory)
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName,
-                    Filter = "*.dll",
-                    EnableRaisingEvents = true
-                };
-
-                watcher.Changed += async (s, e) => await HandlePluginChangeAsync(e.FullPath);
-                watcher.Created += async (s, e) => await HandlePluginChangeAsync(e.FullPath);
-                watcher.Deleted += async (s, e) => await HandlePluginDeletionAsync(e.FullPath);
-
-                _pluginWatchers.TryAdd(directory, watcher);
-            }
-
-            _logger.Information("Hot reload monitoring enabled");
-        }
-
-        /// <summary>
-        /// Handles changes to a plugin file.
-        /// </summary>
-        /// <param name="pluginPath">The path to the plugin file.</param>
-        private async Task HandlePluginChangeAsync(string pluginPath)
-        {
-            try
-            {
-                await _reloadLock.WaitAsync();
-                await Task.Delay(100); // Debounce
-
-                var pluginId = Path.GetFileNameWithoutExtension(pluginPath);
-                if (_loadedPlugins.TryGetValue(pluginId, out var existingPlugin))
-                {
-                    if (!existingPlugin.SupportsHotReload)
-                    {
-                        _logger.Warning($"Plugin {pluginId} does not support hot reload");
-                        return;
-                    }
-
-                    await UnloadPluginAsync(pluginId);
-                }
-
-                await LoadPluginAsync(pluginPath);
-                PluginReloaded?.Invoke(this, new PluginReloadEventArgs(pluginId));
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Failed to handle plugin change for {pluginPath}", ex);
-                PluginError?.Invoke(this, new PluginErrorEventArgs(pluginPath, ex));
             }
             finally
             {
-                _reloadLock.Release();
+                foreach (var candidate in candidates)
+                {
+                    try { await candidate.ShutdownAsync(); } catch { }
+                    try { if (candidate is IDisposable d) d.Dispose(); } catch { }
+                }
+                context?.Unload();
+                if (shadow is not null) TryDeleteShadow(shadow);
             }
         }
-
-        /// <summary>
-        /// Handles the deletion of a plugin file.
-        /// </summary>
-        /// <param name="pluginPath">The path to the plugin file.</param>
-        private async Task HandlePluginDeletionAsync(string pluginPath)
-        {
-            var pluginId = Path.GetFileNameWithoutExtension(pluginPath);
-            await UnloadPluginAsync(pluginId);
-        }
-
-        /// <summary>
-        /// Asynchronously loads a plugin from the specified path.
-        /// </summary>
-        /// <param name="pluginPath">The path to the plugin file.</param>
-        private async Task LoadPluginAsync(string pluginPath)
+        private void Changed(object sender, FileSystemEventArgs e) => pendingChanges[e.FullPath] = 0;
+        private async Task WatchAsync()
         {
             try
             {
-                var loadContext = new PluginLoadContext(pluginPath);
-                var assembly = loadContext.LoadFromAssemblyPath(pluginPath);
-
-                foreach (var type in assembly.GetTypes())
+                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(400));
+                while (await timer.WaitForNextTickAsync(lifetime.Token))
                 {
-                    if (!typeof(IGamePlugin).IsAssignableFrom(type) || type.IsAbstract)
-                        continue;
-
-                    var plugin = (IGamePlugin)Activator.CreateInstance(type, _logger);
-                    
-                    if (await ValidatePlugin(plugin))
+                    if (pendingChanges.IsEmpty) continue;
+                    var changed = pendingChanges.Keys.ToArray();
+                    foreach (var path in changed) pendingChanges.TryRemove(path, out _);
+                    await lifecycle.WaitAsync(lifetime.Token);
+                    try
                     {
-                        await plugin.InitializeAsync();
-                        
-                        if (_loadedPlugins.TryAdd(plugin.PluginId, plugin))
+                        foreach (var group in entries.Values.ToArray().GroupBy(e => e.Path, StringComparer.OrdinalIgnoreCase))
                         {
-                            _loadedFiles.Add(pluginPath);
-                            _logger.Information($"Loaded plugin: {plugin.Name} v{plugin.Version}");
-                            PluginLoaded?.Invoke(this, new PluginLoadEventArgs(plugin));
+                            if (!changed.Any(p => p.StartsWith(Path.GetDirectoryName(group.Key)! + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
+                            if (group.Any(e => !e.Plugin.SupportsHotReload)) continue;
+                            var ids = group.Select(e => e.Plugin.PluginId).ToArray();
+                            foreach (var id in ids) await UnloadAsync(id);
+                            if (await LoadAsync(group.Key))
+                                foreach (var id in ids.Where(entries.ContainsKey)) PluginReloaded?.Invoke(this, new PluginReloadEventArgs(id));
                         }
+                        foreach (var path in DiscoverPlugins()) await LoadAsync(path);
                     }
+                    catch (Exception ex) { logger.Warning($"Plugin reload failed ({ex.GetType().Name})."); }
+                    finally { lifecycle.Release(); }
                 }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) { }
+        }
+        private async Task UnloadAsync(string id)
+        {
+            Entry? entry;
+            lock (renderLock) entries.TryRemove(id, out entry);
+            if (entry is null) return;
+            await entry.WaitForLeasesAsync();
+            try { await entry.Plugin.ShutdownAsync(); }
+            catch (Exception ex) { logger.Warning($"Plugin shutdown failed ({ex.GetType().Name})."); }
+            finally
             {
-                _erroredFiles.Add(pluginPath);
-                _logger.Error($"Failed to load plugin {pluginPath}", ex);
-                throw;
+                try { if (entry.Plugin is IDisposable d) d.Dispose(); }
+                catch (Exception ex) { logger.Warning($"Plugin disposal failed ({ex.GetType().Name})."); }
+                finally
+                {
+                    if (!entries.Values.Any(e => ReferenceEquals(e.Context, entry.Context)))
+                    { entry.Context.Unload(); TryDeleteShadow(entry.ShadowDirectory); }
+                }
+                PluginUnloaded?.Invoke(this, new PluginUnloadEventArgs(id));
             }
         }
-
-        /// <summary>
-        /// Asynchronously unloads the specified plugin.
-        /// </summary>
-        /// <param name="pluginId">The ID of the plugin to unload.</param>
-        private async Task UnloadPluginAsync(string pluginId)
+        private static FileStream LockShadowRoot(string path) =>
+            new(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        private static void TryDeleteShadow(string path)
         {
-            if (_loadedPlugins.TryRemove(pluginId, out var plugin))
+            try { Directory.Delete(path, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+        public IGamePlugin GetPlugin(string pluginId) => entries.TryGetValue(pluginId, out var entry) ? entry.Plugin : throw new KeyNotFoundException("Requested game plugin is not installed.");
+        public IEnumerable<IGamePlugin> GetLoadedPlugins() => entries.Values.Select(e => e.Plugin).ToArray();
+        public Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, Task<T>> action, CancellationToken token = default) =>
+            UsePluginAsync(id, (plugin, _) => action(plugin), token);
+        public async Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, CancellationToken, Task<T>> action, CancellationToken token = default)
+        {
+            Entry entry;
+            CancellationTokenSource cancellation;
+            await lifecycle.WaitAsync(token);
+            try
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                entry = entries.TryGetValue(id, out var found) ? found : throw new KeyNotFoundException("Requested game plugin is not installed.");
+                cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, lifetime.Token);
+                entry.AcquireLease();
+            }
+            finally { lifecycle.Release(); }
+            using (cancellation)
             {
                 try
                 {
-                    await plugin.ShutdownAsync();
-                    _loadedFiles.Remove(pluginId);
-                    PluginUnloaded?.Invoke(this, new PluginUnloadEventArgs(pluginId));
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    return await action(entry.Plugin, cancellation.Token);
                 }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Error unloading plugin {pluginId}", ex);
-                }
+                finally { entry.ReleaseLease(); }
             }
         }
-
-        /// <summary>
-        /// Gets the plugin with the specified ID.
-        /// </summary>
-        /// <param name="pluginId">The ID of the plugin to get.</param>
-        /// <returns>The plugin with the specified ID.</returns>
-        public IGamePlugin GetPlugin(string pluginId)
-        {
-            return _loadedPlugins.TryGetValue(pluginId, out var plugin) 
-                ? plugin 
-                : throw new KeyNotFoundException($"Plugin {pluginId} not found");
-        }
-
-        /// <summary>
-        /// Gets all loaded plugins.
-        /// </summary>
-        /// <returns>An enumerable of all loaded plugins.</returns>
-        public IEnumerable<IGamePlugin> GetLoadedPlugins() => _loadedPlugins.Values;
-
-        /// <summary>
-        /// Asynchronously unloads all loaded plugins.
-        /// </summary>
         public async Task UnloadAllPluginsAsync()
         {
-            foreach (var plugin in _loadedPlugins.Values)
-            {
-                try
-                {
-                    await plugin.ShutdownAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Error unloading plugin {plugin.Name}", ex);
-                }
-            }
-            
-            _loadedPlugins.Clear();
-            _loadedFiles.Clear();
+            await lifecycle.WaitAsync();
+            try { foreach (var id in entries.Keys.ToArray()) await UnloadAsync(id); }
+            finally { lifecycle.Release(); }
         }
-
-
-        /// <summary>
-        /// Renders ImGui interfaces for all plugins that support it
-        /// </summary>
         public void RenderPluginInterfaces()
         {
-            foreach (var plugin in _loadedPlugins.Values)
-            {
-                if (plugin.SupportsImGui)
-                {
-                    plugin.RenderImGui();
-                }
-            }
+            lock (renderLock)
+                foreach (var plugin in GetLoadedPlugins().Where(p => p.SupportsImGui)) plugin.RenderImGui();
         }
-
-        public void EnableStandaloneRenderer()
-        {
-            if (_useStandaloneWindow && _renderer != null)
-            {
-                return;
-            }
-
-            _useStandaloneWindow = true;
-            _renderer ??= new ImGuiPluginRenderer(_logger);
-        }
-
+        public void EnableStandaloneRenderer() => standalone = true;
         public void StartRendering()
         {
-            if (_renderingStarted || !_useStandaloneWindow || _renderer == null)
+            lock (renderLock)
             {
-                return;
-            }
-
-            _renderingStarted = true;
-
-            _renderer.Initialize();
-            _renderer.SetPlugins(_loadedPlugins.Values);
-
-            Task.Run(() =>
-            {
-                while (true)
-                {
-                    _renderer.Render();
-                    Thread.Sleep(16); // ~60 FPS
-                }
-            });
-
-            Task.Run(async () =>
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-
-                var imGuiNotificationServices = _loadedPlugins.Values
-                    .Where(p => p.SupportsImGui)
-                    .OfType<INotificationService>()
-                    .ToList();
-
-                if (!imGuiNotificationServices.Any())
-                {
-                    _logger.Debug("ImGui renderer initialized but no notification-capable plugins were found.");
-                    return;
-                }
-
-                foreach (var notifier in imGuiNotificationServices)
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (!standalone || renderThread is { IsAlive: true }) return;
+                renderStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                renderThread = new Thread(() =>
                 {
                     try
                     {
-                        notifier.ShowNotification("ImGui Debug", "Renderer is active for this plugin.", NotificationType.Info);
+                        renderer = rendererFactory();
+                        renderer.Initialize();
+                        while (!lifetime.IsCancellationRequested && renderer.IsInitialized)
+                        {
+                            lock (renderLock) { renderer.SetPlugins(GetLoadedPlugins()); renderer.Render(); }
+                            Thread.Sleep(16);
+                        }
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) { logger.Warning($"Renderer stopped ({ex.GetType().Name})."); }
+                    finally
                     {
-                        _logger.Warning($"Failed to send ImGui debug notification: {ex.Message}");
+                        try { renderer?.Dispose(); }
+                        catch (Exception ex) { logger.Warning($"Renderer disposal failed ({ex.GetType().Name})."); }
+                        finally { renderer = null; renderStopped.TrySetResult(); }
                     }
-                }
-            });
-        }
-
-        /// <summary>
-        /// Disposes the resources used by the <see cref="CoreFunctions"/> class.
-        /// </summary>
-        public void Dispose()
-        {
-            if (_isDisposed)
-                return;
-
-            foreach (var watcher in _pluginWatchers.Values)
-            {
-                watcher.EnableRaisingEvents = false;
-                watcher.Dispose();
+                }) { IsBackground = true, Name = "WebLaunch renderer" };
+                renderThread.Start();
             }
-            
-            _pluginWatchers.Clear();
-            _reloadLock.Dispose();
-            _isDisposed = true;
+        }
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+        public async ValueTask DisposeAsync()
+        {
+            if (disposed) return;
+            disposed = true; watcher?.Dispose(); await lifetime.CancelAsync();
+            if (watchTask is not null) await watchTask;
+            if (renderStopped is not null) await renderStopped.Task;
+            try { await UnloadAllPluginsAsync(); }
+            finally
+            {
+                TryDeleteShadow(managerShadowRoot);
+                shadowRootLock?.Dispose();
+                try { if (!Directory.Exists(managerShadowRoot)) File.Delete(managerShadowRoot + ".lock"); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                lifetime.Dispose();
+            }
         }
     }
-
-    
-
-    /// <summary>
-    /// Exception thrown when plugin validation fails.
-    /// </summary>
     public class PluginValidationException : Exception
     {
         /// <summary>

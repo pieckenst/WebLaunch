@@ -19,11 +19,11 @@ namespace El_Garnan_Plugin_Loader
         /// Initializes a new instance of the <see cref="PluginLoadContext"/> class with the specified plugin path.
         /// </summary>
         /// <param name="pluginPath">The path to the plugin directory.</param>
-        public PluginLoadContext(string pluginPath)
+        public PluginLoadContext(string pluginPath) : base(isCollectible: true)
         {
             _pluginPath = pluginPath;
             _pluginResolver = new AssemblyDependencyResolver(pluginPath);
-            _processResolver = new AssemblyDependencyResolver(AppContext.BaseDirectory);
+            _processResolver = new AssemblyDependencyResolver(typeof(PluginLoadContext).Assembly.Location);
         }
 
         /// <summary>
@@ -33,13 +33,10 @@ namespace El_Garnan_Plugin_Loader
         /// <returns>The loaded assembly, or null if the assembly cannot be found.</returns>
         protected override Assembly Load(AssemblyName assemblyName)
         {
-            Assembly sharedAssembly = AssemblyLoadContext.Default.Assemblies
-                .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName.Name, StringComparison.OrdinalIgnoreCase));
-
-            if (sharedAssembly != null)
-            {
-                return sharedAssembly;
-            }
+            // Shared contracts and Dalamud services have exactly one identity in the process,
+            // even when their first reference comes from a plugin.
+            if (new[] { "Elgarnan", "WebLaunch.Core", "CoreLibLaunchSupport", "LibDalamud", "ImGui.NET", "Veldrid", "Veldrid.SDL2" }.Contains(assemblyName.Name))
+                return AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName);
 
             string assemblyPath = _pluginResolver.ResolveAssemblyToPath(assemblyName) ??
                                   _processResolver.ResolveAssemblyToPath(assemblyName);

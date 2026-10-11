@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -16,15 +16,15 @@ namespace XIVLauncher.Common.Patching.ZiPatch.Util
         }
 
         public SqexFileStream? OpenStream(string basePath, FileMode mode, int tries = 5, int sleeptime = 1) =>
-            SqexFileStream.WaitForStream($@"{basePath}/{RelativePath}", mode, tries, sleeptime);
+            SqexFileStream.WaitForStream(WebLaunch.Core.SafePath.Resolve(basePath, RelativePath), mode, tries, sleeptime);
 
         public SqexFileStream OpenStream(SqexFileStreamStore store, string basePath, FileMode mode,
                                          int tries = 5, int sleeptime = 1) =>
-            store.GetStream($@"{basePath}/{RelativePath}", mode, tries, sleeptime);
+            store.GetStream(WebLaunch.Core.SafePath.Resolve(basePath, RelativePath), mode, tries, sleeptime);
 
         public void CreateDirectoryTree(string basePath)
         {
-            var dirName = Path.GetDirectoryName($@"{basePath}/{RelativePath}");
+            var dirName = Path.GetDirectoryName(WebLaunch.Core.SafePath.Resolve(basePath, RelativePath));
             if (dirName != null)
                 Directory.CreateDirectory(dirName);
         }

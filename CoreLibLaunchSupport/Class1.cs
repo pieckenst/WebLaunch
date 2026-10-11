@@ -427,8 +427,7 @@ namespace CoreLibLaunchSupport
                 var compatLayerPrev = Environment.GetEnvironmentVariable("__COMPAT_LAYER");
                 Environment.SetEnvironmentVariable("__COMPAT_LAYER", BuildCompatLayer(options.DpiAwareness));
 
-                Log.Debug("[{Component}] Creating suspended process. Arguments: {Arguments}",
-                    nameof(NativeProcessLauncher), options.Arguments);
+                Log.Debug("[{Component}] Creating suspended process", nameof(NativeProcessLauncher));
 
                 if (!PInvoke.CreateProcess(
                         null,
@@ -769,8 +768,7 @@ namespace CoreLibLaunchSupport
         {
             var handler = new HttpClientHandler
             {
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
             };
 
             var httpClient = new HttpClient(handler, disposeHandler: true)
@@ -842,7 +840,10 @@ namespace CoreLibLaunchSupport
         }
     }
 
-    internal sealed record FfxivSidRequest(string Username, string Password, string? Otp, bool IsSteam);
+    internal sealed record FfxivSidRequest(string Username, string Password, string? Otp, bool IsSteam)
+    {
+        public override string ToString() => "FfxivSidRequest (credentials redacted)";
+    }
 
     internal sealed class FfxivAuthenticationService
     {
@@ -900,6 +901,7 @@ namespace CoreLibLaunchSupport
             httpRequest.Content = new FormUrlEncodedContent(form);
 
             using var response = await httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
             var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             var sidMatch = Regex.Match(payload, "sid,(?<sid>.*),terms", RegexOptions.Compiled);
@@ -950,8 +952,8 @@ namespace CoreLibLaunchSupport
 
     internal sealed class WorldStatusService
     {
-        private static readonly Uri GateStatusUri = new("http://frontier.ffxiv.com/worldStatus/gate_status.json");
-        private static readonly Uri LoginStatusUri = new("http://frontier.ffxiv.com/worldStatus/login_status.json");
+        private static readonly Uri GateStatusUri = new("https://frontier.ffxiv.com/worldStatus/gate_status.json");
+        private static readonly Uri LoginStatusUri = new("https://frontier.ffxiv.com/worldStatus/login_status.json");
 
         private readonly HttpClient httpClient;
         private readonly string userAgent;
@@ -962,11 +964,11 @@ namespace CoreLibLaunchSupport
             this.userAgent = userAgent ?? throw new ArgumentNullException(nameof(userAgent));
         }
 
-        public Task<bool> CheckGateStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(GateStatusUri, cancellationToken);
+        public Task<bool?> CheckGateStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(GateStatusUri, cancellationToken);
 
-        public Task<bool> CheckLoginStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(LoginStatusUri, cancellationToken);
+        public Task<bool?> CheckLoginStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(LoginStatusUri, cancellationToken);
 
-        private async Task<bool> CheckStatusAsync(Uri uri, CancellationToken cancellationToken)
+        private async Task<bool?> CheckStatusAsync(Uri uri, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.TryAddWithoutValidation("user-agent", userAgent);
@@ -975,19 +977,19 @@ namespace CoreLibLaunchSupport
             {
                 using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
-
                 var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var jsonData = JsonConvert.DeserializeObject<dynamic>(payload);
-                return Convert.ToBoolean(jsonData.status);
+                var status = Newtonsoft.Json.Linq.JObject.Parse(payload)["status"];
+                return status?.Type switch
+                {
+                    Newtonsoft.Json.Linq.JTokenType.Boolean => (bool)status,
+                    Newtonsoft.Json.Linq.JTokenType.Integer when status.ToString() == "0" => false,
+                    Newtonsoft.Json.Linq.JTokenType.Integer when status.ToString() == "1" => true,
+                    _ => null
+                };
             }
-            catch (TaskCanceledException)
-            {
-                return true;
-            }
-            catch
-            {
-                return true;
-            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
+            catch (HttpRequestException) { return null; }
+            catch (JsonException) { return null; }
         }
     }
 
@@ -1015,7 +1017,7 @@ namespace CoreLibLaunchSupport
                    bool encryptArguments, DpiAwareness dpiAwareness)
 {
     Log.Information(
-        $"XivGame::LaunchGame(steamServiceAccount:{isSteamServiceAccount}, args:{additionalArguments})");
+        "XivGame::LaunchGame(steamServiceAccount:{IsSteam})", isSteamServiceAccount);
 
     var exePath = Path.Combine(gamePath.FullName, "game", "ffxiv_dx11.exe");
 
@@ -1062,8 +1064,18 @@ namespace CoreLibLaunchSupport
         private static Storage storage;
 
         public static CommonUniqueIdCache UniqueIdCache;
+        public static List<AddonEntry> AddonEntries { get; } = new();
         private static readonly string UserAgentTemplate = "SQEXAuthor/2.0.0(Windows 6.2; ja-jp; {0})";
-        public List<AddonEntry>? Addons { get; set; }
+        public List<AddonEntry>? Addons
+        {
+            get => AddonEntries;
+            set
+            {
+                var entries = value?.ToArray() ?? Array.Empty<AddonEntry>();
+                AddonEntries.Clear();
+                AddonEntries.AddRange(entries);
+            }
+        }
         static string DalamudRolloutBucket { get; set; }
         private static readonly string UserAgent = GenerateUserAgent();
         private static readonly LauncherPaths Paths = new();
@@ -1090,7 +1102,7 @@ namespace CoreLibLaunchSupport
     IDalamudCompatibilityCheck dalamudCompatCheck;
     dalamudRunner = new WindowsDalamudRunner();
     dalamudCompatCheck = new WindowsDalamudCompatibilityCheck();
-    var dalamudpath = Paths.DalamudDirectory;
+    var dalamudpath = new LauncherPaths().DalamudDirectory;
     Log.Information("[{Component}] Launch request received (DX11: {Dx11}, Region: {Region}, Expansion: {Expansion}, Steam: {IsSteam})",
         nameof(networklogic), dx11, region, expansionlevel, isSteam);
     Log.Debug("[{Component}] Using Dalamud path {DalamudPath}", nameof(networklogic), dalamudpath.FullName);
@@ -1106,11 +1118,12 @@ namespace CoreLibLaunchSupport
             Overlay = DalamudLoadInfo
         };
         Log.Information("[{Component}] Starting Dalamud updater", nameof(networklogic));
-        DalamudUpdater.Run();
+        await DalamudUpdater.RunAsync(cancellationToken).ConfigureAwait(false);
     }
-    catch (Exception ex)
+    catch
     {
-        Log.Error(ex, "[{Component}] Could not start Dalamud updater", nameof(networklogic));
+        Log.Error("[{Component}] Could not prepare Dalamud", nameof(networklogic));
+        throw;
     }
 
     var dalamudLauncher = new DalamudLauncher(dalamudRunner, DalamudUpdater, DalamudLoadMethod.DllInject,
@@ -1138,7 +1151,7 @@ namespace CoreLibLaunchSupport
         try
         {
             Log.Debug("[{Component}] Holding Dalamud for update", nameof(networklogic));
-            dalamudOk = dalamudLauncher.HoldForUpdate(gamePather) == DalamudLauncher.DalamudInstallState.Ok;
+            dalamudOk = dalamudLauncher.HoldForUpdate(gamePather, cancellationToken) == DalamudLauncher.DalamudInstallState.Ok;
         }
         catch (DalamudRunnerException ex)
         {
@@ -1149,38 +1162,18 @@ namespace CoreLibLaunchSupport
         IGameRunner runner;
         runner = new WindowsGameRunner(dalamudLauncher, dalamudOk, DalamudUpdater.Runtime);
         Log.Information("[{Component}] Launching game executable", nameof(networklogic));
+        cancellationToken.ThrowIfCancellationRequested();
         Process ffxivgame = launcher.LaunchGame(runner, realsid,
             region, expansionlevel, isSteam, gameArgs, gamePather, dx11, ClientLanguage.English, true,
             DpiAwareness.Unaware);
 
-        var addonMgr = new AddonManager();
-        try
-        {
-            List<AddonEntry> xex = new List<AddonEntry>();
-            var addons = xex.Where(x => x.IsEnabled).Select(x => x.Addon).Cast<IAddon>().ToList();
-            addonMgr.RunAddons(ffxivgame.Id, addons);
-            Log.Debug("[{Component}] Started {AddonCount} addons", nameof(networklogic), addons.Count);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex.Message);
-            addonMgr.StopAddons();
-            throw;
-        }
-
-        Log.Debug("Waiting for game to exit");
-        await Task.Run(() => ffxivgame!.WaitForExit(), cancellationToken).ConfigureAwait(false);
-        Log.Verbose("Game has exited");
-
-        if (addonMgr.IsRunning)
-        {
-            addonMgr.StopAddons();
-            Log.Debug("[{Component}] Stopped addon manager", nameof(networklogic));
-        }
-            
-        Log.Information("[{Component}] Game session complete", nameof(networklogic));
+        if (ffxivgame is null) throw new GameExitedException();
+        var enabledAddons = AddonEntries.Where(x => x.IsEnabled).Select(x => (IAddon)x.Addon).ToArray();
+        StartGameSession(ffxivgame, enabledAddons);
+        Log.Information("[{Component}] Started addon session with {Count} addons", nameof(networklogic), enabledAddons.Length);
         return ffxivgame;
     }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
     catch (Exception exc)
     {
         Log.Error(exc, "[{Component}] Game launch failed", nameof(networklogic));
@@ -1206,6 +1199,31 @@ namespace CoreLibLaunchSupport
     return null;
 }
 
+
+        internal static void StartGameSession(Process game, IEnumerable<IAddon> enabledAddons)
+        {
+            try { DalamudGameSession.Start(game, enabledAddons); }
+            catch
+            {
+                try
+                {
+                    if (!game.HasExited) game.Kill(entireProcessTree: true);
+                    game.WaitForExit();
+                }
+                catch (Exception cleanupError)
+                {
+                    Log.Warning(cleanupError, "[{Component}] Could not terminate game after session startup failed", nameof(networklogic));
+                }
+                finally { game.Dispose(); }
+                throw;
+            }
+        }
+
+        public static async Task<string> GetSidAsync(string username, string password, string otp, bool isSteam, CancellationToken token = default)
+        {
+            var stored = await AuthService.FetchStoredValueAsync(isSteam, token);
+            return await AuthService.RequestSessionIdAsync(new FfxivSidRequest(username, password, otp, isSteam), stored, token);
+        }
 
         public static string GetRealSid(string gamePath, string username, string password, string otp, bool isSteam)
         {
@@ -1259,20 +1277,19 @@ namespace CoreLibLaunchSupport
                 Log.Information("[{Component}] Acquired unique session identifier", nameof(networklogic));
                 return uniqueId;
             }
-            catch (NoValidSubscriptionException ex)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (NoValidSubscriptionException)
             {
-                Log.Warning(ex, "[{Component}] Subscription validation failed", nameof(networklogic));
-                Console.WriteLine($"Subscription Error: {ex.Message}");
+                Log.Warning("[{Component}] Subscription validation failed", nameof(networklogic));
                 return "BAD";
             }
-            catch (Exception exc)
+            catch (Exception)
             {
-                Log.Error(exc, "[{Component}] Failed to obtain session identifier", nameof(networklogic));
-                Console.WriteLine($"GetRealSid Error: {exc.Message}");
-                Console.WriteLine($"Stack trace: {exc.StackTrace}");
+                Log.Error("[{Component}] Failed to obtain session identifier", nameof(networklogic));
                 return "BAD";
             }
         }
+
 
         private static async Task<string> GetLocalGameverAsync(string gamePath, CancellationToken cancellationToken)
         {
@@ -1293,15 +1310,17 @@ namespace CoreLibLaunchSupport
         }
 
         public static bool CheckGateStatus() =>
-            StatusService.CheckGateStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+            StatusService.CheckGateStatusAsync(CancellationToken.None).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("Server availability is unknown.");
 
         public static bool CheckLoginStatus() =>
-            StatusService.CheckLoginStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+            StatusService.CheckLoginStatusAsync(CancellationToken.None).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("Server availability is unknown.");
 
-        public static Task<bool> CheckGateStatusAsync(CancellationToken cancellationToken = default) =>
+        public static Task<bool?> CheckGateStatusAsync(CancellationToken cancellationToken = default) =>
             StatusService.CheckGateStatusAsync(cancellationToken);
 
-        public static Task<bool> CheckLoginStatusAsync(CancellationToken cancellationToken = default) =>
+        public static Task<bool?> CheckLoginStatusAsync(CancellationToken cancellationToken = default) =>
             StatusService.CheckLoginStatusAsync(cancellationToken);
 
         private static string GenerateUserAgent()

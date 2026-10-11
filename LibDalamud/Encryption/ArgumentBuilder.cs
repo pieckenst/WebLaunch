@@ -82,7 +82,6 @@ namespace XIVLauncher.Common.Encryption
             var base64Str = GameHelpers.ToMangledSeBase64(ciphertext);
             var checksum = DeriveChecksum(key);
 
-            Log.Information("ArgumentBuilder::BuildEncrypted() checksum:{0}", checksum);
 
             return $"//**sqex{version:D04}{base64Str}{checksum}**//";
         }
@@ -106,14 +105,12 @@ namespace XIVLauncher.Common.Encryption
 
                 const int CLOCK_MONOTONIC_RAW = 4;
                 var rawTickCountFixed = (clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / 1000000);
-                Log.Information("ArgumentBuilder::DeriveKey() fixing up rawTickCount from {0} to {1} on macOS", rawTickCount, rawTickCountFixed);
                 rawTickCount = (uint)rawTickCountFixed;
             }
 
             var ticks = rawTickCount & 0xFFFF_FFFFu;
             var key = ticks & 0xFFFF_0000u;
 
-            Log.Information("ArgumentBuilder::DeriveKey() rawTickCount:{0} ticks:{1} key:{2}", rawTickCount, ticks, key);
 
             var keyPair = new KeyValuePair<string, string>("T", Convert.ToString(ticks));
             if (this.arguments.Count > 0 && this.arguments[0].Key == "T")

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -49,7 +49,9 @@ namespace LibDalamud.Common.Dalamud
 
         public const string REMOTE_BASE = "https://kamori.goats.dev/Dalamud/Release/VersionInfo?track=";
 
-        public DalamudInstallState HoldForUpdate(DirectoryInfo gamePath)
+        public DalamudInstallState HoldForUpdate(DirectoryInfo gamePath) => HoldForUpdate(gamePath, CancellationToken.None);
+
+        public DalamudInstallState HoldForUpdate(DirectoryInfo gamePath, CancellationToken cancellationToken)
         {
             Log.Information("[HOOKS] DalamudLauncher::HoldForUpdate(gp:{0})", gamePath.FullName);
 
@@ -70,7 +72,8 @@ namespace LibDalamud.Common.Dalamud
                     throw new DalamudRunnerException("No runner integrity");
                 }
 
-                Thread.Yield();
+                cancellationToken.ThrowIfCancellationRequested();
+                Thread.Sleep(50);
             }
 
             if (!this.updater.Runner.Exists)

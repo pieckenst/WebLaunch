@@ -1,0 +1,9 @@
+<header class="game-header">
+    <div class="game-title"><h1>@Title</h1><p>@Description</p></div>
+    @ChildContent
+</header>
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

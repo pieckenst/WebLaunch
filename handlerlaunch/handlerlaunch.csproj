@@ -1,20 +1,19 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0-windows10.0.17763.0</TargetFramework>
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <AssemblyName>WMconsole</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationIcon>appicon.ico</ApplicationIcon>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>false</SelfContained>
     <DebugType>embedded</DebugType>
-    <IncludeAllContentForSelfExtract>True</IncludeAllContentForSelfExtract>
-    <PublishReadyToRun>True</PublishReadyToRun>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <PublishSingleFile>True</PublishSingleFile>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <Authors>pieckenst</Authors>
     <Description>Protocol handler and plugin host for WebLaunch game launcher platform. Supports multiple games and launchers through a dynamic plugin system.</Description>
     <AssemblyTitle>WebLaunch Protocol Handler and Plugin Host</AssemblyTitle>
@@ -30,12 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="DotNetZip" Version="1.16.0" />
-    <PackageReference Include="Goblinfactory.Konsole" Version="6.2.2" />
-    <PackageReference Include="log4net" Version="2.0.15" />
-    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.2" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
-    <PackageReference Include="WpfAnimatedGif" Version="2.0.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -44,4 +38,9 @@
     <ProjectReference Include="..\SpinningWheelLib\SpinningWheelLib.csproj" />
   </ItemGroup>
 
+<ItemGroup>
+<ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
+</ItemGroup>
 </Project>
