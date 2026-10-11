@@ -72,6 +72,75 @@ public sealed class ReviewRegressionTests
         Assert.False(File.Exists(file));
     }
 
+    [Fact] public void UnsupportedPlatformsKeepSessionsWhenLegacyCacheCannotBeDeleted()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        var mode = File.GetUnixFileMode(root.Path);
+        try
+        {
+            File.SetUnixFileMode(root.Path, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var cache = new CommonUniqueIdCache(new FileInfo(file));
+            Assert.False(cache.HasValidCache("test"));
+            cache.Add("test", "session", 1, 1);
+            Assert.True(cache.TryGet("test", out var cached));
+            Assert.Equal("session", cached.UniqueId);
+            Assert.True(File.Exists(file));
+        }
+        finally { File.SetUnixFileMode(root.Path, mode); }
+    }
+
+    [Theory][InlineData("write")][InlineData("move")][InlineData("missing-directory")]
+    public void WindowsCacheSaveFailuresKeepSessionsInMemory(string failure)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        if (failure == "write") Directory.CreateDirectory(file + ".tmp");
+        else if (failure == "move") Directory.CreateDirectory(file);
+        else Directory.Delete(root.Path);
+        try
+        {
+            cache.Add("test", "session", 1, 1);
+            Assert.True(cache.TryGet("test", out var cached));
+            Assert.Equal("session", cached.UniqueId);
+            Assert.False(File.Exists(file + ".tmp"));
+        }
+        finally { Directory.CreateDirectory(root.Path); }
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public void WindowsCacheReadAndCorruptCacheDeleteFailuresStartEmpty(bool allowRead)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        using var locked = File.Open(file, FileMode.Open, FileAccess.Read, allowRead ? FileShare.Read : FileShare.None);
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        Assert.False(cache.HasValidCache("test"));
+        Assert.True(File.Exists(file));
+    }
+
+    [Fact] public void WindowsReadOnlyCorruptCacheStartsEmpty()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        File.SetAttributes(file, FileAttributes.ReadOnly);
+        try
+        {
+            var cache = new CommonUniqueIdCache(new FileInfo(file));
+            Assert.False(cache.HasValidCache("test"));
+            Assert.True(File.Exists(file));
+        }
+        finally { File.SetAttributes(file, FileAttributes.Normal); }
+    }
+
     [Fact] public void ConfiguredAddonEntriesReachTheEnabledLaunchSelection()
     {
         var original = networklogic.AddonEntries.ToArray();

@@ -34,7 +34,7 @@ public sealed class GameNavigation : IDisposable
     {
         var fragment = Uri.UnescapeDataString(new Uri(Location).Fragment.TrimStart('#'));
         var selected = Sections.FirstOrDefault(s => s.Id.Equals(fragment, StringComparison.OrdinalIgnoreCase))?.Id
-            ?? Sections.FirstOrDefault()?.Id ?? "overview";
+            ?? (fragment.Length == 0 ? Sections.FirstOrDefault()?.Id ?? "overview" : ActiveSection);
         if (ActiveSection == selected) return false;
         ActiveSection = selected; return true;
     }

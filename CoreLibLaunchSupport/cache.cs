@@ -99,38 +99,44 @@ namespace CoreLibLaunchSupport
         {
             if (!OperatingSystem.IsWindows()) return; // Session credentials are memory-only on unsupported platforms.
             var plaintext = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(_cache));
+            var temporary = configFile.FullName + ".tmp";
             try
             {
                 var encrypted = System.Security.Cryptography.ProtectedData.Protect(plaintext, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
-                var temporary = configFile.FullName + ".tmp";
                 File.WriteAllBytes(temporary, encrypted);
                 File.Move(temporary, configFile.FullName, true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteFile(temporary);
             }
             finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext); }
         }
 
         public void Load()
         {
-            if (!File.Exists(configFile.FullName))
-            {
-                _cache = new List<UniqueIdCacheEntry>();
-                return;
-            }
-
             _cache = new();
-            if (!OperatingSystem.IsWindows())
-            {
-                File.Delete(configFile.FullName);
-                return;
-            }
+            if (!File.Exists(configFile.FullName)) return;
             try
             {
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.Delete(configFile.FullName);
+                    return;
+                }
                 var plaintext = System.Security.Cryptography.ProtectedData.Unprotect(File.ReadAllBytes(configFile.FullName), null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
                 try { _cache = JsonConvert.DeserializeObject<List<UniqueIdCacheEntry>>(Encoding.UTF8.GetString(plaintext)) ?? new(); }
                 finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext); }
             }
-            catch (System.Security.Cryptography.CryptographicException) { File.Delete(configFile.FullName); } // Discard old plaintext caches.
-            catch (JsonException) { File.Delete(configFile.FullName); }
+            catch (System.Security.Cryptography.CryptographicException) { TryDeleteFile(configFile.FullName); } // Discard old plaintext caches.
+            catch (JsonException) { TryDeleteFile(configFile.FullName); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+
+        private static void TryDeleteFile(string path)
+        {
+            try { File.Delete(path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
 
         public void Reset()

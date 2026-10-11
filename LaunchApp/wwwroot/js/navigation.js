@@ -52,7 +52,7 @@ export function sync(route, selected, dotnet) {
     // Explicitly wait for the routed content to render. Never navigate to the home route.
     if (lastLocation !== location.href) {
         lastLocation = location.href;
-        if (route && location.hash) frame = requestAnimationFrame(() => document.getElementById(selected)?.scrollIntoView({ behavior: 'instant', block: 'start' }));
+        if (route && location.hash === `#${selected}`) frame = requestAnimationFrame(() => document.getElementById(selected)?.scrollIntoView({ behavior: 'instant', block: 'start' }));
     }
 }
 export function dispose() {
