@@ -33,8 +33,15 @@ public sealed class GameNavigation : IDisposable
     private bool UpdateSelection()
     {
         var fragment = Uri.UnescapeDataString(new Uri(Location).Fragment.TrimStart('#'));
-        var selected = Sections.FirstOrDefault(s => s.Id.Equals(fragment, StringComparison.OrdinalIgnoreCase))?.Id
-            ?? (fragment.Length == 0 ? Sections.FirstOrDefault()?.Id ?? "overview" : ActiveSection);
+        var selected = Sections.FirstOrDefault(s => s.Id.Equals(fragment, StringComparison.OrdinalIgnoreCase))?.Id;
+        if (selected is null)
+        {
+            // #main and other non-section fragments must not make an invalid section active.
+            // Preserve the current selection only when it belongs to this route.
+            selected = fragment.Length != 0 && Sections.Any(s => s.Id.Equals(ActiveSection, StringComparison.OrdinalIgnoreCase))
+                ? ActiveSection
+                : Sections.FirstOrDefault()?.Id ?? "overview";
+        }
         if (ActiveSection == selected) return false;
         ActiveSection = selected; return true;
     }
