@@ -71,8 +71,11 @@ else
     private void Update()
     {
         syncNavigation = true;
-        _ = InvokeAsync(StateHasChanged);
+        if (!navigationFailed) _ = InvokeAsync(StateHasChanged);
     }
+
+    private void ReloadLauncher() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    private void ReturnToLibrary() => Navigation.NavigateTo(Navigation.BaseUri, forceLoad: true);
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
