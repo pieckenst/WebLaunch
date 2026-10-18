@@ -244,6 +244,38 @@ public sealed class ReviewRegressionTests
         finally { Log.Logger = original; }
     }
 
+    [Fact] public void StageLazyDoesNotFormatSensitiveDetailsWhenTraceIsDisabled()
+    {
+        var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
+        var originalLogger = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        var evaluated = false;
+        try
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", null);
+            FfxivTraceLogger.ResetForTest();
+            Log.Logger = logger;
+
+            FfxivTraceLogger.StageLazy("test", "Launch requested", () =>
+            {
+                evaluated = true;
+                return "synthetic-private-path-and-arguments";
+            });
+
+            Assert.False(evaluated);
+            var entry = Assert.Single(sink.Events);
+            Assert.Contains("Launch requested", entry.RenderMessage());
+            Assert.DoesNotContain("synthetic-private-path-and-arguments", entry.RenderMessage());
+        }
+        finally
+        {
+            Log.Logger = originalLogger;
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", originalTrace);
+            FfxivTraceLogger.ResetForTest();
+        }
+    }
+
     [Fact] public void TraceLoggerRejectsSinkOpenFailure()
     {
         using var root = new TemporaryDirectory();
