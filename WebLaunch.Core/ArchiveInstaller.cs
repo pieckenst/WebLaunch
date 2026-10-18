@@ -4,6 +4,10 @@ using System.Text.Json;
 namespace WebLaunch.Core;
 
 /// <summary>Version metadata participates in the same recoverable transaction as replaced files.</summary>
+/// <summary>Describes the version-marker transition that must commit or roll back with installed files.</summary>
+/// <param name="PreviousVersion">Previously durable version value, or null when no value existed.</param>
+/// <param name="Commit">Persists the target version after the replacement files have been written.</param>
+/// <param name="Restore">Restores the previous durable version during rollback or interrupted-transaction recovery.</param>
 public sealed record VersionMetadataTransaction(string? PreviousVersion, Action Commit, Action<string?> Restore);
 
 /// <summary>Stages a ZIP, journals replacements, and recovers interrupted installs before another update.</summary>
@@ -18,9 +22,21 @@ public sealed class ArchiveInstaller
         public string? PreviousVersion { get; set; }
     }
     private const string TransactionName = ".weblaunch-transaction";
+    /// <summary>Stages and validates an archive, journals file replacement, and rolls back if commit fails.</summary>
+    /// <param name="archive">Path to a fully downloaded archive.</param>
+    /// <param name="root">Installation root to which validated entries are contained.</param>
+    /// <param name="token">Cancellation token checked during staging and replacement.</param>
+    /// <param name="commitVersion">Optional legacy metadata callback. Callers needing durable rollback should use the transaction overload.</param>
+    /// <returns>A task that completes only after the transaction has committed or rollback has completed.</returns>
     public Task InstallAsync(string archive, string root, CancellationToken token, Action? commitVersion = null) =>
         InstallCoreAsync(archive, root, token, commitVersion, versionMetadata: null);
 
+    /// <summary>Installs an archive with metadata included in the recoverable transaction.</summary>
+    /// <param name="archive">Path to a fully downloaded archive.</param>
+    /// <param name="root">Installation root to which validated entries are contained.</param>
+    /// <param name="token">Cancellation token checked during staging and replacement.</param>
+    /// <param name="versionMetadata">Commit/restore callbacks and old version value persisted in the journal.</param>
+    /// <returns>A task that completes only after files and version metadata have committed.</returns>
     public Task InstallAsync(string archive, string root, CancellationToken token, VersionMetadataTransaction versionMetadata) =>
         InstallCoreAsync(archive, root, token, commitVersion: null,
             versionMetadata ?? throw new ArgumentNullException(nameof(versionMetadata)));
