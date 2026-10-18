@@ -88,13 +88,18 @@ public sealed class ReviewRegressionTests
 
         var error = await Record.ExceptionAsync(() => plugin.LaunchAsync(request, progress, caller.Token));
 
-        Assert.Same(failure, error);
         Assert.Equal(cancelCaller, caller.IsCancellationRequested);
-        if (cancelCaller) Assert.Empty(logger.Errors);
+        if (cancelCaller)
+        {
+            Assert.Same(failure, error);
+            Assert.Empty(logger.Errors);
+        }
         else
         {
+            var timeout = Assert.IsType<TimeoutException>(error);
+            Assert.Same(failure, timeout.InnerException);
             var logged = Assert.Single(logger.Errors);
-            Assert.Equal("FFXIV launch failed: TaskCanceledException", logged.Message);
+            Assert.Equal("FFXIV launch failed: TimeoutException", logged.Message);
             Assert.Null(logged.Exception);
         }
         Assert.Equal("", credentials.Password); Assert.Equal("", credentials.OTP); Assert.Equal("", credentials.Token);
