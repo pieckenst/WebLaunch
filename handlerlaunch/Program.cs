@@ -289,7 +289,4 @@ public sealed class DesktopPairingPrompt(Window owner) : IPairingPrompt
     }
 }
 
-// Plugin-provided text and exception payloads are untrusted and can contain paths, account
-// data or remote responses. The ordinary desktop log records only controlled metadata; detailed
-// FFXIV launch arguments and exceptions are available through the explicit FFXIV_TRACE opt-in.
 
