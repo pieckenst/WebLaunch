@@ -43,10 +43,7 @@ public sealed class BridgeHost : IAsyncDisposable
     private readonly string desktopMode;
     private readonly IGameFolderPicker? folderPicker;
     private readonly ConcurrentDictionary<string, Session> sessions = new();
-    private readonly object requestIdGate = new();
-    private readonly Dictionary<string, DateTimeOffset> usedRequestIds = new(StringComparer.Ordinal);
-    private static readonly TimeSpan RequestIdRetention = TimeSpan.FromHours(24);
-    private const int MaximumRememberedRequestIds = 4096;
+    private readonly ReplayRequestIdCache usedRequestIds;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim admission = new(1, 1);
     private WebApplication? app;
@@ -54,11 +51,19 @@ public sealed class BridgeHost : IAsyncDisposable
     private DateTimeOffset pairingRetryAfter;
     private int pairingFailures;
 
-    public BridgeHost(IBridgeTrustStore trust, IPairingPrompt prompt, ILaunchService launcher, IEnumerable<string>? developmentOrigins = null, string desktopMode = "gui", IGameFolderPicker? folderPicker = null)
+    public BridgeHost(
+        IBridgeTrustStore trust,
+        IPairingPrompt prompt,
+        ILaunchService launcher,
+        IEnumerable<string>? developmentOrigins = null,
+        string desktopMode = "gui",
+        IGameFolderPicker? folderPicker = null,
+        TimeProvider? timeProvider = null)
     {
         if (desktopMode is not ("gui" or "console" or "quiet")) throw new ArgumentException("Invalid desktop mode.");
         this.desktopMode = desktopMode; this.folderPicker = folderPicker;
         this.trust = trust; this.prompt = prompt; this.launcher = launcher;
+        usedRequestIds = new ReplayRequestIdCache(timeProvider: timeProvider);
         origins = new(StringComparer.Ordinal) { "https://pieckenst.github.io" };
         foreach (var origin in developmentOrigins ?? [])
         {
@@ -120,7 +125,7 @@ public sealed class BridgeHost : IAsyncDisposable
         {
             var fingerprint = BridgeCrypto.Fingerprint(hello.Identity);
             var known = trust.IsTrusted(origin, fingerprint);
-            PruneExpiredRequestIds();
+            usedRequestIds.PruneExpired();
             if (sessions.Count >= 16 ||
                 (!known && (DateTimeOffset.UtcNow < pairingRetryAfter || sessions.Values.Any(s => !s.Paired && !s.IsExpired))))
             { context.Response.StatusCode = 429; return; }
@@ -188,7 +193,7 @@ public sealed class BridgeHost : IAsyncDisposable
                     if (session.Job is not null) throw new InvalidDataException("A launch was already submitted.");
                     var request = command.Launch ?? throw new InvalidDataException();
                     request.Validate();
-                    if (!TryReserveRequestId(request.RequestId))
+                    if (!usedRequestIds.TryReserve(request.RequestId))
                     {
                         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                         return;
@@ -227,32 +232,6 @@ public sealed class BridgeHost : IAsyncDisposable
         catch { session.Status = new("failed", "Launch failed. Check the installation, sign-in details, and desktop launcher status, then retry.", true); }
         finally { request.ClearCredentials(); }
     }
-    private bool TryReserveRequestId(string requestId)
-    {
-        lock (requestIdGate)
-        {
-            var now = DateTimeOffset.UtcNow;
-            PruneExpiredRequestIdsUnderLock(now);
-            if (usedRequestIds.ContainsKey(requestId) || usedRequestIds.Count >= MaximumRememberedRequestIds)
-                return false;
-
-            usedRequestIds.Add(requestId, now + RequestIdRetention);
-            return true;
-        }
-    }
-
-    private void PruneExpiredRequestIds()
-    {
-        lock (requestIdGate)
-            PruneExpiredRequestIdsUnderLock(DateTimeOffset.UtcNow);
-    }
-
-    private void PruneExpiredRequestIdsUnderLock(DateTimeOffset now)
-    {
-        foreach (var pair in usedRequestIds.Where(pair => pair.Value <= now).ToArray())
-            usedRequestIds.Remove(pair.Key);
-    }
-
     private async Task ReapAsync()
     {
         try
