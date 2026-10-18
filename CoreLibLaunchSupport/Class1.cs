@@ -514,25 +514,12 @@ namespace CoreLibLaunchSupport
             return compat;
         }
 
-        private static readonly AsyncLocal<CancellationToken> CurrentLaunchCancellation = new();
-
-        internal static IDisposable UseCancellationToken(CancellationToken cancellationToken)
-        {
-            var previous = CurrentLaunchCancellation.Value;
-            CurrentLaunchCancellation.Value = cancellationToken;
-            return new LaunchCancellationScope(previous);
-        }
-
-        private sealed class LaunchCancellationScope(CancellationToken previous) : IDisposable
-        {
-            private bool disposed;
-            public void Dispose()
+        internal static IDisposable UseCancellationToken(CancellationToken cancellationToken) =>
+            LaunchCancellationContext.Enter(cancellationToken, diagnostic =>
             {
-                if (disposed) return;
-                disposed = true;
-                CurrentLaunchCancellation.Value = previous;
-            }
-        }
+                if (FfxivTraceLogger.TraceEnabled)
+                    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, diagnostic);
+            });
 
         internal static void EnsureGameWindowReady(Process process, TimeSpan? readinessTimeout = null)
         {
@@ -543,7 +530,7 @@ namespace CoreLibLaunchSupport
             var stopwatch = Stopwatch.StartNew();
             while (true)
             {
-                CurrentLaunchCancellation.Value.ThrowIfCancellationRequested();
+                LaunchCancellationContext.CurrentCancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
@@ -569,7 +556,7 @@ namespace CoreLibLaunchSupport
                 if (IntPtr.Zero != TryFindGameWindow(process))
                     return;
 
-                CurrentLaunchCancellation.Value.ThrowIfCancellationRequested();
+                LaunchCancellationContext.CurrentCancellationToken.ThrowIfCancellationRequested();
                 if (stopwatch.Elapsed >= timeout)
                     throw new TimeoutException("The game window did not become ready before the launch deadline.");
 
