@@ -55,32 +55,86 @@
     {
         if (firstRender)
         {
-            module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
-            navigationModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/navigation.js");
-            var preference = await module.InvokeAsync<string?>("preference", "theme");
-            dark = await module.InvokeAsync<bool>("applyTheme", preference);
-            if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
+            try { module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js"); }
+            catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("bridge module initialization", ex); }
+
+            try { navigationModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/navigation.js"); }
+            catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("navigation module initialization", ex); }
+
+            if (module is not null)
+            {
+                try
+                {
+                    var preference = await module.InvokeAsync<string?>("preference", "theme");
+                    dark = await module.InvokeAsync<bool>("applyTheme", preference);
+                    if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
+                }
+                catch (Microsoft.JSInterop.JSException ex)
+                {
+                    // A failed preference/theme call must not replace the whole page with an error boundary.
+                    BrowserDiagnostics.Report("theme initialization", ex);
+                }
+            }
             StateHasChanged();
         }
-        if (syncNavigation && navigationModule is not null)
+
+        if (syncNavigation)
         {
             syncNavigation = false;
-            await navigationModule.InvokeVoidAsync("sync", GameNavigation.Route, GameNavigation.ActiveSection, reference);
+            if (navigationModule is not null && reference is not null)
+            {
+                try { await navigationModule.InvokeVoidAsync("sync", GameNavigation.Route, GameNavigation.ActiveSection, reference); }
+                catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("navigation synchronization", ex); }
+            }
         }
     }
+
     private async Task SetTheme(bool enabled)
     {
-        if (module is null) return;
         dark = enabled;
         if (Masa.Theme.Dark != dark) Masa.ToggleTheme();
-        await module.InvokeVoidAsync("preference", "theme", dark ? "dark" : "light");
-        await module.InvokeVoidAsync("applyTheme", dark ? "dark" : "light");
+        if (module is null) return;
+
+        try { await module.InvokeVoidAsync("preference", "theme", dark ? "dark" : "light"); }
+        catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("theme preference", ex); }
+
+        try { await module.InvokeVoidAsync("applyTheme", dark ? "dark" : "light"); }
+        catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("theme application", ex); }
     }
+
     public async ValueTask DisposeAsync()
     {
         GameNavigation.Changed -= Update;
-        if (navigationModule is not null) { await navigationModule.InvokeVoidAsync("dispose"); await navigationModule.DisposeAsync(); }
-        if (module is not null) await module.DisposeAsync();
-        reference?.Dispose();
+        try
+        {
+            if (navigationModule is not null)
+            {
+                try { await navigationModule.InvokeVoidAsync("dispose"); }
+                catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("navigation disposal", ex); }
+                finally
+                {
+                    try { await navigationModule.DisposeAsync(); }
+                    catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("navigation reference cleanup", ex); }
+                    finally { navigationModule = null; }
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (module is not null)
+                {
+                    try { await module.DisposeAsync(); }
+                    catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("bridge reference cleanup", ex); }
+                    finally { module = null; }
+                }
+            }
+            finally
+            {
+                reference?.Dispose();
+                reference = null;
+            }
+        }
     }
 }
