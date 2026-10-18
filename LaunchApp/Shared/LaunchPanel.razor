@@ -486,6 +486,7 @@
     private async Task BrowseFolder()
     {
         if (module is null || !paired || connecting || busy || !canBrowseFolders) return;
+        var retryConnection = false;
         connecting = true; message = "Choose a folder in the desktop launcher. Cancel in that window to keep the current path.";
         try
         {
@@ -505,11 +506,14 @@
             actualMode = "";
             canBrowseFolders = false;
             Report("browse-folder", ex, UserMessage(ex));
-            if (savedPairing && !IsUnsafeToRetryConnection(ex) && !lifetime.IsCancellationRequested)
-                _ = StartAutomaticRecoveryAsync();
+            retryConnection = savedPairing && !IsUnsafeToRetryConnection(ex) && !lifetime.IsCancellationRequested;
         }
         catch (ArgumentException ex) { Report("folder-path", ex, "The selected folder is not a supported local Windows path. Enter the full path manually."); }
         finally { connecting = false; focusTarget = "game-path"; }
+
+        // Start only after the browse operation has released the busy/connecting state.
+        if (retryConnection)
+            _ = StartAutomaticRecoveryAsync();
     }
     private void Report(string operation, Exception exception, string feedback)
     {
