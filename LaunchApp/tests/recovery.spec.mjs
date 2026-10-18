@@ -39,10 +39,13 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
 
 test('a failing navigation module can reload and return to the library', async ({ page }) => {
     await prepare(page, base);
+    let failedModuleLoads = 0;
     await page.route('**/js/navigation.js', async route => {
-        // The bad module remains unavailable on the game route to exercise reload recovery,
-        // but the library route is healthy so the user can leave the broken page.
-        if (page.url().startsWith(base + 'counter')) {
+        // Fail the initial game navigation and the explicit reload, then allow navigation
+        // to the library. This avoids depending on whether Playwright's Page.url() reflects a
+        // just-started full navigation before its module request reaches the route handler.
+        if (failedModuleLoads < 2) {
+            failedModuleLoads++;
             await route.abort();
             return;
         }
