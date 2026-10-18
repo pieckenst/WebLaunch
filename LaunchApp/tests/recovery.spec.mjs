@@ -27,6 +27,11 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
 
     await expect(page.locator('.launch-status')).toHaveText('The desktop connection is restored.', { timeout: 25_000 });
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+
+    // The game launch action lives inside the settings dialog. Open the game view and assert
+    // that the recovered session actually enables that action, rather than querying a hidden button.
+    await page.locator('.play-button').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeEnabled();
     expect(aborted).toBe(true);
     await page.unroute('http://127.0.0.1:47832/v2/session/**');
@@ -34,10 +39,16 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
 
 test('a repeatedly failing game page can force-load the library', async ({ page }) => {
     await page.route('**/js/navigation.js', async route => {
-        const response = await route.fetch();
-        const body = (await response.text()).replace('export function sync(route, selected, dotnet) {',
-            "export function sync(route, selected, dotnet) { if (route) throw new Error('Synthetic game page failure');");
-        await route.fulfill({ response, body });
+        // Replace the module rather than relying on a formatting-sensitive text substitution;
+        // this deterministically tests a failed navigation sync and keeps the library route usable.
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/javascript; charset=utf-8',
+            body: `export function sync(route, selected, dotnet) {
+                if (route) throw new Error('Synthetic game page failure');
+            }
+            export function dispose() {}`
+        });
     });
     await prepare(page, base);
     await page.goto(base + 'counter');
