@@ -1173,13 +1173,13 @@ namespace CoreLibLaunchSupport
     catch (IDalamudCompatibilityCheck.NoRedistsException ex)
     {
         Log.Error("[{Component}] No Dalamud redistributables found ({ErrorType})", nameof(networklogic), ex.GetType().Name);
-        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud redistributable failure: {ex}");
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud redistributable failure: {ex}");
         throw;
     }
     catch (IDalamudCompatibilityCheck.ArchitectureNotSupportedException ex)
     {
         Log.Error("[{Component}] Architecture not supported ({ErrorType})", nameof(networklogic), ex.GetType().Name);
-        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud architecture failure: {ex}");
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud architecture failure: {ex}");
         throw;
     }
 
@@ -1193,7 +1193,7 @@ namespace CoreLibLaunchSupport
         catch (DalamudRunnerException ex)
         {
             Log.Error("[{Component}] Couldn't ensure Dalamud runner ({ErrorType})", nameof(networklogic), ex.GetType().Name);
-            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud runner failure: {ex}");
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud runner failure: {ex}");
             throw;
         }
 
@@ -1216,7 +1216,7 @@ namespace CoreLibLaunchSupport
     catch (Exception exc)
     {
         Log.Error("[{Component}] Game launch failed ({ErrorType})", nameof(networklogic), exc.GetType().Name);
-        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Game launch failure: {exc}");
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Game launch failure: {exc}");
         switch(language)
         {
             case 0:
@@ -1253,7 +1253,7 @@ namespace CoreLibLaunchSupport
                 catch (Exception cleanupError)
                 {
                     Log.Warning("[{Component}] Could not terminate game after session startup failed ({ErrorType})", nameof(networklogic), cleanupError.GetType().Name);
-                    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Game cleanup failure: {cleanupError}");
+                    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Game cleanup failure: {cleanupError}");
                 }
                 finally { game.Dispose(); }
                 throw;
@@ -1322,13 +1322,13 @@ namespace CoreLibLaunchSupport
             catch (NoValidSubscriptionException ex)
             {
                 Log.Warning("[{Component}] Subscription validation failed", nameof(networklogic));
-                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Subscription validation failure: {ex}");
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Subscription validation failure: {ex}");
                 return "BAD";
             }
             catch (Exception ex)
             {
                 Log.Error("[{Component}] Failed to obtain session identifier ({ErrorType})", nameof(networklogic), ex.GetType().Name);
-                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Session identifier request failed: {ex}");
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Session identifier request failed: {ex}");
                 return "BAD";
             }
         }
@@ -1349,7 +1349,7 @@ namespace CoreLibLaunchSupport
             catch (Exception exc)
             {
                 Log.Warning("[{Component}] Unable to read local game version ({ErrorType})", nameof(networklogic), exc.GetType().Name);
-                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Unable to read local game version: {exc}");
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Unable to read local game version: {exc}");
                 return "BAD";
             }
         }
