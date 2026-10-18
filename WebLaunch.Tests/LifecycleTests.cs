@@ -36,18 +36,21 @@ public sealed class LifecycleTests
         Assert.Contains(logger.Messages, message => message.StartsWith("Plugin shutdown failed"));
         Assert.Contains("fixture-initialize", logger.Messages); Assert.Contains("fixture-shutdown", logger.Messages);
     }
-    [Fact] public async Task LegacyShadowCopyExcludesNestedFiles()
+    [Fact] public async Task LegacyShadowCopyPreservesPrivateResourcesWithoutCopyingNestedPlugins()
     {
         using var root = new TemporaryDirectory();
         CopyPlugin(root.Path, "");
-        Directory.CreateDirectory(Path.Combine(root.Path, "nested"));
-        File.WriteAllText(Path.Combine(root.Path, "nested", "unrelated.txt"), "unrelated");
+        Directory.CreateDirectory(Path.Combine(root.Path, "resources", "ui"));
+        File.WriteAllText(Path.Combine(root.Path, "resources", "ui", "icon.txt"), "private resource");
+        Directory.CreateDirectory(Path.Combine(root.Path, "nested-plugin"));
+        File.WriteAllText(Path.Combine(root.Path, "nested-plugin", "Unrelated.dll"), "not a plugin dependency");
         File.WriteAllText(Path.Combine(root.Path, "dependency.txt"), "dependency");
         await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
         await host.InitializeAsync();
         var shadow = Path.GetDirectoryName(host.GetPlugin("legacy-fixture").GetType().Assembly.Location)!;
         Assert.True(File.Exists(Path.Combine(shadow, "dependency.txt")));
-        Assert.False(Directory.Exists(Path.Combine(shadow, "nested")));
+        Assert.Equal("private resource", File.ReadAllText(Path.Combine(shadow, "resources", "ui", "icon.txt")));
+        Assert.False(Directory.Exists(Path.Combine(shadow, "nested-plugin")));
     }
 
     [Fact] public async Task InitializationRemovesStaleShadowDirectoriesBeforeLoading()
@@ -86,6 +89,30 @@ public sealed class LifecycleTests
         await first.DisposeAsync();
         Assert.False(Directory.Exists(firstRoot));
         Assert.False(File.Exists(firstRoot + ".lock"));
+    }
+
+    [Fact] public async Task SynchronousDisposeDoesNotCaptureTheCallerSynchronizationContext()
+    {
+        using var root = new TemporaryDirectory();
+        CopyPlugin(root.Path, "one");
+        var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        await host.InitializeAsync();
+
+        var dispose = Task.Run(() =>
+        {
+            SynchronizationContext.SetSynchronizationContext(new NonPumpingSynchronizationContext());
+            host.Dispose();
+        });
+        await dispose.WaitAsync(TimeSpan.FromSeconds(8));
+        Assert.Empty(host.GetLoadedPlugins());
+    }
+
+    private sealed class NonPumpingSynchronizationContext : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            // Deliberately never run posted continuations, reproducing a blocked UI context.
+        }
     }
 
     [Fact] public async Task PluginActionsRunConcurrentlyAndUnloadWaitsForEveryLease()
