@@ -118,7 +118,7 @@ public sealed class BridgeTests
         var request = new LaunchRequest { Game = "spellborn", GamePath = @"C:\Games" };
         var reply = await client.Exchange(new() { Action = "launch", Launch = request });
         Assert.True(reply.Status.Success); Assert.Equal(1, launcher.Calls);
-        using var duplicate = await client.Send(new() { Action = "launch", Launch = request }); Assert.Equal(HttpStatusCode.TooManyRequests, duplicate.StatusCode);
+        using var duplicate = await client.Send(new() { Action = "launch", Launch = request }); Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
         var envelope = client.Channel.Encrypt(new BridgeCommand { Action = "status" });
         using var first = await client.Http.PostAsJsonAsync("/v2/session/" + client.Session, envelope); first.EnsureSuccessStatusCode();
         using var replay = await client.Http.PostAsJsonAsync("/v2/session/" + client.Session, envelope); Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode);
