@@ -284,7 +284,7 @@ public sealed class LifecycleTests
         if (!OperatingSystem.IsWindows()) return;
         using var game = LongRunningGame();
         var error = Assert.Throws<TimeoutException>(() =>
-            networklogic.NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromMilliseconds(250)));
+            NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromMilliseconds(250)));
         Assert.Contains("window", error.Message.ToLowerInvariant());
     }
 
@@ -293,10 +293,10 @@ public sealed class LifecycleTests
         if (!OperatingSystem.IsWindows()) return;
         using var game = LongRunningGame();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
-        using (networklogic.NativeProcessLauncher.UseCancellationToken(cancellation.Token))
+        using (NativeProcessLauncher.UseCancellationToken(cancellation.Token))
         {
             Assert.ThrowsAny<OperationCanceledException>(() =>
-                networklogic.NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromSeconds(5)));
+                NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromSeconds(5)));
         }
     }
 
@@ -305,8 +305,8 @@ public sealed class LifecycleTests
         if (!OperatingSystem.IsWindows()) return;
         using var game = Process.Start(new ProcessStartInfo("cmd.exe", "/c exit 0") { UseShellExecute = false })!;
         Assert.True(game.WaitForExit(5000));
-        Assert.Throws<GameExitedException>(() =>
-            networklogic.NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromSeconds(1)));
+        Assert.Throws<CoreLibLaunchSupport.GameExitedException>(() =>
+            NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromSeconds(1)));
     }
 
     [Fact] public async Task StopDuringStartupWaitsForRollbackAndSkipsFurtherAddonWork()
