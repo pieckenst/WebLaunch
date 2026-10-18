@@ -1,0 +1,158 @@
+@import 'theme.css';
+@import 'fonts.css';
+
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  overflow-x: hidden;
+  scroll-padding-top: var(--navbar-height);
+  width: 100%;
+}
+
+body {
+  min-height: 100vh;
+  width: 100%;
+  background: var(--background-dark);
+  color: var(--foreground);
+  margin: 0;
+}
+
+body[data-theme="light"] {
+  background: var(--background-light);
+  color: var(--background-dark);
+}
+
+/* Button styles */
+.btn-primary {
+  background: var(--primary);
+  color: var(--foreground);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 40px;
+  font-weight: 500;
+}
+
+.btn-primary:hover {
+  background: var(--primary-light);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  background: var(--primary-dark);
+  transform: translateY(0);
+}
+
+/* Navigation styles */
+.nav-items {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.nav-item {
+  color: var(--foreground-secondary);
+  transition: all 0.2s ease;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.nav-item:hover {
+  color: var(--foreground);
+  background: rgba(255,255,255,0.1);
+}
+
+.nav-item.active {
+  color: var(--primary);
+}
+
+/* Mobile navigation */
+@media (max-width: 640px) {
+  .navbar-items {
+    display: none;
+  }
+  
+  .navbar-items.mobile {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: var(--navbar-height);
+    left: 0;
+    right: 0;
+    background: var(--background);
+    padding: var(--space-2);
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+}
+
+/* Layout containers */
+.content-container {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+/* Blazor specific styles */
+#blazor-error-ui {
+  background: var(--background-light);
+  color: var(--background-dark);
+  bottom: 0;
+  box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+  display: none;
+  left: 0;
+  padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+  position: fixed;
+  width: 100%;
+  z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+  cursor: pointer;
+  position: absolute;
+  right: 0.75rem;
+  top: 0.5rem;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* Loading states */
+.loading-progress {
+  position: relative;
+  display: block;
+  width: 8rem;
+  height: 8rem;
+  margin: 20vh auto 1rem auto;
+}
+
+.loading-progress circle {
+  fill: none;
+  stroke: var(--primary-light);
+  stroke-width: 0.6rem;
+  transform-origin: 50% 50%;
+  transform: rotate(-90deg);
+}
+
+.loading-progress circle:last-child {
+  stroke: var(--primary);
+  stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
+  transition: stroke-dasharray 0.05s ease-in-out;
+}
+
+.loading-progress-text {
+  position: absolute;
+  text-align: center;
+  font-weight: bold;
+  inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
+}
+
+.loading-progress-text:after {
+  content: var(--blazor-load-percentage-text, "Loading");
+}

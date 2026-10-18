@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Game Launcher</title>
+    <base href="/WebLaunch/" />
+    
+    <link href="_content/Masa.Blazor/css/masa-blazor.min.css" rel="stylesheet" />
+    <link href="css/materialdesign/v7.1.96/css/materialdesignicons.min.css" rel="stylesheet" />
+    <link href="css/material3-dark-base.css" rel="stylesheet" id="theme-dark" disabled />
+    <link href="css/material3-base.css" rel="stylesheet" id="theme-light" />
+    <link href="css/bootstrap/bootstrap.min.css" rel="stylesheet" />
+    <link href="css/site.css" rel="stylesheet" />
+    <link href="css/output.css" rel="stylesheet" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+</head>
+
+<body>
+    <div id="app">
+        <div class="loading-progress">
+            <h1>Initializing Application</h1>
+            <div class="m-progress-circular indeterminate"></div>
+            <span>Please wait...</span>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        <div class="error-details">
+            <div class="error-title">Application Error</div>
+            <div class="error-message"></div>
+            <div class="error-stack"></div>
+            <div class="error-component"></div>
+            <div class="error-params"></div>
+        </div>
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_content/Masa.Blazor/js/masa-blazor.js"></script>
+    <script src="_content/LumexUI/js/LumexUI.js"></script>
+
+    <script>
+
+        
+        
+
+        window.Lumex = {
+        elementReference: {
+            getScrollHeight: function(element) {
+                return element.scrollHeight;
+            }
+        }
+    };
+        document.querySelectorAll('script').forEach(script => {
+            if (script.src) {
+                script.src = script.src + '?v=' + Date.now();
+            }
+        });
+    
+        window.Blazor = window.Blazor || {};
+        window.Blazor.isDebuggingSupported = function() {
+            return true;
+        };
+    
+        window.addEventListener('load', () => {
+            localStorage.clear();
+            sessionStorage.clear();
+            
+            if ('caches' in window) {
+                caches.keys().then(keys => {
+                    keys.forEach(key => caches.delete(key));
+                });
+            }
+        });
+    
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+                registrations.forEach(registration => {
+                    registration.unregister();
+                });
+            });
+        }
+    
+        window.isDarkMode = () => {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches;
+        };
+    
+        window.switchTheme = (isDark) => {
+            document.getElementById('theme-dark').disabled = !isDark;
+            document.getElementById('theme-light').disabled = isDark;
+            document.body.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            document.body.classList.toggle('m-application--dark', isDark);
+            document.body.classList.toggle('m-application--light', !isDark);
+        };
+    
+        const darkModeMatch = window.matchMedia('(prefers-color-scheme: dark)');
+        switchTheme(darkModeMatch.matches);
+        darkModeMatch.addEventListener('change', e => switchTheme(e.matches));
+
+        
+    </script>
+</body>
+</html>
