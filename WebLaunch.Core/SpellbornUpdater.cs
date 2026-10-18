@@ -29,7 +29,8 @@ public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore v
         var latest = await client.GetFromJsonAsync<Release>(new Uri(BaseUri, "latest.json"), token) ?? throw new InvalidDataException("Missing release metadata.");
         if (version is null || version == "false")
         {
-            await InstallReleaseAsync(latest, root, progress, token);
+            var previousVersion = version;
+            await InstallReleaseAsync(latest, root, progress, token, previousVersion);
             version = latest.Version;
         }
         // Retain the provider's existing incremental update wire format.
@@ -42,12 +43,14 @@ public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore v
                 .FirstOrDefault(r => r is not null && r.AppliesTo == version && r.Enabled == "true");
             if (next is null) return;
             if (string.IsNullOrWhiteSpace(next.Version) || !visited.Add(next.Version)) throw new InvalidDataException("Invalid update sequence.");
-            await InstallReleaseAsync(next, root, progress, token);
+            var previousVersion = version;
+            await InstallReleaseAsync(next, root, progress, token, previousVersion);
             version = next.Version;
         }
         throw new InvalidDataException("Too many incremental updates.");
     }
-    private async Task InstallReleaseAsync(Release release, string root, IProgress<LaunchStatus> progress, CancellationToken token)
+    private async Task InstallReleaseAsync(
+        Release release, string root, IProgress<LaunchStatus> progress, CancellationToken token, string? previousVersion)
     {
         SafePath.Resolve(root, release.File);
         if (string.IsNullOrWhiteSpace(release.Version) || release.Checksum.Length != 32 || !release.Checksum.All(char.IsAsciiHexDigit))
@@ -67,7 +70,11 @@ public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore v
             }
             progress.Report(new("updating", "Installing verified game files…"));
             InstallationStarted = true;
-            await installer.InstallAsync(temporary, root, token, () => versions.Write(root, release.Version));
+            var versionTransaction = new VersionMetadataTransaction(
+                previousVersion,
+                () => versions.Write(root, release.Version),
+                prior => versions.Write(root, prior ?? "false"));
+            await installer.InstallAsync(temporary, root, token, versionTransaction);
         }
         finally { File.Delete(temporary); }
     }
