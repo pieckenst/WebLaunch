@@ -81,12 +81,13 @@ public static class FfxivTraceLogger
 
     public static void Stage(string correlationId, string stage, string? detail = null)
     {
-        var msg = detail is null
-            ? $"[FFXIV:{correlationId}] {stage}"
-            : $"[FFXIV:{correlationId}] {stage} — {detail}";
+        var summary = $"[FFXIV:{correlationId}] {stage}";
+        Log.Information(summary);
 
-        Log.Information(msg);
-        TraceWrite(LogEventLevel.Information, msg);
+        // Stage detail may contain installation paths or provider-specific diagnostics.
+        // Keep it available in the local forensic trace without leaking it to ordinary sinks.
+        if (TraceEnabled)
+            TraceWrite(LogEventLevel.Information, detail is null ? summary : $"{summary} — {detail}");
     }
 
     public static void Info(string correlationId, string message)
@@ -116,11 +117,15 @@ public static class FfxivTraceLogger
         else
             Log.Error("[FFXIV:{CorrelationId}] {Message}", correlationId, message);
 
-        TraceWrite(
-            LogEventLevel.Error,
-            ex is null
+        // Exception.ToString() can contain sensitive paths, arguments and remote payloads.
+        // Do not even format it unless the operator explicitly opted into local trace mode.
+        if (TraceEnabled)
+        {
+            var traceMessage = ex is null
                 ? $"[FFXIV:{correlationId}] {message}"
-                : $"[FFXIV:{correlationId}] {message}{Environment.NewLine}{ex}");
+                : $"[FFXIV:{correlationId}] {message}{Environment.NewLine}{ex}";
+            TraceWrite(LogEventLevel.Error, traceMessage);
+        }
     }
 
     // ---- Trace-only logging -------------------------------------------
