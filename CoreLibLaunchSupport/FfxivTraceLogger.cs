@@ -42,11 +42,13 @@ public static class FfxivTraceLogger
     /// <summary>
     /// The correlation ID associated with the current asynchronous launch flow.
     /// </summary>
+    /// <summary>Gets the active launch correlation ID, if a correlation scope is active.</summary>
     public static string? CurrentCorrelationId => CorrelationSlot.Value;
 
     /// <summary>
     /// Creates a short correlation ID (6 hex chars) for one FFXIV launch attempt.
     /// </summary>
+    /// <summary>Generates a short, random, uppercase hexadecimal ID for a launch attempt.</summary>
     public static string NewCorrelationId()
     {
         Span<byte> bytes = stackalloc byte[3];
@@ -58,6 +60,8 @@ public static class FfxivTraceLogger
     /// Starts a correlation scope. Nested calls reuse the active ID so the same
     /// launch remains correlated across the entire in-process pipeline.
     /// </summary>
+    /// <summary>Creates a correlation scope, reusing an existing asynchronous scope when nested.</summary>
+    /// <param name="requestedId">Optional caller-supplied ID used only when no scope is active.</param>
     public static CorrelationScope BeginCorrelation(string? requestedId = null)
     {
         var existing = CorrelationSlot.Value;
@@ -75,10 +79,15 @@ public static class FfxivTraceLogger
     /// Returns the active correlation ID, or a stable marker when code is running
     /// outside a launch scope.
     /// </summary>
+    /// <summary>Returns the active correlation ID, or NOID outside a launch scope.</summary>
     public static string CorrelationOrNone => CurrentCorrelationId ?? "NOID";
 
     // ---- Normal-mode stage logging -------------------------------------
 
+    /// <summary>Logs a sanitized stage label normally and sends potentially sensitive detail only to opt-in trace mode.</summary>
+    /// <param name="correlationId">ID associated with this launch attempt.</param>
+    /// <param name="stage">Non-sensitive stage name.</param>
+    /// <param name="detail">Optional diagnostic detail, emitted only when trace mode is enabled.</param>
     public static void Stage(string correlationId, string stage, string? detail = null)
     {
         var summary = $"[FFXIV:{correlationId}] {stage}";
@@ -104,6 +113,10 @@ public static class FfxivTraceLogger
         TraceWrite(LogEventLevel.Warning, msg);
     }
 
+    /// <summary>Emits a controlled failure category to ordinary sinks and a full exception only to opt-in trace output.</summary>
+    /// <param name="correlationId">ID associated with this launch attempt.</param>
+    /// <param name="message">Sanitized user-facing failure description.</param>
+    /// <param name="ex">Optional underlying exception, never rendered to an ordinary sink.</param>
     public static void Error(string correlationId, string message, Exception? ex = null)
     {
         if (ex is not null)
@@ -141,6 +154,9 @@ public static class FfxivTraceLogger
     /// <summary>
     /// Writes trace-only detail without evaluating sensitive diagnostic formatting when trace mode is disabled.
     /// </summary>
+    /// <summary>Evaluates and writes a trace message factory only while explicit local tracing is enabled.</summary>
+    /// <param name="correlationId">ID associated with this launch attempt.</param>
+    /// <param name="messageFactory">Lazy detail builder, which may include sensitive diagnostics.</param>
     public static void Trace(string correlationId, Func<string> messageFactory)
     {
         ArgumentNullException.ThrowIfNull(messageFactory);
@@ -339,6 +355,7 @@ public static class FfxivTraceLogger
     /// <summary>
     /// Flushes and closes the trace file. Safe to call at process shutdown.
     /// </summary>
+    /// <summary>Flushes and disposes the trace file sink during host shutdown.</summary>
     public static void Shutdown()
     {
         lock (Gate)
@@ -385,6 +402,7 @@ public static class FfxivTraceLogger
 
         public string Id { get; }
 
+        /// <summary>Restores the prior correlation scope and its associated logging context.</summary>
         public void Dispose()
         {
             if (disposed)
