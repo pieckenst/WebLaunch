@@ -48,6 +48,14 @@ and remains subject to the native Windows acceptance matrix.
 
 ## Deferred integration work
 
+### FFXIV game patching and updating
+
+The FFXIV launch path currently reads the local `ffxivgame.ver` as part of session/patch-identity acquisition, authenticates, and starts the game process. It does **not yet provide a complete WebLaunch-managed game patch/update workflow** that discovers required official game updates, obtains patch metadata and payloads, downloads and validates them, applies them safely, recovers interrupted application, and gates launch on successful completion. The current `FFXIVGamePlugin` reaches authentication and then `networklogic.LaunchGameAsync`; this is not an update orchestration path.
+
+The vendored `LibDalamud` source does contain lower-level FFXIV patching components (including the ZiPatch/patch IPC path) and a `DalamudUpdater`. The latter updates Dalamud, its .NET runtime, and assets; its existence does not mean the **FFXIV game itself** is automatically patched by WebLaunch. A follow-up should first reconcile these components with selected XIVLauncher upstream revisions, then design the game-update orchestration around the current upstream patch protocol rather than inventing or blindly transplanting a second patcher.
+
+That work needs explicit boot/game version tracking, official patch metadata acquisition, bounded and cancellable downloads, integrity validation, contained patch application, durable crash recovery/repair, clear progress/error reporting, and a launch gate that prevents authentication/startup against an incomplete installation. Tests should exercise patch metadata/version chains, malformed or stale manifests, checksum failures, interrupted and partially applied patches, locked files, cancellation, disk/permission failures, and recovery without live-game credentials; authorized native-Windows/game acceptance remains separate. This capability is deferred from the current infrastructure PR.
+
 ### Upstream Dalamud/XIVLauncher synchronization
 
 The vendored `LibDalamud` implementation is a maintained fork, not a substitute for
@@ -97,10 +105,12 @@ staging directory requires inspection; the installer does not guess what to dele
 The legacy callback overload remains for compatibility, but callers that need
 coordinated metadata rollback should use `VersionMetadataTransaction`.
 
-Provider MD5/SHA1 fields remain compatibility integrity checks, not signatures.
+Provider MD5/SHA1 fields in the implemented Spellborn update path remain compatibility integrity checks, not signatures.
 TLS certificate verification is enabled. Downloads and asynchronous updater calls
-have bounded retries/cancellation. FFXIV patch binary algorithms remain unchanged;
-containment is applied at their filesystem boundary.
+have bounded retries/cancellation. The vendored FFXIV ZiPatch/patch IPC components
+remain available as lower-level primitives, but a complete WebLaunch-managed FFXIV
+game patch/update workflow is deferred; do not infer it from the Spellborn archive
+installer or the separate Dalamud/runtime/assets updater.
 
 ## Browser sections and component libraries
 
