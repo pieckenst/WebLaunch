@@ -74,16 +74,37 @@ as equivalent to XIVLauncher behavior.
 
 Dynamic discovery/loading already exists in `CoreFunctions`, but `handlerlaunch` still
 has build-time project references to the bundled FFXIV and Spellborn plugin projects.
-A separate architecture change should remove those concrete plugin references from the
-host executable and make distribution/package wiring provide plugins as deployable
-assemblies/bundles discovered at runtime. Keep the shared plugin contract and its
-assembly identity stable, retain collectible load-context isolation and legacy DLL
-discovery, and prove that a plugin not referenced by the host project can be discovered,
-loaded, used, and unloaded. The solution/build pipeline may still build and package the
-bundled plugin projects; the intended decoupling is from the host's compile-time
-references, not from building or shipping the default plugins. Defer this redesign from
-the present infrastructure update to a dedicated change with packaging and compatibility
-tests.
+The target is **dynamic-first loading**, with an explicit static/built-in fallback kept
+for compatibility with deployments where a bundled plugin still arrives via an assembly
+reference. It must not be possible to register both implementations for one plugin ID,
+and fallback must not silently hide an integrity, API-compatibility or initialization
+failure.
+
+The dedicated loader change should provide a validated plugin catalog/manifest, preserve
+the bundle root separately from the implementation assembly path, resolve private managed
+and native dependencies through isolated collectible load contexts, share only version-
+compatible host contract assemblies, validate a dependency graph with required/optional
+edges and version constraints, and load in deterministic dependency order. Per-plugin
+load/initialization failures must roll back partial state without aborting unrelated
+plugins. Leases and explicit retirement must coordinate calls, reload, shutdown and
+unload; a new version should be staged before replacing the working version. Static
+fallback candidates should be explicitly registered and selected under a documented
+source-precedence policy, not discovered by indiscriminately scanning the default
+load context.
+
+The solution/build pipeline may still build and package bundled plugin projects; the
+intended decoupling is from the host's compile-time references, not from building or
+shipping the default plugins. Acceptance must prove both modes: a plugin absent from
+the host reference graph is discovered, loaded, used and unloaded, and the registered
+reference fallback works when its dynamic bundle is absent. Also test duplicate IDs,
+malformed/path-escaping manifests, symlinks/reparse points, nested resources, private
+dependencies, missing/cyclic/incompatible dependencies, partial initialization,
+dynamic-vs-static precedence, failed hot reload rollback and actual Windows file-lock
+cleanup. An `AssemblyLoadContext` is not a sandbox for untrusted code.
+
+See [the full plugin-loading roadmap](plugin-loading-roadmap.md). Keep this redesign out
+of the present infrastructure PR and implement it as a dedicated, testable architecture
+change.
 
 ## Updates and recovery
 
