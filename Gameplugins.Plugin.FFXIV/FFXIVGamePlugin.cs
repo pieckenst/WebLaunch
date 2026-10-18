@@ -93,10 +93,10 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
         using var correlationScope = FfxivTraceLogger.BeginCorrelation();
         var correlationId = correlationScope.Id;
 
-        FfxivTraceLogger.Stage(
+        FfxivTraceLogger.StageLazy(
             correlationId,
             "Plugin launch requested",
-            $"GamePath={parameters.GamePath}; Steam={parameters.IsSteam}; DX11={parameters.DirectX11}; Region={parameters.Region}");
+            () => $"GamePath={parameters.GamePath}; Steam={parameters.IsSteam}; DX11={parameters.DirectX11}; Region={parameters.Region}");
 
         var credentials = parameters.Credentials ?? new GameCredentials
         {
