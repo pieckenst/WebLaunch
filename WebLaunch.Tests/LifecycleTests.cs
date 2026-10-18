@@ -43,6 +43,11 @@ public sealed class LifecycleTests
         CopyPlugin(root.Path, "");
         Directory.CreateDirectory(Path.Combine(root.Path, "resources", "ui"));
         File.WriteAllText(Path.Combine(root.Path, "resources", "ui", "icon.txt"), "private resource");
+        Directory.CreateDirectory(Path.Combine(root.Path, "lib", "managed"));
+        File.WriteAllText(Path.Combine(root.Path, "lib", "managed", "PrivateDependency.dll"), "private dependency payload");
+        Directory.CreateDirectory(Path.Combine(root.Path, "resources", "nested-plugin"));
+        File.WriteAllText(Path.Combine(root.Path, "resources", "nested-plugin", "plugin.json"), "{\"version\":1,\"id\":\"nested-other\",\"assembly\":\"Other.dll\"}");
+        File.WriteAllText(Path.Combine(root.Path, "resources", "nested-plugin", "Other.dll"), "not a plugin dependency");
         Directory.CreateDirectory(Path.Combine(root.Path, "nested-plugin"));
         File.WriteAllText(Path.Combine(root.Path, "nested-plugin", "Unrelated.dll"), "not a plugin dependency");
         File.WriteAllText(Path.Combine(root.Path, "dependency.txt"), "dependency");
