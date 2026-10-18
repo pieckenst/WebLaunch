@@ -524,7 +524,7 @@
     }
     private async Task DisconnectPairing()
     {
-        pairingCode = ""; paired = false; savedPairing = false; actualMode = ""; canBrowseFolders = false;
+        pairingCode = ""; paired = false; actualMode = ""; canBrowseFolders = false;
         try { if (module is not null) await module.InvokeVoidAsync("disconnect"); }
         catch (JSException ex) { BrowserDiagnostics.Report("cancel-pairing", ex); }
     }
