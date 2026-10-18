@@ -122,7 +122,7 @@ public sealed class LifecycleTests
     public async Task ThrowingEventObserversCannotAbortPluginDiscoveryOrLifecycleNotifications()
     {
         using var root = new TemporaryDirectory();
-        CreateManifestBundle(root.Path, multiplePlugins: true);
+        CopyPlugin(root.Path, "valid");
         var invalid = Directory.CreateDirectory(Path.Combine(root.Path, "invalid-bundle")).FullName;
         File.WriteAllText(Path.Combine(invalid, "plugin.json"), "{ malformed json");
         var logger = new Logger();
