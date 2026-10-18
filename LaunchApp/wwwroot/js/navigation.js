@@ -3,9 +3,12 @@ let frame;
 let lastLocation;
 let receiver;
 let reportFrame;
+let locationRevision = 0;
 function reportLocation() {
+    const revision = ++locationRevision;
     cancelAnimationFrame(reportFrame);
-    reportFrame = requestAnimationFrame(() => receiver?.invokeMethodAsync('BrowserLocationChanged', location.href));
+    reportFrame = requestAnimationFrame(() =>
+        receiver?.invokeMethodAsync('BrowserLocationChanged', location.href, revision));
 }
 function linkClicked(event) {
     if (!event.defaultPrevented && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.target.closest('a[href]')) reportLocation();
