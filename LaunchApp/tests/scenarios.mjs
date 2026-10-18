@@ -158,6 +158,55 @@ export async function secureLaunch(page, base) {
     await page.getByRole('button', { name: 'Cancel launch' }).click();
     await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
 }
+
+export async function connectionAutoRecovery(page, base) {
+    const endpoint = 'http://127.0.0.1:47832';
+    let droppedSession = false;
+    let droppedHandshake = false;
+
+    await page.goto(base + 'counter');
+    await openDesktop(page);
+    await page.getByRole('button', { name: /^(Reconnect|Connect)$/ }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected', { timeout: 15000 });
+
+    // Simulate a transient network failure on a live, encrypted status request and
+    // another failure during the first automatic /v2/hello handshake.
+    const dropSessionOnce = async route => {
+        if (route.request().method() === 'POST' && !droppedSession) {
+            droppedSession = true;
+            await route.abort();
+            return;
+        }
+        await route.continue();
+    };
+    const dropHandshakeOnce = async route => {
+        if (route.request().method() === 'POST' && !droppedHandshake) {
+            droppedHandshake = true;
+            await route.abort();
+            return;
+        }
+        await route.continue();
+    };
+
+    await page.route(endpoint + '/v2/session/**', dropSessionOnce);
+    await page.route(endpoint + '/v2/hello', dropHandshakeOnce);
+    try {
+        await expect.poll(() => droppedSession, { timeout: 12000 }).toBe(true);
+        await expect.poll(() => droppedHandshake, { timeout: 12000 }).toBe(true);
+        await expect(page.locator('.launch-summary')).toContainText('restored', { timeout: 30000 });
+        await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+        await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeEnabled();
+
+        // Confirm the recovered channel is operational, not merely marked connected.
+        await gameSettings(page);
+        await page.getByRole('button', { name: 'Browse on desktop', exact: true }).click();
+        await expect(page.getByLabel('Installation folder')).toHaveValue('C:\\Games\\日本語', { timeout: 10000 });
+    } finally {
+        await page.unroute(endpoint + '/v2/session/**', dropSessionOnce);
+        await page.unroute(endpoint + '/v2/hello', dropHandshakeOnce);
+    }
+}
+
 export async function unavailableHandler(page, base) {
     await page.goto(base + 'spellborn');
     await openDesktop(page);
