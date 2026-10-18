@@ -24,6 +24,30 @@ public sealed class BridgeTests
     {
         public Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken) => Task.FromResult(accepted);
     }
+    private sealed class BlockingThenAcceptPrompt : IPairingPrompt
+    {
+        private int calls;
+        public TaskCompletionSource FirstApprovalStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource FirstApprovalCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Calls => Volatile.Read(ref calls);
+
+        public async Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                FirstApprovalStarted.TrySetResult();
+                try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+                catch (OperationCanceledException)
+                {
+                    FirstApprovalCancelled.TrySetResult();
+                    throw;
+                }
+            }
+
+            return true;
+        }
+    }
+
     private sealed class Launcher : ILaunchService
     {
         public int Calls;
@@ -159,6 +183,42 @@ public sealed class BridgeTests
         using var expired = await client.Send(new() { Action = "launch", Launch = new() { Game = "spellborn", GamePath = "C:\\Games" } });
         Assert.Equal(HttpStatusCode.Gone, expired.StatusCode);
     }
+    [Fact]
+    public async Task CancellingPendingApprovalDoesNotWaitForSessionGateAndAllowsImmediateRetry()
+    {
+        using var trust = new TrustStore();
+        var prompt = new BlockingThenAcceptPrompt();
+        var launcher = new Launcher();
+        await using var host = new BridgeHost(trust, prompt, launcher);
+        await host.StartAsync();
+
+        using var first = new Client();
+        await first.ConnectAsync();
+        var pendingConfirmation = first.Send(new() { Action = "confirm", Code = first.Code });
+        await prompt.FirstApprovalStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // This unencrypted cancellation capability must not wait for the session's normal Gate,
+        // which is held by the confirmation request while it awaits desktop approval.
+        using var cancelled = await first.Http.PostAsJsonAsync(
+            "/v2/session/" + first.Session + "/cancel",
+            new { reason = "pairing-cancelled" });
+        Assert.Equal(HttpStatusCode.NoContent, cancelled.StatusCode);
+        using var interruptedConfirmation = await pendingConfirmation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.RequestTimeout, interruptedConfirmation.StatusCode);
+        await prompt.FirstApprovalCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        using var expired = await first.Send(new() { Action = "status" });
+        Assert.Equal(HttpStatusCode.Gone, expired.StatusCode);
+
+        // The expired unpaired session must not hold the global pairing admission lock.
+        using var retry = new Client();
+        await retry.ConnectAsync();
+        var accepted = await retry.Exchange(new() { Action = "confirm", Code = retry.Code });
+        Assert.True(accepted.Paired);
+        Assert.Equal(2, prompt.Calls);
+        Assert.Equal(0, launcher.Calls);
+    }
+
     [Fact] public async Task WrongPairingCodeIsRejected()
     {
         using var trust = new TrustStore(); var launcher = new Launcher();
