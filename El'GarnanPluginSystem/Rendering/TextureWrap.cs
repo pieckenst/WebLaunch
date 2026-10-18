@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Numerics;
 using StbImageSharp;
 using Veldrid;
@@ -91,10 +92,22 @@ namespace El_Garnan_Plugin_Loader.Rendering
                 var handle = bindings.GetOrCreateImGuiBinding(device.ResourceFactory, texture);
                 return new TextureWrap(texture, handle, bindings);
             }
-            catch
+            catch (Exception loadError)
             {
-                bindings.RemoveImGuiBinding(texture);
-                texture.Dispose();
+                // Attempt both cleanup steps even if releasing the ImGui resource set/view fails.
+                // Preserve the original creation/upload exception when cleanup itself succeeds.
+                List<Exception>? cleanupErrors = null;
+                try { bindings.RemoveImGuiBinding(texture); }
+                catch (Exception ex) { (cleanupErrors ??= []).Add(ex); }
+                try { texture.Dispose(); }
+                catch (Exception ex) { (cleanupErrors ??= []).Add(ex); }
+
+                if (cleanupErrors is { Count: > 0 })
+                {
+                    cleanupErrors.Insert(0, loadError);
+                    throw new AggregateException("Texture initialization failed and resource cleanup was incomplete.", cleanupErrors);
+                }
+
                 throw;
             }
         }
@@ -103,9 +116,21 @@ namespace El_Garnan_Plugin_Loader.Rendering
         public void Dispose()
         {
             if (_disposed) return;
-            _bindings.RemoveImGuiBinding(_deviceTexture);
-            _deviceTexture.Dispose();
+            // Make repeated disposal idempotent even when a GPU resource's Dispose throws.
             _disposed = true;
+            List<Exception>? failures = null;
+
+            try { _bindings.RemoveImGuiBinding(_deviceTexture); }
+            catch (Exception ex) { (failures ??= []).Add(ex); }
+
+            // The texture is owned by this wrapper, so always attempt to release it even
+            // when removing the ImGui binding failed.
+            try { _deviceTexture.Dispose(); }
+            catch (Exception ex) { (failures ??= []).Add(ex); }
+
+            if (failures is { Count: 1 }) throw failures[0];
+            if (failures is { Count: > 1 })
+                throw new AggregateException("Texture and ImGui binding cleanup both failed.", failures);
         }
     }
 }
