@@ -42,7 +42,7 @@
         </p>
     }
     <div class="actions">
-        <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(reconnecting ? "Reconnect now" : paired || savedPairing ? "Reconnect" : "Connect")</button>
+        <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</button>
         <button type="button" @onclick="Forget" disabled="@(busy || connecting)">Forget this browser pairing</button>
     </div>
     @if (pairingCode.Length > 0)
