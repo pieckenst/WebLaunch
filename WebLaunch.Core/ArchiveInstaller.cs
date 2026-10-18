@@ -3,6 +3,9 @@ using System.Text.Json;
 
 namespace WebLaunch.Core;
 
+/// <summary>Version metadata participates in the same recoverable transaction as replaced files.</summary>
+public sealed record VersionMetadataTransaction(string? PreviousVersion, Action Commit, Action<string?> Restore);
+
 /// <summary>Stages a ZIP, journals replacements, and recovers interrupted installs before another update.</summary>
 public sealed class ArchiveInstaller
 {
@@ -11,24 +14,45 @@ public sealed class ArchiveInstaller
     {
         public List<Change> Changes { get; set; } = [];
         public bool Committed { get; set; }
+        public bool HasVersionMetadata { get; set; }
+        public string? PreviousVersion { get; set; }
     }
     private const string TransactionName = ".weblaunch-transaction";
-    public async Task InstallAsync(string archive, string root, CancellationToken token, Action? commitVersion = null)
+    public Task InstallAsync(string archive, string root, CancellationToken token, Action? commitVersion = null) =>
+        InstallCoreAsync(archive, root, token, commitVersion, versionMetadata: null);
+
+    public Task InstallAsync(string archive, string root, CancellationToken token, VersionMetadataTransaction versionMetadata) =>
+        InstallCoreAsync(archive, root, token, commitVersion: null,
+            versionMetadata ?? throw new ArgumentNullException(nameof(versionMetadata)));
+
+    private async Task InstallCoreAsync(
+        string archive,
+        string root,
+        CancellationToken token,
+        Action? commitVersion,
+        VersionMetadataTransaction? versionMetadata)
     {
         root = Path.GetFullPath(root);
         SafePath.RejectLinks(root);
         Directory.CreateDirectory(root);
         using var installLock = new FileStream(SafePath.Resolve(root, ".weblaunch-install.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        Recover(root);
+        Recover(root, versionMetadata?.Restore);
         var transaction = SafePath.Resolve(root, TransactionName);
         Directory.CreateDirectory(transaction);
         var stage = Path.Combine(transaction, "stage");
         var backup = Path.Combine(transaction, "backup");
         Directory.CreateDirectory(stage); Directory.CreateDirectory(backup);
-        var journal = new Journal();
-        Save(transaction, journal);
+        var journal = new Journal
+        {
+            HasVersionMetadata = versionMetadata is not null,
+            PreviousVersion = versionMetadata?.PreviousVersion
+        };
+        var commitMarkerPersisted = false;
+        var metadataCommitStarted = false;
+        var rollbackCompleted = false;
         try
         {
+            Save(transaction, journal);
             using var zip = ZipFile.OpenRead(archive);
             var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             long total = 0;
@@ -74,20 +98,53 @@ public sealed class ArchiveInstaller
                 File.Move(staged, target);
             }
             token.ThrowIfCancellationRequested();
-            // The filesystem commit is durable before version metadata changes. A crash here causes a safe re-install.
+
+            // The journal stays uncommitted until both file replacement and metadata persistence finish.
+            // If metadata write fails after a partial write, the previous value remains recoverable.
+            if (versionMetadata is not null)
+            {
+                metadataCommitStarted = true;
+                versionMetadata.Commit();
+            }
+            else
+            {
+                commitVersion?.Invoke();
+            }
+
             journal.Committed = true;
             Save(transaction, journal);
-            commitVersion?.Invoke();
+            commitMarkerPersisted = true;
         }
         catch
         {
-            if (!journal.Committed) Rollback(root, transaction, journal);
+            if (!commitMarkerPersisted)
+            {
+                try
+                {
+                    if (journal.HasVersionMetadata && metadataCommitStarted)
+                    {
+                        if (versionMetadata is null)
+                            throw new IOException("Interrupted version commit requires updater recovery.");
+                        versionMetadata.Restore(journal.PreviousVersion);
+                    }
+
+                    journal.Committed = false;
+                    Rollback(root, transaction, journal);
+                    rollbackCompleted = true;
+                }
+                catch
+                {
+                    // Retain the uncommitted journal and backups; never discard the only recovery data.
+                    throw;
+                }
+            }
             throw;
         }
         finally
         {
-            // A failed rollback keeps its journal for recovery; never discard the only backups.
-            if (journal.Committed || journal.Changes.Count == 0) Directory.Delete(transaction, true);
+            if (commitMarkerPersisted || rollbackCompleted ||
+                (journal.Changes.Count == 0 && !metadataCommitStarted))
+                Directory.Delete(transaction, true);
         }
     }
     private static void Save(string directory, Journal journal)
@@ -97,14 +154,23 @@ public sealed class ArchiveInstaller
         { JsonSerializer.Serialize(stream, journal); stream.Flush(true); }
         File.Move(file + ".tmp", file, true);
     }
-    private static void Recover(string root)
+    private static void Recover(string root, Action<string?>? restoreVersion)
     {
         var transaction = SafePath.Resolve(root, TransactionName);
         if (!Directory.Exists(transaction)) return;
         var file = SafePath.Resolve(transaction, "journal.json");
         if (!File.Exists(file)) throw new IOException("Incomplete update staging requires inspection before retrying.");
         var journal = JsonSerializer.Deserialize<Journal>(File.ReadAllText(file)) ?? throw new InvalidDataException("Invalid recovery journal.");
-        if (!journal.Committed) Rollback(root, transaction, journal);
+        if (!journal.Committed)
+        {
+            if (journal.HasVersionMetadata)
+            {
+                if (restoreVersion is null)
+                    throw new IOException("Interrupted version commit requires updater recovery.");
+                restoreVersion(journal.PreviousVersion);
+            }
+            Rollback(root, transaction, journal);
+        }
         Directory.Delete(transaction, true);
     }
     private static void Rollback(string root, string transaction, Journal journal)
