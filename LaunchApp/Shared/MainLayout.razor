@@ -115,9 +115,9 @@ else
                 catch (Microsoft.JSInterop.JSException ex)
                 {
                     BrowserDiagnostics.Report("navigation synchronization", ex);
-                    // A structural navigation failure should reach SafeErrorBoundary; otherwise the
-                    // page remains half-live and cannot offer the tested launcher recovery controls.
-                    throw new InvalidOperationException("Navigation synchronization failed. Use the recovery screen to reload the launcher.", ex);
+                    navigationFailed = true;
+                    StateHasChanged();
+                    return;
                 }
             }
         }
