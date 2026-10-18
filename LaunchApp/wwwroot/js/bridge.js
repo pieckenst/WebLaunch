@@ -211,6 +211,21 @@ export async function browseFolder() {
 }
 export const status = () => send({ action: 'status' });
 export const cancel = () => channel?.paired ? send({ action: 'cancel' }) : Promise.resolve();
+export async function cancelPendingPairing() {
+    const current = channel;
+    if (!current) return;
+
+    // Revoke locally first and abort an outstanding confirm fetch. Do not try an encrypted
+    // disconnect on the same channel: an aborted request may or may not have consumed its
+    // sequence number on the server. The dedicated origin-checked endpoint expires the session
+    // without touching that sequence and releases the desktop's pending approval wait.
+    channel = undefined;
+    current.abort.abort();
+    try { await current.pending; } catch { /* The in-flight exchange is intentionally aborted. */ }
+    try { await post('/v2/session/' + current.id + '/cancel', { reason: 'pairing-cancelled' }, 2000); }
+    catch { /* Local cancellation is authoritative; the desktop's two-minute pairing expiry remains a fallback. */ }
+}
+
 export async function disconnect() {
     const current = channel;
     if (!current) return;
