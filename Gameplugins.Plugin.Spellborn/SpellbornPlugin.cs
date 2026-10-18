@@ -64,13 +64,29 @@ public sealed class SpellbornVersionStore : IInstalledVersionStore
     }
     public void Write(string root, string version)
     {
+        root = Path.GetFullPath(root);
         var file = SafePath.Resolve(root, ".weblaunch-version");
-        File.WriteAllText(file + ".tmp", version);
-        File.Move(file + ".tmp", file, true);
-        if (OperatingSystem.IsWindows())
+        var temporary = file + ".tmp";
+        try
         {
-            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\The Chronicles of Spellborn");
-            key.SetValue("installPath", root); key.SetValue("installedVersion", version);
+            File.WriteAllText(temporary, version);
+            File.Move(temporary, file, true);
+
+            if (OperatingSystem.IsWindows())
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\The Chronicles of Spellborn")
+                    ?? throw new IOException("Could not open the Spellborn installation metadata key.");
+                key.SetValue("installPath", root);
+                key.SetValue("installedVersion", version);
+            }
+        }
+        finally
+        {
+            // The version file is replaced atomically. An incomplete temp file must never be
+            // mistaken for committed metadata on the next update attempt.
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
     }
 }
