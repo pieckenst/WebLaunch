@@ -16,7 +16,20 @@ public sealed class DalamudGameSession
     private readonly TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool stopped;
     public Task Completion => completion.Task;
-    private DalamudGameSession(Process process, AddonManager addons) { this.process = process; this.addons = addons; }
+    private DalamudGameSession(Process process, AddonManager addons)
+    {
+        this.process = process;
+        this.addons = addons;
+
+        // Some launch paths intentionally discard the session handle because game lifetime is
+        // process-owned. Observe the fault to avoid an UnobservedTaskException, while retaining
+        // the original faulted Task so explicit Completion/StopAsync callers still receive it.
+        _ = completion.Task.ContinueWith(
+            static task => _ = task.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
 
     public static DalamudGameSession Start(Process game, IEnumerable<IAddon> enabledAddons)
     {
