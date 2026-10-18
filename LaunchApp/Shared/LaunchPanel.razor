@@ -489,9 +489,15 @@
         connecting = true; message = "Choose a folder in the desktop launcher. Cancel in that window to keep the current path.";
         try
         {
-            var reply = await module.InvokeAsync<Reply>("browseFolder");
+            var reply = await module.InvokeAsync<Reply>("browseFolder", lifetime.Token);
             if (reply.FolderPath is { } selected) { LaunchRequest.ValidateGamePath(selected); path = selected; }
             message = reply.Status.Message;
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException)
+        {
+            message = "The folder selection was cancelled. The installation path was not changed.";
+            hasNotice = true;
         }
         catch (JSException ex)
         {
