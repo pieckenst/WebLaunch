@@ -46,6 +46,37 @@ plugin actions take per-entry leases, and unload waits for active leases before
 requesting collectible-context unload. Windows file-lock cleanup retries after unload
 and remains subject to the native Windows acceptance matrix.
 
+## Deferred integration work
+
+### Upstream Dalamud/XIVLauncher synchronization
+
+The vendored `LibDalamud` implementation is a maintained fork, not a substitute for
+periodic upstream integration. A separate synchronization task must compare the fork
+with the relevant XIVLauncher/Dalamud upstream revisions and selectively port the
+changes required by WebLaunch. Priority areas include FFXIV authentication/session
+handling, game launch and process ownership, Dalamud bootstrap/injector behavior,
+version/runtime acquisition, and patch/update behavior. The sync should preserve
+WebLaunch-specific interfaces and lifecycle guarantees where needed, document intentional
+divergence, and add regression coverage around changed authentication and launch paths.
+Do not perform a blind source-tree overwrite or bundle this work into infrastructure-only
+PRs: upstream changes need review and native Windows acceptance before they are treated
+as equivalent to XIVLauncher behavior.
+
+### Runtime plugin loading without concrete host references
+
+Dynamic discovery/loading already exists in `CoreFunctions`, but `handlerlaunch` still
+has build-time project references to the bundled FFXIV and Spellborn plugin projects.
+A separate architecture change should remove those concrete plugin references from the
+host executable and make distribution/package wiring provide plugins as deployable
+assemblies/bundles discovered at runtime. Keep the shared plugin contract and its
+assembly identity stable, retain collectible load-context isolation and legacy DLL
+discovery, and prove that a plugin not referenced by the host project can be discovered,
+loaded, used, and unloaded. The solution/build pipeline may still build and package the
+bundled plugin projects; the intended decoupling is from the host's compile-time
+references, not from building or shipping the default plugins. Defer this redesign from
+the present infrastructure update to a dedicated change with packaging and compatibility
+tests.
+
 ## Updates and recovery
 
 All remote relative paths are resolved beneath their selected root. Windows device
