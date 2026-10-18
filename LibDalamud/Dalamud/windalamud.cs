@@ -88,7 +88,7 @@ namespace LibDalamud.Common.Dalamud
                 catch (TimeoutException ex)
                 {
                     TerminateInjector(dalamudProcess);
-                    LaunchCancellationContext.WriteTrace($"Timed out awaiting injector readiness output: {ex}");
+                    LaunchCancellationContext.WriteTrace(() => $"Timed out awaiting injector readiness output: {ex}");
                     throw new DalamudRunnerException("Dalamud did not report process readiness before the 30-second deadline.", ex);
                 }
                 catch (OperationCanceledException) when (LaunchCancellationContext.CurrentCancellationToken.IsCancellationRequested)
@@ -125,7 +125,7 @@ namespace LibDalamud.Common.Dalamud
                     }
                     catch (InvalidOperationException ex)
                     {
-                        LaunchCancellationContext.WriteTrace($"Returned game handle was invalid; checking PID {dalamudConsoleOutput.Pid}: {ex}");
+                        LaunchCancellationContext.WriteTrace(() => $"Returned game handle was invalid; checking PID {dalamudConsoleOutput.Pid}: {ex}");
                         gameProcess.Dispose();
                         gameProcess = Process.GetProcessById(dalamudConsoleOutput.Pid);
                     }
@@ -140,7 +140,7 @@ namespace LibDalamud.Common.Dalamud
                 }
                 catch (JsonReaderException ex)
                 {
-                    LaunchCancellationContext.WriteTrace($"Could not parse injector process response: {ex}");
+                    LaunchCancellationContext.WriteTrace(() => $"Could not parse injector process response: {ex}");
                     throw new DalamudRunnerException("Dalamud returned an invalid process ownership response.", ex);
                 }
             }
