@@ -32,9 +32,19 @@ fixture verifies the original source-level plugin interface, loading and lifecyc
 arbitrary third-party binary compatibility requires testing those actual binaries.
 
 Plugin bundles have `plugin.json` containing `id`, `assembly` and manifest `version: 1`.
-Legacy DLL discovery remains available. Dependencies are resolved in collectible,
-shadow-copied contexts, with contract, rendering and Dalamud/core assemblies shared
-with the default context. Automatic reload is disabled for normal desktop startup.
+A manifest defines one bundle, whose subdirectories are shadow-copied recursively so
+private managed assemblies, native runtimes and assets remain alongside the plugin.
+Legacy DLL discovery remains available without requiring every installed plugin to
+add a manifest: root-level files and recognized private asset/runtime trees are
+preserved, while a nested directory containing another plugin manifest or a top-level
+DLL retains its own discovery/shadow-copy boundary unless it is inside one of those
+private trees. Dependencies are resolved in collectible, shadow-copied contexts,
+with contract, rendering and Dalamud/core assemblies shared with the default context.
+Filesystem watching and reload are disabled for normal desktop startup. Synchronous
+disposal joins one shared async shutdown task; lifecycle awaits are context-independent,
+plugin actions take per-entry leases, and unload waits for active leases before
+requesting collectible-context unload. Windows file-lock cleanup retries after unload
+and remains subject to the native Windows acceptance matrix.
 
 ## Updates and recovery
 
@@ -46,11 +56,15 @@ privileged local process replacing directories concurrently.
 ZIP files are prevalidated and extracted into `.weblaunch-transaction/stage`.
 Before replacing each target, the flushed recovery journal records its previous
 state; originals move to the backup directory. Cancellation or failure rolls back
-replacements. An interrupted installation is recovered before another update.
-The filesystem commit precedes version metadata: a crash between them causes a
-safe reinstallation, rather than claiming an incomplete version is installed.
-Recovery metadata/backups are retained if rollback fails. A journal-less staging
-directory requires inspection; the installer does not guess what to delete.
+replacements. For version-aware updates, the journal also records the previous
+version marker. The updater commits the marker only after replacing the files, then
+persists the committed marker in the journal. If metadata persistence fails after a
+partial write, recovery restores the previous version and rolls file replacements
+back. A later update supplies the metadata-restore policy before staging a new
+transaction. Recovery metadata/backups are retained if rollback fails. A journal-less
+staging directory requires inspection; the installer does not guess what to delete.
+The legacy callback overload remains for compatibility, but callers that need
+coordinated metadata rollback should use `VersionMetadataTransaction`.
 
 Provider MD5/SHA1 fields remain compatibility integrity checks, not signatures.
 TLS certificate verification is enabled. Downloads and asynchronous updater calls
@@ -63,8 +77,12 @@ MasaBlazor supplies page content; LumexUI v2 supplies navigation, links and cont
 `GamePageBase` normalizes old route/query section links for both games to base-aware
 fragments. `GameNavigation` owns the route and selected section, including refresh
 and Back/Forward. A scoped JS adapter reports hash-only anchor/history changes
-that Blazor does not surface through its managed location event. It clears the subheader when leaving a game; it never redirects
-section selection to the library.
+that Blazor does not surface through its managed location event. Browser reports
+carry monotonically increasing revisions, so an older asynchronous callback cannot
+overwrite a newer fragment selection. Unknown/non-section fragments preserve a
+valid active section instead of accidentally scrolling to an unrelated section.
+It clears the subheader when leaving a game; it never redirects section selection
+to the library.
 
 `SectionTabBar` wraps Lumex navigation with `Sections`, `ActiveSection`, `Actions`
 and `Menu` slots. Its links use `LumexComponent` anchors with fragment-specific
@@ -104,8 +122,15 @@ the desktop's native chooser because browser directory handles do not expose a
 reliable absolute Windows path. Shared validation is applied on both sides, and
 manual path entry remains supported. Browser diagnostics emit only operation/error
 types and fixed codes; they never format exception messages, stacks, URLs or state.
-Expected bridge and module failures remain in the launch UI. A safe render boundary
-and a reload notice cover unexpected failures without persisting sign-in details.
+Theme/storage faults are contained locally; a structural navigation-sync fault is
+recorded in sanitized diagnostics and escalated to the safe render boundary, whose
+recovery screen lets the user reload the launcher or return to the library.
+Owned JavaScript modules and .NET references are released independently with nested
+cleanup paths even if the browser has disconnected. Status checks tolerate transient
+interop failures before showing reconnect instructions; after launch submission,
+ambiguous outcomes require a fresh paired session before another launch to avoid
+duplicating a game process. Neither browser storage nor recovery UI persists sign-in
+details.
 
 ### Desktop progress and diagnostics
 
