@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LibDalamud;
+using LibDalamud.Common.Dalamud;
 using Serilog;
 using XIVLauncher.Common.PatcherIpc;
 using XIVLauncher.Common.Patching.Rpc;
@@ -66,7 +67,8 @@ public class RemotePatchInstaller
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "[PATCHER] RemotePatchInstaller loop encountered an error");
+            Log.Error("[PATCHER] Installer worker failed ({ErrorType})", ex.GetType().Name);
+            LaunchCancellationContext.WriteTrace(() => $"Patch installer worker failed: {ex}");
             this.rpc.SendMessage(new PatcherIpcEnvelope
             {
                 OpCode = PatcherIpcOpCode.InstallFailed
@@ -102,7 +104,8 @@ public class RemotePatchInstaller
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "VerToBck failed");
+                    Log.Error("Could not back up patch version metadata ({ErrorType})", ex.GetType().Name);
+                    LaunchCancellationContext.WriteTrace(() => $"VerToBck failed: {ex}");
                     this.rpc.SendMessage(new PatcherIpcEnvelope
                     {
                         OpCode = PatcherIpcOpCode.InstallFailed
@@ -145,12 +148,14 @@ public class RemotePatchInstaller
                     }
                     catch (Exception exception)
                     {
-                        Log.Error(exception, "Could not delete patch file");
+                        Log.Error("Could not delete the processed patch file ({ErrorType})", exception.GetType().Name);
+                        LaunchCancellationContext.WriteTrace(() => $"Could not delete processed patch file: {exception}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "Could not set ver file");
+                    Log.Error("Could not persist patch version metadata ({ErrorType})", ex.GetType().Name);
+                    LaunchCancellationContext.WriteTrace(() => $"Could not set patch version file: {ex}");
                     this.rpc.SendMessage(new PatcherIpcEnvelope
                     {
                         OpCode = PatcherIpcOpCode.InstallFailed
@@ -161,7 +166,8 @@ public class RemotePatchInstaller
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "[PATCHER] Patch install failed");
+                Log.Error("[PATCHER] Patch installation failed ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Patch install failed: {ex}");
                 this.rpc.SendMessage(new PatcherIpcEnvelope
                 {
                     OpCode = PatcherIpcOpCode.InstallFailed
@@ -176,7 +182,8 @@ public class RemotePatchInstaller
 
     public static void InstallPatch(string patchPath, string gamePath)
     {
-        Log.Information("[PATCHER] Installing {0} to {1}", patchPath, gamePath);
+        Log.Information("[PATCHER] Applying patch");
+        LaunchCancellationContext.WriteTrace(() => $"Patch installation paths: patch={patchPath}; destination={gamePath}");
 
         using var patchFile = ZiPatchFile.FromFileName(patchPath);
 
@@ -188,7 +195,8 @@ public class RemotePatchInstaller
                 chunk.ApplyChunk(config);
         }
 
-        Log.Information("[PATCHER] Patch {0} installed", patchPath);
+        Log.Information("[PATCHER] Patch installed");
+        LaunchCancellationContext.WriteTrace(() => $"Patch installed: {patchPath}");
     }
 
     private static void VerToBck(DirectoryInfo gamePath)
@@ -206,7 +214,8 @@ public class RemotePatchInstaller
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "[PATCHER] Could not copy to BCK");
+                Log.Error("[PATCHER] Could not copy version metadata to backup ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Could not copy patch metadata to backup: {ex}");
 
                 if (ver != Constants.BASE_GAME_VERSION)
                     throw;
