@@ -56,7 +56,10 @@ public sealed class LifecycleTests
         var shadow = Path.GetDirectoryName(host.GetPlugin("legacy-fixture").GetType().Assembly.Location)!;
         Assert.True(File.Exists(Path.Combine(shadow, "dependency.txt")));
         Assert.Equal("private resource", File.ReadAllText(Path.Combine(shadow, "resources", "ui", "icon.txt")));
+        Assert.Equal("private dependency payload", File.ReadAllText(Path.Combine(shadow, "lib", "managed", "PrivateDependency.dll")));
         Assert.False(Directory.Exists(Path.Combine(shadow, "nested-plugin")));
+        Assert.False(Directory.Exists(Path.Combine(shadow, "resources", "nested-plugin")));
+        Assert.True(await host.GetPlugin("legacy-fixture").LaunchGameAsync(new()));
     }
 
     private static string CreateManifestBundle(string root, string id = "legacy-fixture", bool multiplePlugins = false)
