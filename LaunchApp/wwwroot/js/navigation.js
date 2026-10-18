@@ -11,7 +11,16 @@ function reportLocation() {
         receiver?.invokeMethodAsync('BrowserLocationChanged', location.href, revision));
 }
 function linkClicked(event) {
-    if (!event.defaultPrevented && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.target.closest('a[href]')) reportLocation();
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey ||
+        event.shiftKey || event.altKey || !event.target.closest('a[href]')) return;
+
+    // Blazor's delegated click handler can update history after this capture-phase listener.
+    // Read the URL after the event has completed and another frame has elapsed, so this report
+    // cannot reapply the pre-click fragment to a newer selection.
+    cancelAnimationFrame(reportFrame);
+    reportFrame = requestAnimationFrame(() => {
+        reportFrame = requestAnimationFrame(() => reportLocation());
+    });
 }
 function dismissMenu(event) {
     const menu = event.target.closest('.section-menu');
