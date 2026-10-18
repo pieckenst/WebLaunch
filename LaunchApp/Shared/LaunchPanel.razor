@@ -117,6 +117,7 @@
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
     private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
+    private int consecutiveStatusFailures;
     private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
     private string PairingState => paired ? "Paired · connected" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
@@ -163,9 +164,31 @@
                     await InvokeAsync(StateHasChanged);
                 }
                 if (!paired) continue;
-                try { await module.InvokeAsync<Reply>("status"); }
+                try
+                {
+                    await module.InvokeAsync<Reply>("status");
+                    consecutiveStatusFailures = 0;
+                }
                 catch (JSException ex)
-                { paired = false; actualMode = ""; message = UserMessage(ex); await InvokeAsync(StateHasChanged); }
+                {
+                    consecutiveStatusFailures++;
+                    if (consecutiveStatusFailures < 3)
+                    {
+                        // A single interop failure can be transient. Preserve pairing while retrying.
+                        message = "The desktop connection check failed temporarily. Retrying without discarding pairing.";
+                        await InvokeAsync(StateHasChanged);
+                        continue;
+                    }
+
+                    paired = false;
+                    actualMode = "";
+                    message = "The desktop connection could not be verified. Reconnect and compare the pairing code before launching again.";
+                    try { await module.InvokeVoidAsync("disconnect"); }
+                    catch (JSException disconnectError) { BrowserDiagnostics.Report("connection recovery", disconnectError); }
+                    BrowserDiagnostics.Report("connection status", ex);
+                    consecutiveStatusFailures = 0;
+                    await InvokeAsync(StateHasChanged);
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -263,29 +286,54 @@
         launchCancellationConfirmed = false;
         launchAttempted = true; busy = true; message = "Submitting launch request…";
         var completed = false;
+        var launchRequestSubmitted = false;
         try
         {
             await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
             password = otp = "";
+            // Once the request call is made, its outcome can be ambiguous if interop fails.
+            // The native bridge accepts one launch per session, so reconnect before any retry.
+            launchRequestSubmitted = true;
             var reply = await module.InvokeAsync<Reply>("launch", cancellation.Token, request);
             message = reply.Status.Message;
             password = otp = ""; request.ClearCredentials();
             await Poll(cancellation.Token);
             completed = true;
         }
-        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); message = UserMessage(ex); paired = false; }
+        catch (JSException ex)
+        {
+            BrowserDiagnostics.Report("bridge", ex);
+            message = launchRequestSubmitted
+                ? "The launch response was interrupted. Check the desktop launcher before retrying, then reconnect and compare the pairing code."
+                : UserMessage(ex);
+        }
         catch (OperationCanceledException)
         {
             if (!lifetime.IsCancellationRequested && !launchCancellationConfirmed)
-                message = "Launch monitoring timed out. Check the desktop launcher before trying again.";
+                message = launchRequestSubmitted
+                    ? "Launch monitoring timed out. Check the desktop launcher before retrying, then reconnect and compare the pairing code."
+                    : "The operation was cancelled before the launch request was submitted.";
         }
         finally
         {
             launchCancellation = null;
-            // The desktop bridge accepts one launch per session.
-            if (completed) message += " Reconnect to launch again or browse folders.";
-            request.ClearCredentials(); password = otp = ""; busy = false; paired = false; actualMode = ""; focusTarget = "launch-status";
-            try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { }
+            request.ClearCredentials();
+            password = otp = "";
+            busy = false;
+            focusTarget = "launch-status";
+
+            if (launchRequestSubmitted)
+            {
+                // The bridge consumes a session when a launch request is submitted. Preserve a
+                // valid pairing for failures before submission, but force a fresh session afterward
+                // so that an ambiguous response cannot accidentally duplicate process creation.
+                if (completed)
+                    message += " Reconnect to launch again or browse folders.";
+                paired = false;
+                actualMode = "";
+                try { await module.InvokeVoidAsync("disconnect"); }
+                catch (JSException ex) { BrowserDiagnostics.Report("post-launch disconnect", ex); }
+            }
         }
     }
     private async Task Poll(CancellationToken token)
