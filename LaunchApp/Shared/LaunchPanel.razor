@@ -312,6 +312,15 @@
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            message = "Automatic reconnection stopped after an unexpected error. Connect again before launching.";
+            hasNotice = true;
+            BrowserDiagnostics.Report("connection recovery", ex);
+        }
         finally
         {
             connecting = false;
@@ -393,6 +402,7 @@
         await CancelAutomaticRecoveryAsync();
         if (module is null || lifetime.IsCancellationRequested) return;
 
+        var retrySavedPairing = false;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         connecting = true;
         paired = false;
@@ -430,12 +440,16 @@
             canBrowseFolders = false;
             message = UserMessage(ex);
             focusTarget = "launch-status";
+            retrySavedPairing = savedPairing && !IsUnsafeToRetryConnection(ex);
         }
         finally
         {
             connecting = false;
             await RefreshConnectionStateAsync();
         }
+
+        if (retrySavedPairing && !lifetime.IsCancellationRequested)
+            _ = StartAutomaticRecoveryAsync();
     }
 
     private Task Confirm() => confirmation = ConfirmPairing();
@@ -479,7 +493,15 @@
             if (reply.FolderPath is { } selected) { LaunchRequest.ValidateGamePath(selected); path = selected; }
             message = reply.Status.Message;
         }
-        catch (JSException ex) { paired = false; Report("browse-folder", ex, UserMessage(ex)); }
+        catch (JSException ex)
+        {
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            Report("browse-folder", ex, UserMessage(ex));
+            if (savedPairing && !IsUnsafeToRetryConnection(ex) && !lifetime.IsCancellationRequested)
+                _ = StartAutomaticRecoveryAsync();
+        }
         catch (ArgumentException ex) { Report("folder-path", ex, "The selected folder is not a supported local Windows path. Enter the full path manually."); }
         finally { connecting = false; focusTarget = "game-path"; }
     }
