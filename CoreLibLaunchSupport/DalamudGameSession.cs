@@ -25,7 +25,7 @@ public sealed class DalamudGameSession
         // process-owned. Observe the fault to avoid an UnobservedTaskException, while retaining
         // the original faulted Task so explicit Completion/StopAsync callers still receive it.
         _ = completion.Task.ContinueWith(
-            static task => _ = task.Exception,
+            static task => { _ = task.Exception; },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
