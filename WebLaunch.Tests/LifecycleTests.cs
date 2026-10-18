@@ -242,11 +242,12 @@ public sealed class LifecycleTests
             Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
             Assert.Throws<IOException>(() => new FileStream(firstRoot + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None));
         }
-        Assert.False(Directory.Exists(secondRoot));
+        // Host shutdown deliberately does not block on native file locks: plugin shadow trees
+        // are reaped asynchronously after their collectible contexts and child cleanup tasks settle.
+        await Eventually(() => !Directory.Exists(secondRoot));
         Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
         await first.DisposeAsync();
-        Assert.False(Directory.Exists(firstRoot));
-        Assert.False(File.Exists(firstRoot + ".lock"));
+        await Eventually(() => !Directory.Exists(firstRoot) && !File.Exists(firstRoot + ".lock"));
     }
 
     [Fact] public async Task SynchronousDisposeDoesNotCaptureTheCallerSynchronizationContext()
