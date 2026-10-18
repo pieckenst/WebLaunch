@@ -211,12 +211,17 @@ export async function unavailableHandler(page, base) {
     await page.goto(base + 'spellborn');
     await openDesktop(page);
     await page.route('http://127.0.0.1:47832/**', route => route.abort());
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
-    await expect(page.locator('.launch-status')).toContainText('Cannot connect to WebLaunch');
+    await page.getByRole('button', { name: /^(Reconnect|Connect)$/ }).click();
+    // Saved pairings now retry transient connection errors automatically instead of
+    // remaining permanently disconnected. Verify the retry state, then revoke trust
+    // while the connection is in its backoff window.
+    await expect(page.locator('.launch-status')).toContainText(/Retrying automatically/i, { timeout: 15000 });
     await gameSettings(page);
     await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
     await desktopSettings(page);
-    await page.getByRole('button', { name: 'Forget this browser pairing' }).click();
+    const forget = page.getByRole('button', { name: 'Forget this browser pairing' });
+    await expect(forget).toBeEnabled({ timeout: 10000 });
+    await forget.click();
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Not paired · disconnected');
     await page.unroute('http://127.0.0.1:47832/**');
 }
