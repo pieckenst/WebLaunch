@@ -289,13 +289,21 @@ public sealed class DesktopPairingPrompt(Window owner) : IPairingPrompt
     }
 }
 
-// Plugin diagnostic strings are forwarded to the SafeDiagnosticLog with message text preserved.
-// Secrets must never be passed here; the SafeDiagnosticLog only stores the event code and minimal fields.
+// Plugin-provided text and exception payloads are untrusted and can contain paths, account
+// data or remote responses. The ordinary desktop log records only controlled metadata; detailed
+// FFXIV launch arguments and exceptions are available through the explicit FFXIV_TRACE opt-in.
 public class ConsoleLogger : ILogger
 {
-    public void Debug(string message) => Serilog.Log.Verbose("[Plugin] {Message}", message);
-    public void Information(string message) => Serilog.Log.Information("[Plugin] {Message}", message);
-    public void Warning(string message) => Serilog.Log.Warning("[Plugin] {Message}", message);
-    public void Error(string message) => Serilog.Log.Error("[Plugin] {Message}", message);
-    public void Error(string message, Exception ex) => Serilog.Log.Error(ex, "[Plugin] {Message}", message);
+    private static void Write(Serilog.Events.LogEventLevel level, string? message, Exception? exception = null) =>
+        Serilog.Log.Write(
+            level,
+            "[Plugin] Diagnostic text redacted; MessageLength={MessageLength}; ExceptionType={ExceptionType}",
+            message?.Length ?? 0,
+            exception?.GetType().Name ?? "none");
+
+    public void Debug(string message) => Write(Serilog.Events.LogEventLevel.Verbose, message);
+    public void Information(string message) => Write(Serilog.Events.LogEventLevel.Information, message);
+    public void Warning(string message) => Write(Serilog.Events.LogEventLevel.Warning, message);
+    public void Error(string message) => Write(Serilog.Events.LogEventLevel.Error, message);
+    public void Error(string message, Exception ex) => Write(Serilog.Events.LogEventLevel.Error, message, ex);
 }
