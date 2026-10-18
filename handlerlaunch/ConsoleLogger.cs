@@ -5,7 +5,7 @@ namespace WMConsole;
 /// <summary>
 /// Writes plugin log events without persisting plugin-controlled message text or exception payloads.
 /// </summary>
-public sealed class ConsoleLogger : ILogger
+internal sealed class ConsoleLogger : ILogger
 {
     private static void Write(Serilog.Events.LogEventLevel level, string? message, Exception? exception = null) =>
         Serilog.Log.Write(
