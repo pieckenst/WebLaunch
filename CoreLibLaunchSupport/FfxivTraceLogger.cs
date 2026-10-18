@@ -99,6 +99,20 @@ public static class FfxivTraceLogger
             TraceWrite(LogEventLevel.Information, detail is null ? summary : $"{summary} — {detail}");
     }
 
+    /// <summary>Logs a sanitized stage normally and constructs potentially sensitive detail only in opt-in trace mode.</summary>
+    /// <param name="correlationId">ID associated with this launch attempt.</param>
+    /// <param name="stage">Non-sensitive stage name.</param>
+    /// <param name="detailFactory">Lazy trace detail builder; it may contain local paths or launch arguments.</param>
+    public static void StageLazy(string correlationId, string stage, Func<string> detailFactory)
+    {
+        ArgumentNullException.ThrowIfNull(detailFactory);
+        var summary = $"[FFXIV:{correlationId}] {stage}";
+        Log.Information(summary);
+
+        if (TraceEnabled)
+            TraceWrite(LogEventLevel.Information, $"{summary} — {detailFactory()}");
+    }
+
     public static void Info(string correlationId, string message)
     {
         var msg = $"[FFXIV:{correlationId}] {message}";
