@@ -4,6 +4,7 @@ using CoreLibLaunchSupport;
 using El_Garnan_Plugin_Loader;
 using El_Garnan_Plugin_Loader.Interfaces;
 using XIVLauncher.Common.Addon;
+using XIVLauncher.Common.Game.Exceptions;
 using Xunit;
 namespace WebLaunch.Tests;
 
@@ -284,7 +285,7 @@ public sealed class LifecycleTests
         using var game = LongRunningGame();
         var error = Assert.Throws<TimeoutException>(() =>
             networklogic.NativeProcessLauncher.EnsureGameWindowReady(game, TimeSpan.FromMilliseconds(250)));
-        Assert.Contains("window", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("window", error.Message.ToLowerInvariant());
     }
 
     [Fact] public void GameWindowReadinessObservesLaunchCancellation()
