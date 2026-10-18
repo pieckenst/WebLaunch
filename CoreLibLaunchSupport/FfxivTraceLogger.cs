@@ -138,6 +138,18 @@ public static class FfxivTraceLogger
         TraceWrite(LogEventLevel.Verbose, $"[FFXIV:{correlationId}] TRACE {message}");
     }
 
+    /// <summary>
+    /// Writes trace-only detail without evaluating sensitive diagnostic formatting when trace mode is disabled.
+    /// </summary>
+    public static void Trace(string correlationId, Func<string> messageFactory)
+    {
+        ArgumentNullException.ThrowIfNull(messageFactory);
+        if (!TraceEnabled)
+            return;
+
+        TraceWrite(LogEventLevel.Verbose, $"[FFXIV:{correlationId}] TRACE {messageFactory()}");
+    }
+
     public static void TraceHttp(
         string correlationId,
         string label,
