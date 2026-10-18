@@ -323,7 +323,7 @@ namespace El_Garnan_Plugin_Loader
         {
             _ = Task.Run(async () =>
             {
-                for (var attempt = 0; attempt < 20; attempt++)
+                for (var attempt = 0; attempt < 100; attempt++)
                 {
                     try
                     {
