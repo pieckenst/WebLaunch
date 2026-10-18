@@ -225,13 +225,14 @@
         await Task.Yield();
         var token = recovery.Token;
         var failures = 0;
+        string? previousFailure = null;
         try
         {
             while (!token.IsCancellationRequested && savedPairing && module is not null)
             {
                 if (failures > 0)
                 {
-                    var delay = RecoveryDelay(failures);
+                    var delay = RecoveryDelay(failures, previousFailure);
                     message = $"The desktop connection is unavailable. Retrying automatically in {delay.TotalSeconds:0} seconds. Select Reconnect now to retry immediately.";
                     hasNotice = true;
                     await RefreshConnectionStateAsync();
@@ -298,6 +299,7 @@
                         return;
                     }
 
+                    previousFailure = UserMessage(ex);
                     failures++;
                     if (failures == 1 || failures % 4 == 0)
                         BrowserDiagnostics.Report("connection recovery", ex);
@@ -321,8 +323,14 @@
         }
     }
 
-    private static TimeSpan RecoveryDelay(int failureCount)
+    private static TimeSpan RecoveryDelay(int failureCount, string? previousFailure)
     {
+        // Respect the bridge's explicit pairing/rate-limit guidance rather than hammering
+        // the loopback host every 30 seconds while its five-minute admission lock is active.
+        if (previousFailure?.Contains("temporarily locked", StringComparison.OrdinalIgnoreCase) == true
+            || previousFailure?.Contains("retry in five minutes", StringComparison.OrdinalIgnoreCase) == true)
+            return TimeSpan.FromMinutes(5);
+
         var seconds = failureCount >= 6 ? 30 : 1 << Math.Max(0, failureCount - 1);
         return TimeSpan.FromSeconds(seconds);
     }
@@ -337,7 +345,10 @@
             || message.Contains("secure browser storage", StringComparison.OrdinalIgnoreCase)
             || message.Contains("browser pairing storage is unavailable", StringComparison.OrdinalIgnoreCase)
             || message.Contains("unable to read browser pairing", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("unable to save browser pairing", StringComparison.OrdinalIgnoreCase);
+            || message.Contains("unable to save browser pairing", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("desktop launcher rejected this request", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("pairing was declined or expired", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid desktop response", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task CancelAutomaticRecoveryAsync()
