@@ -115,7 +115,7 @@ export async function connect() {
             nonce: b64(crypto.getRandomValues(new Uint8Array(32)))
         };
         ensureActive();
-        const clientTranscript = `weblaunch-v2\\n${location.origin}\\n${hello.identity}\\n${hello.ephemeral}\\n${hello.nonce}`;
+        const clientTranscript = `weblaunch-v2\n${location.origin}\n${hello.identity}\n${hello.ephemeral}\n${hello.nonce}`;
         hello.signature = b64(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, identity.privateKey, encoder.encode(clientTranscript)));
         ensureActive();
         const response = await post('/v2/hello', hello, 15000, controller.signal);
@@ -127,7 +127,7 @@ export async function connect() {
             throw new Error('The desktop identity changed. Verify your installation, then forget this browser pairing and pair again.');
         if (response.knownBrowser && !identity.desktop)
             throw new Error('Pairing state changed. Forget this browser pairing and pair again.');
-        const transcript = `${clientTranscript}\\n${response.identity}\\n${response.ephemeral}\\n${response.nonce}\\n${response.sessionId}`;
+        const transcript = `${clientTranscript}\n${response.identity}\n${response.ephemeral}\n${response.nonce}\n${response.sessionId}`;
         const desktopKey = await crypto.subtle.importKey('spki', unb64(response.identity), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
         ensureActive();
         if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, desktopKey, unb64(response.signature), encoder.encode(transcript)))
