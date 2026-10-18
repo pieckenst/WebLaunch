@@ -5,6 +5,7 @@
 <PackageReference Include="xunit" Version="2.9.3" />
 <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
 <ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
+<Compile Include="../handlerlaunch/DesktopTrustStore.cs" Link="test-support/DesktopTrustStore.cs" />
 <ProjectReference Include="../CoreLibLaunchSupport/CoreLibLaunchSupport.csproj" />
 <ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
 <ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
