@@ -45,7 +45,17 @@
         reference = DotNetObjectReference.Create(this);
 
     }
-    [JSInvokable] public void BrowserLocationChanged(string location) => GameNavigation.RefreshLocation(location);
+    private long lastBrowserLocationRevision;
+
+    [JSInvokable]
+    public void BrowserLocationChanged(string location, long revision)
+    {
+        // Click/hash/popstate reports cross the JS interop boundary asynchronously. Ignore any
+        // late callback that predates a newer browser location and would otherwise reselect an old tab.
+        if (revision <= lastBrowserLocationRevision) return;
+        lastBrowserLocationRevision = revision;
+        GameNavigation.RefreshLocation(location);
+    }
     private void Update()
     {
         syncNavigation = true;
@@ -84,7 +94,13 @@
             if (navigationModule is not null && reference is not null)
             {
                 try { await navigationModule.InvokeVoidAsync("sync", GameNavigation.Route, GameNavigation.ActiveSection, reference); }
-                catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("navigation synchronization", ex); }
+                catch (Microsoft.JSInterop.JSException ex)
+                {
+                    BrowserDiagnostics.Report("navigation synchronization", ex);
+                    // A structural navigation failure should reach SafeErrorBoundary; otherwise the
+                    // page remains half-live and cannot offer the tested launcher recovery controls.
+                    throw new InvalidOperationException("Navigation synchronization failed. Use the recovery screen to reload the launcher.", ex);
+                }
             }
         }
     }
