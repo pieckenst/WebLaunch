@@ -524,10 +524,18 @@ public sealed class LifecycleTests
     {
         using var game = LongRunningGame();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationCallbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
         var worker = new WorkerAddon(token =>
         {
-            using var registration = token.Register(() => throw new IOException("synthetic cancellation failure"));
+            // Keep the registration alive until cancellation actually begins. CancelAsync invokes
+            // callbacks asynchronously, so releasing the worker immediately would race disposal
+            // of this registration and make the expected callback failure nondeterministic.
+            using var registration = token.Register(() =>
+            {
+                cancellationCallbackEntered.TrySetResult();
+                throw new IOException("synthetic cancellation failure");
+            });
             entered.SetResult(); release.Wait(TimeSpan.FromSeconds(10));
         });
         var other = new ControlledAddon();
@@ -537,6 +545,7 @@ public sealed class LifecycleTests
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var stop = session.StopAsync();
             Assert.False(stop.IsCompleted);
+            await cancellationCallbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             release.Set();
             await Assert.ThrowsAsync<AggregateException>(() => stop.WaitAsync(TimeSpan.FromSeconds(5)));
             Assert.Equal(1, worker.Closed); Assert.True(other.Closed);
