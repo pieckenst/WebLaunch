@@ -479,8 +479,8 @@ namespace CoreLibLaunchSupport
                     // ignored as we're rethrowing the original exception
                 }
 
-                Log.Error("[{Component}] Failed to launch process {Executable}",
-                    nameof(NativeProcessLauncher), options.ExecutablePath);
+                Log.Error("[{Component}] Failed to launch process", nameof(NativeProcessLauncher));
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Failed to launch process: {options.ExecutablePath}");
 
                 throw;
             }
@@ -724,14 +724,14 @@ namespace CoreLibLaunchSupport
                 configuredPath = DefaultDalamudPath;
             }
 
-            Log.Verbose("[{Component}] Resolving Dalamud path from value {ConfiguredPath}",
-                nameof(LauncherPaths), configuredPath);
+            Log.Verbose("[{Component}] Resolving configured Dalamud location", nameof(LauncherPaths));
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Configured Dalamud path: {configuredPath}");
 
             if (!Directory.Exists(configuredPath))
             {
                 Directory.CreateDirectory(configuredPath);
-                Log.Information("[{Component}] Created Dalamud directory at {ConfiguredPath}",
-                    nameof(LauncherPaths), configuredPath);
+                Log.Information("[{Component}] Created the configured Dalamud directory", nameof(LauncherPaths));
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Created Dalamud directory: {configuredPath}");
             }
 
             return new DirectoryInfo(configuredPath);
@@ -1105,7 +1105,8 @@ namespace CoreLibLaunchSupport
     var dalamudpath = new LauncherPaths().DalamudDirectory;
     Log.Information("[{Component}] Launch request received (DX11: {Dx11}, Region: {Region}, Expansion: {Expansion}, Steam: {IsSteam})",
         nameof(networklogic), dx11, region, expansionlevel, isSteam);
-    Log.Debug("[{Component}] Using Dalamud path {DalamudPath}", nameof(networklogic), dalamudpath.FullName);
+    Log.Debug("[{Component}] Using configured Dalamud location", nameof(networklogic));
+    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud path: {dalamudpath.FullName}");
     Troubleshooting.LogTroubleshooting(gamePath);
     DirectoryInfo gamePather = new DirectoryInfo(gamePath);
     DalamudLoadInfo = new DalamudOverlayInfoProxy();
@@ -1137,12 +1138,14 @@ namespace CoreLibLaunchSupport
     }
     catch (IDalamudCompatibilityCheck.NoRedistsException ex)
     {
-        Log.Error(ex, "[{Component}] No Dalamud redistributables found", nameof(networklogic));
+        Log.Error("[{Component}] No Dalamud redistributables found ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud redistributable failure: {ex}");
         throw;
     }
     catch (IDalamudCompatibilityCheck.ArchitectureNotSupportedException ex)
     {
-        Log.Error(ex, "[{Component}] Architecture not supported", nameof(networklogic));
+        Log.Error("[{Component}] Architecture not supported ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud architecture failure: {ex}");
         throw;
     }
 
@@ -1155,7 +1158,8 @@ namespace CoreLibLaunchSupport
         }
         catch (DalamudRunnerException ex)
         {
-            Log.Error(ex, "[{Component}] Couldn't ensure Dalamud runner", nameof(networklogic));
+            Log.Error("[{Component}] Couldn't ensure Dalamud runner ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud runner failure: {ex}");
             throw;
         }
 
@@ -1176,7 +1180,8 @@ namespace CoreLibLaunchSupport
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
     catch (Exception exc)
     {
-        Log.Error(exc, "[{Component}] Game launch failed", nameof(networklogic));
+        Log.Error("[{Component}] Game launch failed ({ErrorType})", nameof(networklogic), exc.GetType().Name);
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Game launch failure: {exc}");
         switch(language)
         {
             case 0:
@@ -1212,7 +1217,8 @@ namespace CoreLibLaunchSupport
                 }
                 catch (Exception cleanupError)
                 {
-                    Log.Warning(cleanupError, "[{Component}] Could not terminate game after session startup failed", nameof(networklogic));
+                    Log.Warning("[{Component}] Could not terminate game after session startup failed ({ErrorType})", nameof(networklogic), cleanupError.GetType().Name);
+                    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Game cleanup failure: {cleanupError}");
                 }
                 finally { game.Dispose(); }
                 throw;
@@ -1278,14 +1284,16 @@ namespace CoreLibLaunchSupport
                 return uniqueId;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (NoValidSubscriptionException)
+            catch (NoValidSubscriptionException ex)
             {
                 Log.Warning("[{Component}] Subscription validation failed", nameof(networklogic));
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Subscription validation failure: {ex}");
                 return "BAD";
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Log.Error("[{Component}] Failed to obtain session identifier", nameof(networklogic));
+                Log.Error("[{Component}] Failed to obtain session identifier ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Session identifier request failed: {ex}");
                 return "BAD";
             }
         }
@@ -1297,14 +1305,16 @@ namespace CoreLibLaunchSupport
             {
                 await using var stream = new FileStream(Path.Combine(gamePath, "game", "ffxivgame.ver"), FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
                 using var reader = new StreamReader(stream);
-                var contents = await reader.ReadToEndAsync().ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                return contents;
+                return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception exc)
             {
-                Debug.WriteLine("Unable to get local game version.\n" + exc);
-                Log.Warning(exc, "[{Component}] Unable to open ffxivgame.ver", nameof(networklogic));
+                Log.Warning("[{Component}] Unable to read local game version ({ErrorType})", nameof(networklogic), exc.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Unable to read local game version: {exc}");
                 return "BAD";
             }
         }
