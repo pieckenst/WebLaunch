@@ -515,11 +515,10 @@ namespace CoreLibLaunchSupport
         }
 
         internal static IDisposable UseCancellationToken(CancellationToken cancellationToken) =>
-            LaunchCancellationContext.Enter(cancellationToken, diagnostic =>
-            {
-                if (FfxivTraceLogger.TraceEnabled)
-                    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, diagnostic);
-            });
+            LaunchCancellationContext.Enter(
+                cancellationToken,
+                diagnostic => FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, diagnostic),
+                () => FfxivTraceLogger.TraceEnabled);
 
         internal static void EnsureGameWindowReady(Process process, TimeSpan? readinessTimeout = null)
         {
