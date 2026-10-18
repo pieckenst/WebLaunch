@@ -37,20 +37,17 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
     await page.unroute('http://127.0.0.1:47832/v2/session/**');
 });
 
-test('a repeatedly failing game page can force-load the library', async ({ page }) => {
-    await page.route('**/js/navigation.js', async route => {
-        // Replace the module rather than relying on a formatting-sensitive text substitution;
-        // this deterministically tests a failed navigation sync and keeps the library route usable.
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/javascript; charset=utf-8',
-            body: `export function sync(route, selected, dotnet) {
-                if (route) throw new Error('Synthetic game page failure');
-            }
-            export function dispose() {}`
-        });
-    });
+test('a failing navigation module can reload and return to the library', async ({ page }) => {
     await prepare(page, base);
+    await page.route('**/js/navigation.js', async route => {
+        // The bad module remains unavailable on the game route to exercise reload recovery,
+        // but the library route is healthy so the user can leave the broken page.
+        if (page.url().startsWith(base + 'counter')) {
+            await route.abort();
+            return;
+        }
+        await route.continue();
+    });
     await page.goto(base + 'counter');
     await expect(page.locator('.app-recovery')).toBeVisible();
     await page.getByRole('button', { name: 'Reload launcher', exact: true }).click();
