@@ -197,7 +197,8 @@ namespace LibDalamud.Common.Dalamud
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, "[DUPDATE] Could not download dalamud");
+                    Log.Error("[DUPDATE] Could not download Dalamud ({ErrorType})", ex.GetType().Name);
+                    LaunchCancellationContext.WriteTrace(() => $"Dalamud update download failed: {ex}");
 
                     State = DownloadState.NoIntegrity;
                     return;
@@ -231,7 +232,8 @@ namespace LibDalamud.Common.Dalamud
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "[DUPDATE] Could not download runtime");
+                        Log.Error("[DUPDATE] Could not download runtime ({ErrorType})", ex.GetType().Name);
+                        LaunchCancellationContext.WriteTrace(() => $"Runtime download failed: {ex}");
 
                         State = DownloadState.Failed;
                         return;
@@ -247,7 +249,8 @@ namespace LibDalamud.Common.Dalamud
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "[DUPDATE] Asset ensurement error, bailing out...");
+                Log.Error("[DUPDATE] Asset ensurement failed ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Asset ensurement failed: {ex}");
                 State = DownloadState.Failed;
                 return;
             }
@@ -311,7 +314,8 @@ namespace LibDalamud.Common.Dalamud
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "[DUPDATE] No dalamud integrity");
+                Log.Error("[DUPDATE] Could not verify Dalamud integrity ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Dalamud integrity check failed: {ex}");
                 return false;
             }
         }
@@ -320,7 +324,8 @@ namespace LibDalamud.Common.Dalamud
         {
             try
             {
-                Log.Verbose("[DUPDATE] Checking integrity of {Directory}", directory.FullName);
+                Log.Verbose("[DUPDATE] Checking installation integrity");
+                LaunchCancellationContext.WriteTrace(() => $"Integrity directory: {directory.FullName}");
 
                 var hashes = JsonConvert.DeserializeObject<Dictionary<string, string>>(hashesJson);
 
@@ -334,16 +339,18 @@ namespace LibDalamud.Common.Dalamud
 
                     if (hashed != hash.Value)
                     {
-                        Log.Error("[DUPDATE] Integrity check failed for {0} ({1} - {2})", file, hash.Value, hashed);
+                        Log.Error("[DUPDATE] Integrity check failed for a file");
+                        LaunchCancellationContext.WriteTrace(() => $"Integrity mismatch: file={file}; expected={hash.Value}; actual={hashed}");
                         return false;
                     }
 
-                    Log.Verbose("[DUPDATE] Integrity check OK for {0} ({1})", file, hashed);
+                    LaunchCancellationContext.WriteTrace(() => $"Integrity OK: file={file}; hash={hashed}");
                 }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "[DUPDATE] Integrity check failed");
+                Log.Error("[DUPDATE] Integrity check failed ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Integrity check failed: {ex}");
                 return false;
             }
 
@@ -415,7 +422,8 @@ namespace LibDalamud.Common.Dalamud
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "[DUPDATE] Could not copy to dev folder.");
+                Log.Error("[DUPDATE] Could not copy to development folder ({ErrorType})", ex.GetType().Name);
+            LaunchCancellationContext.WriteTrace(() => $"Could not copy to dev folder: {ex}");
             }
         }
 
