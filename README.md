@@ -111,10 +111,17 @@ Start `WMconsole.exe --debug` for GUI diagnostics or
 `WMconsole.exe --console --debug` for console diagnostics. Stop any running host
 first; starting a second instance does not change the first host's debug setting.
 Logs live in `%LOCALAPPDATA%\WebLaunch\Logs\desktop.log`, with one rotated backup
-at 1 MiB. Normal mode records host, launch and plugin warning/error events; debug
-adds plugin debug/information and successful notification events. Fields contain
-controlled event names, request IDs, phases and bundled-plugin identifiers. Raw
-plugin messages, passwords, OTPs, session tokens, paths and launch URLs are excluded.
+at 1 MiB. Normal mode records controlled host/launch events and plugin log severity;
+debug also enables verbose plugin log events and successful notification events.
+Plugin-controlled message text is redacted from ordinary desktop logs; entries retain
+message length and exception type rather than raw text. Controlled host diagnostics may
+include request IDs, phases and plugin identifiers.
+
+For detailed FFXIV launch investigation, set `FFXIV_TRACE=1` in the environment of a
+new desktop-handler process and restart the handler. This separate forensic trace can
+contain full game launch arguments, filesystem paths, HTTP payloads or plaintext
+credentials. Do not share it without inspecting and redacting it first. The normal
+desktop log does not contain those raw payloads.
 
 The browser's **Browse on desktop** button uses a paired handler to select and
 return an absolute Windows folder. Browser directory handles cannot supply that
