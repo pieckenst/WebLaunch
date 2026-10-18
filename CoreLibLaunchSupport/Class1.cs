@@ -371,8 +371,9 @@ namespace CoreLibLaunchSupport
 
             var userName = Environment.UserName;
 
-            Log.Debug("[{Component}] Preparing process launch for {Executable} with working dir {WorkingDirectory}",
-                nameof(NativeProcessLauncher), options.ExecutablePath, options.WorkingDirectory);
+            Log.Debug("[{Component}] Preparing native game process", nameof(NativeProcessLauncher));
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone,
+                $"Native process: executable={options.ExecutablePath}; workingDirectory={options.WorkingDirectory}; arguments={options.Arguments}");
 
             var pExplicitAccess = new PInvoke.EXPLICIT_ACCESS();
             PInvoke.BuildExplicitAccessWithName(
@@ -513,19 +514,66 @@ namespace CoreLibLaunchSupport
             return compat;
         }
 
-        private static void EnsureGameWindowReady(Process process)
+        private static readonly AsyncLocal<CancellationToken> CurrentLaunchCancellation = new();
+
+        internal static IDisposable UseCancellationToken(CancellationToken cancellationToken)
         {
-            try
+            var previous = CurrentLaunchCancellation.Value;
+            CurrentLaunchCancellation.Value = cancellationToken;
+            return new LaunchCancellationScope(previous);
+        }
+
+        private sealed class LaunchCancellationScope(CancellationToken previous) : IDisposable
+        {
+            private bool disposed;
+            public void Dispose()
             {
-                do
-                {
-                    process.WaitForInputIdle();
-                    Thread.Sleep(100);
-                } while (IntPtr.Zero == TryFindGameWindow(process));
+                if (disposed) return;
+                disposed = true;
+                CurrentLaunchCancellation.Value = previous;
             }
-            catch (InvalidOperationException)
+        }
+
+        internal static void EnsureGameWindowReady(Process process, TimeSpan? readinessTimeout = null)
+        {
+            ArgumentNullException.ThrowIfNull(process);
+            var timeout = readinessTimeout ?? TimeSpan.FromMinutes(2);
+            if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(readinessTimeout));
+
+            var stopwatch = Stopwatch.StartNew();
+            while (true)
             {
-                throw new GameExitedException();
+                CurrentLaunchCancellation.Value.ThrowIfCancellationRequested();
+
+                try
+                {
+                    if (process.HasExited) throw new GameExitedException();
+                }
+                catch (InvalidOperationException)
+                {
+                    throw new GameExitedException();
+                }
+
+                // A non-GUI process can throw from WaitForInputIdle before it has a window.
+                // Continue polling for the actual FFXIV window, but never wait indefinitely.
+                try { process.WaitForInputIdle(250); }
+                catch (InvalidOperationException)
+                {
+                    if (process.HasExited) throw new GameExitedException();
+                }
+                catch (Win32Exception)
+                {
+                    if (process.HasExited) throw new GameExitedException();
+                }
+
+                if (IntPtr.Zero != TryFindGameWindow(process))
+                    return;
+
+                CurrentLaunchCancellation.Value.ThrowIfCancellationRequested();
+                if (stopwatch.Elapsed >= timeout)
+                    throw new TimeoutException("The game window did not become ready before the launch deadline.");
+
+                Thread.Sleep(100);
             }
         }
 
@@ -1167,6 +1215,7 @@ namespace CoreLibLaunchSupport
         runner = new WindowsGameRunner(dalamudLauncher, dalamudOk, DalamudUpdater.Runtime);
         Log.Information("[{Component}] Launching game executable", nameof(networklogic));
         cancellationToken.ThrowIfCancellationRequested();
+        using var launchCancellation = NativeProcessLauncher.UseCancellationToken(cancellationToken);
         Process ffxivgame = launcher.LaunchGame(runner, realsid,
             region, expansionlevel, isSteam, gameArgs, gamePather, dx11, ClientLanguage.English, true,
             DpiAwareness.Unaware);
@@ -1185,19 +1234,19 @@ namespace CoreLibLaunchSupport
         switch(language)
         {
             case 0:
-                Debug.WriteLine("実行可能ファイルを起動できませんでした。 ゲームパスは正しいですか? " + exc);
+                Debug.WriteLine("実行可能ファイルを起動できませんでした。 ゲームパスは正しいですか?");
                 break;
             case 1:
-                Debug.WriteLine("Could not launch executable. Is your game path correct? " + exc);
+                Debug.WriteLine("Could not launch executable. Check the installation folder.");
                 break;
             case 2:
-                Debug.WriteLine("Die ausführbare Datei konnte nicht gestartet werden. Ist dein Spielpfad korrekt? " + exc);
+                Debug.WriteLine("Die ausführbare Datei konnte nicht gestartet werden. Prüfen Sie den Installationsordner.");
                 break;
             case 3:
-                Debug.WriteLine("Impossible de lancer l'exécutable. Votre chemin de jeu est-il correct? " + exc);
+                Debug.WriteLine("Impossible de lancer l'exécutable. Vérifiez le dossier d'installation.");
                 break;
             case 4:
-                Debug.WriteLine("Не удалось запустить файл. Ввели ли вы корректный путь к игре? " + exc);
+                Debug.WriteLine("Не удалось запустить файл. Проверьте каталог установки.");
                 break;
         }
     }
