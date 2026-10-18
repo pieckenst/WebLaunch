@@ -31,8 +31,10 @@ namespace El_Garnan_Plugin_Loader
         private static readonly string ShadowRoot = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins");
         private static readonly HashSet<string> LegacyDependencyDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
         {
-            "assets", "content", "fonts", "native", "resource", "resources", "runtimes",
-            "shaders", "x64", "x86"
+            // Conventional private dependency/runtime/resource locations used by older bundles.
+            // This is intentionally a bounded policy, not a recursive copy of every discovered plugin.
+            "assets", "content", "dependencies", "dependency", "fonts", "lib", "libs", "managed",
+            "native", "resource", "resources", "runtimes", "shaders", "x64", "x86"
         };
         private readonly string managerShadowRoot = Path.Combine(ShadowRoot, Guid.NewGuid().ToString("N"));
         private FileStream? shadowRootLock;
