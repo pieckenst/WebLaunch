@@ -68,8 +68,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
                 height,
                 mipLevels: 1,
                 arrayLayers: 1,
-                PixelFormat.R8_G8_B8_A8_UNorm,
-                TextureUsage.Sampled));
+                format: PixelFormat.R8_G8_B8_A8_UNorm,
+                usage: TextureUsage.Sampled));
 
             try
             {
@@ -79,8 +79,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
                     x: 0,
                     y: 0,
                     z: 0,
-                    width,
-                    height,
+                    width: width,
+                    height: height,
                     depth: 1,
                     mipLevel: 0,
                     arrayLayer: 0);
