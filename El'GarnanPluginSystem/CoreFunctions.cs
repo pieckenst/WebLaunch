@@ -273,13 +273,23 @@ namespace El_Garnan_Plugin_Loader
             string directory, string bundleRoot, string shadowRoot, bool isRoot = false, bool privateTree = false)
         {
             SafePath.RejectLinks(directory);
+
+            // A manifest is an explicit bundle boundary, even underneath a directory normally
+            // treated as private plugin content. Never merge a declared child plugin into its parent.
+            var manifestPath = Path.Combine(directory, "plugin.json");
+            var hasManifest = File.Exists(manifestPath);
+            if (hasManifest)
+            {
+                SafePath.RejectLinks(manifestPath);
+                if (!isRoot) return;
+            }
+
             var keepPrivateTree = isRoot || privateTree || LegacyDependencyDirectoryNames.Contains(Path.GetFileName(directory));
             if (!isRoot && !keepPrivateTree)
             {
-                var hasManifest = File.Exists(Path.Combine(directory, "plugin.json"));
                 var hasAssemblies = Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly).Any();
-                if (hasManifest || hasAssemblies)
-                    return; // A separately discoverable plugin must retain its own shadow-copy boundary.
+                if (hasAssemblies)
+                    return; // An unmanifested nested assembly directory retains its discovery boundary.
             }
 
             foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
