@@ -165,6 +165,16 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
             FfxivTraceLogger.Warn(correlationId, "Plugin launch cancelled");
             throw;
         }
+        catch (OperationCanceledException ex)
+        {
+            // A timed-out internal HTTP/runtime operation is not a user cancellation. Preserve
+            // the distinction so the desktop UI reports a launch failure and the trace retains
+            // the original timeout/cancellation details.
+            var failure = new TimeoutException("An internal FFXIV launch operation timed out or was interrupted.", ex);
+            Logger.Error($"FFXIV launch failed: {failure.GetType().Name}");
+            FfxivTraceLogger.Error(correlationId, "Plugin launch was interrupted outside caller cancellation", failure);
+            throw failure;
+        }
         catch (Exception ex)
         {
             Logger.Error($"FFXIV launch failed: {ex.GetType().Name}");
