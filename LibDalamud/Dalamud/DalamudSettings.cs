@@ -24,7 +24,8 @@ namespace LibDalamud.Common.Dalamud
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Couldn't deserialize Dalamud settings");
+                Log.Error("Couldn't deserialize Dalamud settings ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Dalamud settings path={configPath}; deserialization failure={ex}");
             }
 
             deserialized ??= new DalamudSettings(); // In case the .json is corrupted
