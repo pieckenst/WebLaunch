@@ -64,11 +64,10 @@ public static class LogInit
                 .CreateLogger();
 
             Log.Information(
-                "[{Component}] Serilog initialized. MinimumLevel={MinimumLevel}; Trace={TraceEnabled}; LogFile={LogFile}",
+                "[{Component}] Serilog initialized. MinimumLevel={MinimumLevel}; Trace={TraceEnabled}; LogFile=core.log",
                 nameof(LogInit),
                 minLevel,
-                traceEnabled,
-                logPath);
+                traceEnabled);
 
             _initialized = true;
         }
