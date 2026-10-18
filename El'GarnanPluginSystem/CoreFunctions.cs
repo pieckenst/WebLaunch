@@ -553,6 +553,8 @@ namespace El_Garnan_Plugin_Loader
             }
         }
     }
+
+    /// <summary>Indicates that a plugin candidate failed manifest, compatibility, or dependency validation.</summary>
     public class PluginValidationException : Exception
     {
         /// <summary>
