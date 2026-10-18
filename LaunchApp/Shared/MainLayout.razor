@@ -5,6 +5,17 @@
 @inject MasaBlazor Masa
 @implements IAsyncDisposable
 
+@if (navigationFailed)
+{
+    <section class="app-recovery" role="alert">
+        <h1>Let’s reload the launcher</h1>
+        <p>Navigation could not finish safely. Reload, then reconnect your desktop launcher. Sign-in details are not saved.</p>
+        <button type="button" @onclick="ReloadLauncher">Reload launcher</button>
+        <a href="@Navigation.BaseUri" @onclick="ReturnToLibrary" @onclick:preventDefault>Return to game library</a>
+    </section>
+}
+else
+{
 <MApp Dark="@dark">
     <a class="skip-link" href="@(Navigation.ToBaseRelativePath(Navigation.Uri).Split('#')[0] + "#main")">Skip to content</a>
     <LumexNavbar Class="site-header" Height="auto" Blurred="false" Classes="@(new NavbarSlots { Wrapper = "main-nav-content" })">
@@ -35,6 +46,7 @@
 </MApp>
 @code {
     private bool dark;
+    private bool navigationFailed;
     private DotNetObjectReference<MainLayout>? reference;
     private bool syncNavigation = true;
     private IJSObjectReference? navigationModule;
@@ -159,4 +171,6 @@
             }
         }
     }
+}
+
 }
