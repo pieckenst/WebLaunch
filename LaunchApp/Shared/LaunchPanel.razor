@@ -167,7 +167,13 @@
                 try
                 {
                     await module.InvokeAsync<Reply>("status");
+                    var recovered = consecutiveStatusFailures > 0;
                     consecutiveStatusFailures = 0;
+                    if (recovered)
+                    {
+                        message = "The desktop connection is restored.";
+                        await InvokeAsync(StateHasChanged);
+                    }
                 }
                 catch (JSException ex)
                 {

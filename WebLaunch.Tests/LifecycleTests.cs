@@ -301,6 +301,17 @@ public sealed class LifecycleTests
         File.Delete(Path.Combine(root.Path, "one", "WebLaunch.TestPlugin.dll"));
         await Eventually(() => !host.GetLoadedPlugins().Any());
     }
+    [Fact] public async Task MovingPluginDirectoryOutsideSearchRootUnloadsPlugins()
+    {
+        using var root = new TemporaryDirectory(); using var outside = new TemporaryDirectory();
+        CopyPlugin(root.Path, "one");
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        await host.InitializeAsync();
+        Assert.NotEmpty(host.GetLoadedPlugins());
+        Directory.Move(Path.Combine(root.Path, "one"), Path.Combine(outside.Path, "moved"));
+        await Eventually(() => !host.GetLoadedPlugins().Any());
+    }
+
     private static async Task Eventually(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -445,7 +456,7 @@ public sealed class LifecycleTests
             Assert.False(stop.IsCompleted);
             release.Set();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await start);
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stop);
+            await stop.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(first.Closed);
             Assert.False(first.Ran || second.Ran || second.Closed);
         }

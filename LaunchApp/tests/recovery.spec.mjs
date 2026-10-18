@@ -3,6 +3,38 @@ import { prepare, pendingLaunchStatus } from './scenarios.mjs';
 
 const base = process.env.WEBLAUNCH_TEST_URL || 'http://localhost:5148/WebLaunch/';
 
+for (const failures of [1, 2]) {
+    test(`desktop status recovers after ${failures} transient failures`, async ({ page }) => {
+        await page.route('**/js/bridge.js', async route => {
+            const response = await route.fetch();
+            let body = (await response.text()).replace('export async function connect(', 'async function original_connect(');
+            body = body.replace('export const status =', 'const original_status =');
+            body += `
+export async function connect() { return { paired: true, code: '', desktopMode: 'gui' }; }
+export async function status() {
+    window.statusChecks = (window.statusChecks || 0) + 1;
+    if (window.remainingStatusFailures > 0) {
+        window.remainingStatusFailures--;
+        throw new Error('Synthetic transient status failure');
+    }
+    return { paired: true, status: {}, desktopMode: 'gui' };
+}`;
+            await route.fulfill({ response, body });
+        });
+        await prepare(page, base);
+        await page.goto(base + 'counter');
+        await page.locator('.connection-summary').click();
+        await page.getByRole('button', { name: 'Connect', exact: true }).click();
+        await expect(page.locator('.launch-status')).toHaveText('Connected. Enter your game settings.');
+        await expect.poll(() => page.evaluate(() => window.statusChecks || 0), { timeout: 10_000 }).toBeGreaterThan(0);
+        await expect(page.locator('.launch-status')).toHaveText('Connected. Enter your game settings.');
+        await page.evaluate(count => { window.remainingStatusFailures = count; }, failures);
+        await expect(page.locator('.launch-status')).toContainText('failed temporarily', { timeout: 10_000 });
+        await expect(page.locator('.launch-status')).toHaveText('The desktop connection is restored.', { timeout: 20_000 });
+        await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+    });
+}
+
 test('a repeatedly failing game page can force-load the library', async ({ page }) => {
     await page.route('**/js/navigation.js', async route => {
         const response = await route.fetch();

@@ -366,7 +366,9 @@ namespace El_Garnan_Plugin_Loader
                     {
                         foreach (var group in entries.Values.ToArray().GroupBy(e => e.Candidate))
                         {
-                            if (!changed.Any(p => p.StartsWith(Path.TrimEndingDirectorySeparator(group.Key.BundleRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
+                            var directory = Path.TrimEndingDirectorySeparator(group.Key.BundleRoot);
+                            if (!changed.Any(p => p.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
+                                p.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
                             if (group.Any(e => !e.Plugin.SupportsHotReload)) continue;
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
                             foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
@@ -517,7 +519,7 @@ namespace El_Garnan_Plugin_Loader
             try { await UnloadAllPluginsAsync().ConfigureAwait(false); }
             finally
             {
-                await TryDeleteShadowTreeAsync(managerShadowRoot, 20).ConfigureAwait(false);
+                await TryDeleteShadowTreeAsync(managerShadowRoot, 1).ConfigureAwait(false);
                 shadowRootLock?.Dispose();
                 shadowRootLock = null;
                 try

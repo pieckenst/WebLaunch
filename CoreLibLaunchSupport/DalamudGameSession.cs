@@ -36,7 +36,7 @@ public sealed class DalamudGameSession
         }
         catch (Exception ex)
         {
-            session.Finish(pid, ex);
+            session.Finish(pid, ex is OperationCanceledException && session.stopping.IsCancellationRequested ? null : ex);
             session.Completion.GetAwaiter().GetResult(); // Propagate startup and rollback errors after all cleanup.
             throw;
         }

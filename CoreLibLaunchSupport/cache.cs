@@ -106,7 +106,7 @@ namespace CoreLibLaunchSupport
                 File.WriteAllBytes(temporary, encrypted);
                 File.Move(temporary, configFile.FullName, true);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
             {
                 TryDeleteFile(temporary);
             }
