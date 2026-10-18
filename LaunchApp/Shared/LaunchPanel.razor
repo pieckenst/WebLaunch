@@ -166,32 +166,56 @@
                 try
                 {
                     await module.InvokeAsync<Reply>("status");
-                    var recovered = consecutiveStatusFailures > 0;
-                    consecutiveStatusFailures = 0;
-                    if (recovered)
-                    {
-                        message = "The desktop connection is restored.";
-                        await InvokeAsync(StateHasChanged);
-                    }
                 }
                 catch (JSException ex)
                 {
-                    consecutiveStatusFailures++;
-                    if (consecutiveStatusFailures < 3)
-                    {
-                        // A single interop failure can be transient. Preserve pairing while retrying.
-                        message = "The desktop connection check failed temporarily. Retrying without discarding pairing.";
-                        await InvokeAsync(StateHasChanged);
-                        continue;
-                    }
-
-                    paired = false;
-                    actualMode = "";
-                    message = "The desktop connection could not be verified. Reconnect and compare the pairing code before launching again.";
-                    try { await module.InvokeVoidAsync("disconnect"); }
-                    catch (JSException disconnectError) { BrowserDiagnostics.Report("connection recovery", disconnectError); }
+                    // bridge.js revokes the local channel after any failed exchange. Retrying
+                    // status on the same channel can never recover, so perform a new authenticated
+                    // handshake instead of leaving launch controls enabled against a dead session.
                     BrowserDiagnostics.Report("connection status", ex);
-                    consecutiveStatusFailures = 0;
+                    connecting = true;
+                    message = "The secure desktop session was interrupted. Re-establishing the connection…";
+                    await InvokeAsync(StateHasChanged);
+                    try
+                    {
+                        var recovered = await module.InvokeAsync<Connection>("connect");
+                        paired = recovered.Paired;
+                        pairingCode = recovered.Code;
+                        actualMode = recovered.DesktopMode;
+                        canBrowseFolders = recovered.CanBrowseFolders;
+                        if (paired)
+                        {
+                            savedPairing = true;
+                            message = "The desktop connection is restored.";
+                        }
+                        else if (!string.IsNullOrEmpty(pairingCode))
+                        {
+                            desktopView = true;
+                            pairingExpires = DateTimeOffset.UtcNow.AddMinutes(5);
+                            message = "A new secure session is ready. Compare the pairing codes and confirm again.";
+                            focusTarget = "pairing-confirm";
+                        }
+                        else
+                        {
+                            savedPairing = recovered.Paired || savedPairing;
+                            actualMode = "";
+                            canBrowseFolders = false;
+                            message = "The desktop connection could not be re-established. Connect again before launching.";
+                        }
+                    }
+                    catch (JSException recoveryError)
+                    {
+                        paired = false;
+                        actualMode = "";
+                        canBrowseFolders = false;
+                        pairingCode = "";
+                        message = "The desktop connection could not be re-established. Connect again before launching.";
+                        BrowserDiagnostics.Report("connection recovery", recoveryError);
+                    }
+                    finally
+                    {
+                        connecting = false;
+                    }
                     await InvokeAsync(StateHasChanged);
                 }
             }
