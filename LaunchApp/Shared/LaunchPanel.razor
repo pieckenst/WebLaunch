@@ -370,13 +370,70 @@
     private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];
     public async ValueTask DisposeAsync()
     {
-        await lifetime.CancelAsync();
-        if (confirmation is not null) await confirmation;
-        if (connectionMonitor is not null) await connectionMonitor;
-        if (launch is not null) { try { await launch; } catch (Exception ex) when (ex is OperationCanceledException or JSException) { } }
-        if (module is not null) { try { await module.InvokeVoidAsync("disconnect"); } catch (JSException) { } await module.DisposeAsync(); }
-        if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException) { } await dialogModule.DisposeAsync(); }
-        dialogReference?.Dispose();
-        password = otp = ""; lifetime.Dispose();
+        try
+        {
+            try { await lifetime.CancelAsync(); }
+            catch (Exception ex) { ReportDisposalFailure("lifetime cancellation", ex); }
+
+            await ObserveDisposalTask(confirmation, "pairing confirmation");
+            await ObserveDisposalTask(connectionMonitor, "connection monitor");
+            await ObserveDisposalTask(launch, "launch task");
+        }
+        finally
+        {
+            try
+            {
+                if (module is not null)
+                {
+                    try { await module.InvokeVoidAsync("disconnect"); }
+                    catch (Exception ex) { ReportDisposalFailure("bridge disconnect", ex); }
+                    finally
+                    {
+                        try { await module.DisposeAsync(); }
+                        catch (Exception ex) { ReportDisposalFailure("bridge module disposal", ex); }
+                        finally { module = null; }
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (dialogModule is not null)
+                    {
+                        try { await dialogModule.InvokeVoidAsync("close", dialog); }
+                        catch (Exception ex) { ReportDisposalFailure("dialog close", ex); }
+                        finally
+                        {
+                            try { await dialogModule.DisposeAsync(); }
+                            catch (Exception ex) { ReportDisposalFailure("dialog module disposal", ex); }
+                            finally { dialogModule = null; }
+                        }
+                    }
+                }
+                finally
+                {
+                    dialogReference?.Dispose();
+                    dialogReference = null;
+                    password = otp = "";
+                    lifetime.Dispose();
+                }
+            }
+        }
+    }
+
+    private static async Task ObserveDisposalTask(Task? task, string operation)
+    {
+        if (task is null) return;
+        try { await task; }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { ReportDisposalFailure(operation, ex); }
+    }
+
+    private static void ReportDisposalFailure(string operation, Exception exception)
+    {
+        // Disposal may run after Blazor has disconnected. Diagnostics must not prevent reference cleanup.
+        try { BrowserDiagnostics.Report(operation, exception); }
+        catch { /* Preserve the primary invariant: every owned reference is still released. */ }
     }
 }
