@@ -27,6 +27,11 @@ namespace El_Garnan_Plugin_Loader
             }
         }
         private static readonly string ShadowRoot = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins");
+        private static readonly HashSet<string> LegacyDependencyDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "assets", "content", "fonts", "native", "resource", "resources", "runtimes",
+            "shaders", "x64", "x86"
+        };
         private readonly string managerShadowRoot = Path.Combine(ShadowRoot, Guid.NewGuid().ToString("N"));
         private FileStream? shadowRootLock;
         private readonly string pluginsPath;
@@ -36,6 +41,8 @@ namespace El_Garnan_Plugin_Loader
         private readonly ConcurrentDictionary<string, Entry> entries = new(StringComparer.Ordinal);
         private readonly SemaphoreSlim lifecycle = new(1, 1);
         private readonly object renderLock = new();
+        private readonly object disposeGate = new();
+        private Task? disposeTask;
         private readonly CancellationTokenSource lifetime = new();
         private readonly ConcurrentDictionary<string, byte> pendingChanges = new(StringComparer.OrdinalIgnoreCase);
         private FileSystemWatcher? watcher;
@@ -58,7 +65,7 @@ namespace El_Garnan_Plugin_Loader
         }
         public async Task InitializeAsync()
         {
-            await lifecycle.WaitAsync();
+            await lifecycle.WaitAsync().ConfigureAwait(false);
             try
             {
                 ObjectDisposedException.ThrowIf(disposed, this);
@@ -89,7 +96,7 @@ namespace El_Garnan_Plugin_Loader
                 {
                     var before = entries.Count;
                     foreach (var path in candidates.ToArray())
-                        if (await LoadAsync(path)) candidates.Remove(path);
+                        if (await LoadAsync(path).ConfigureAwait(false)) candidates.Remove(path);
                     if (entries.Count == before) break;
                 }
                 initialized = true;
@@ -154,14 +161,20 @@ namespace El_Garnan_Plugin_Loader
                 Directory.CreateDirectory(shadow);
                 var sourceDirectory = Path.GetDirectoryName(path)!;
                 var manifest = Path.Combine(sourceDirectory, "plugin.json");
-                var searchOption = File.Exists(manifest) ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-                foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", searchOption))
+                if (File.Exists(manifest))
                 {
-                    var relative = Path.GetRelativePath(sourceDirectory, file);
-                    var source = SafePath.Resolve(sourceDirectory, relative);
-                    var target = SafePath.Resolve(shadow, relative);
-                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                    File.Copy(source, target);
+                    foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+                    {
+                        var relative = Path.GetRelativePath(sourceDirectory, file);
+                        var source = SafePath.Resolve(sourceDirectory, relative);
+                        var target = SafePath.Resolve(shadow, relative);
+                        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                        File.Copy(source, target);
+                    }
+                }
+                else
+                {
+                    CopyLegacyBundleDirectory(sourceDirectory, sourceDirectory, shadow, isRoot: true);
                 }
                 context = new PluginLoadContext(Path.Combine(shadow, Path.GetFileName(path)));
                 var assembly = context.LoadFromAssemblyPath(Path.Combine(shadow, Path.GetFileName(path)));
@@ -193,8 +206,8 @@ namespace El_Garnan_Plugin_Loader
                         var version = pluginDependency?.Version ?? context.LoadFromAssemblyName(new AssemblyName(dependency.Name)).GetName().Version;
                         if (version < dependency.MinVersion) throw new PluginValidationException("Dependency version is too old.");
                     }
-                    if (!await candidate.ValidateConfigurationAsync()) throw new PluginValidationException("Plugin configuration is invalid.");
-                    await candidate.InitializeAsync();
+                    if (!await candidate.ValidateConfigurationAsync().ConfigureAwait(false)) throw new PluginValidationException("Plugin configuration is invalid.");
+                    await candidate.InitializeAsync().ConfigureAwait(false);
                 }
                 var loaded = candidates.ToArray();
                 lock (renderLock)
@@ -214,25 +227,109 @@ namespace El_Garnan_Plugin_Loader
             {
                 foreach (var candidate in candidates)
                 {
-                    try { await candidate.ShutdownAsync(); } catch { }
+                    try { await candidate.ShutdownAsync().ConfigureAwait(false); } catch { }
                     try { if (candidate is IDisposable d) d.Dispose(); } catch { }
                 }
                 context?.Unload();
-                if (shadow is not null) TryDeleteShadow(shadow);
+                if (shadow is not null) ScheduleShadowCleanup(shadow);
             }
         }
+        private static void CopyLegacyBundleDirectory(
+            string directory, string bundleRoot, string shadowRoot, bool isRoot = false, bool privateTree = false)
+        {
+            SafePath.RejectLinks(directory);
+            var keepPrivateTree = isRoot || privateTree || LegacyDependencyDirectoryNames.Contains(Path.GetFileName(directory));
+            if (!isRoot && !keepPrivateTree)
+            {
+                var hasManifest = File.Exists(Path.Combine(directory, "plugin.json"));
+                var hasAssemblies = Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly).Any();
+                if (hasManifest || hasAssemblies)
+                    return; // A separately discoverable plugin must retain its own shadow-copy boundary.
+            }
+
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
+            {
+                SafePath.RejectLinks(file);
+                var relative = Path.GetRelativePath(bundleRoot, file);
+                var source = SafePath.Resolve(bundleRoot, relative);
+                var target = SafePath.Resolve(shadowRoot, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(source, target, overwrite: true);
+            }
+
+            foreach (var child in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly))
+            {
+                SafePath.RejectLinks(child);
+                CopyLegacyBundleDirectory(child, bundleRoot, shadowRoot, privateTree: keepPrivateTree);
+            }
+        }
+
+        private static void ScheduleShadowCleanup(string path)
+        {
+            // Keep the task independent of plugin/context objects so collectible unload can finish.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
+                await TryDeleteShadowTreeAsync(path, 20).ConfigureAwait(false);
+            });
+        }
+
+        private static void ScheduleManagerShadowCleanup(string path)
+        {
+            _ = Task.Run(async () =>
+            {
+                for (var attempt = 0; attempt < 20; attempt++)
+                {
+                    try
+                    {
+                        using (LockShadowRoot(path))
+                            await TryDeleteShadowTreeAsync(path, 3).ConfigureAwait(false);
+                        if (!Directory.Exists(path))
+                        {
+                            try { File.Delete(path + ".lock"); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                            return;
+                        }
+                    }
+                    catch (IOException) { } // A live manager owns the lock.
+                    catch (UnauthorizedAccessException) { }
+                    await Task.Delay(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
+                }
+            });
+        }
+
+        private static async Task TryDeleteShadowTreeAsync(string path, int attempts)
+        {
+            for (var attempt = 0; attempt < attempts; attempt++)
+            {
+                try
+                {
+                    if (!Directory.Exists(path)) return;
+                    Directory.Delete(path, recursive: true);
+                    return;
+                }
+                catch (IOException)
+                {
+                    if (attempt + 1 < attempts) await Task.Delay(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    if (attempt + 1 < attempts) await Task.Delay(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
+                }
+            }
+        }
+
         private void Changed(object sender, FileSystemEventArgs e) => pendingChanges[e.FullPath] = 0;
         private async Task WatchAsync()
         {
             try
             {
                 using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(400));
-                while (await timer.WaitForNextTickAsync(lifetime.Token))
+                while (await timer.WaitForNextTickAsync(lifetime.Token).ConfigureAwait(false))
                 {
                     if (pendingChanges.IsEmpty) continue;
                     var changed = pendingChanges.Keys.ToArray();
                     foreach (var path in changed) pendingChanges.TryRemove(path, out _);
-                    await lifecycle.WaitAsync(lifetime.Token);
+                    await lifecycle.WaitAsync(lifetime.Token).ConfigureAwait(false);
                     try
                     {
                         foreach (var group in entries.Values.ToArray().GroupBy(e => e.Path, StringComparer.OrdinalIgnoreCase))
@@ -240,11 +337,11 @@ namespace El_Garnan_Plugin_Loader
                             if (!changed.Any(p => p.StartsWith(Path.GetDirectoryName(group.Key)! + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
                             if (group.Any(e => !e.Plugin.SupportsHotReload)) continue;
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
-                            foreach (var id in ids) await UnloadAsync(id);
-                            if (await LoadAsync(group.Key))
+                            foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
+                            if (await LoadAsync(group.Key).ConfigureAwait(false))
                                 foreach (var id in ids.Where(entries.ContainsKey)) PluginReloaded?.Invoke(this, new PluginReloadEventArgs(id));
                         }
-                        foreach (var path in DiscoverPlugins()) await LoadAsync(path);
+                        foreach (var path in DiscoverPlugins()) await LoadAsync(path).ConfigureAwait(false);
                     }
                     catch (Exception ex) { logger.Warning($"Plugin reload failed ({ex.GetType().Name})."); }
                     finally { lifecycle.Release(); }
@@ -257,8 +354,8 @@ namespace El_Garnan_Plugin_Loader
             Entry? entry;
             lock (renderLock) entries.TryRemove(id, out entry);
             if (entry is null) return;
-            await entry.WaitForLeasesAsync();
-            try { await entry.Plugin.ShutdownAsync(); }
+            await entry.WaitForLeasesAsync().ConfigureAwait(false);
+            try { await entry.Plugin.ShutdownAsync().ConfigureAwait(false); }
             catch (Exception ex) { logger.Warning($"Plugin shutdown failed ({ex.GetType().Name})."); }
             finally
             {
@@ -267,7 +364,7 @@ namespace El_Garnan_Plugin_Loader
                 finally
                 {
                     if (!entries.Values.Any(e => ReferenceEquals(e.Context, entry.Context)))
-                    { entry.Context.Unload(); TryDeleteShadow(entry.ShadowDirectory); }
+                    { entry.Context.Unload(); ScheduleShadowCleanup(entry.ShadowDirectory); }
                 }
                 PluginUnloaded?.Invoke(this, new PluginUnloadEventArgs(id));
             }
@@ -286,7 +383,7 @@ namespace El_Garnan_Plugin_Loader
         {
             Entry entry;
             CancellationTokenSource cancellation;
-            await lifecycle.WaitAsync(token);
+            await lifecycle.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 ObjectDisposedException.ThrowIf(disposed, this);
@@ -300,15 +397,15 @@ namespace El_Garnan_Plugin_Loader
                 try
                 {
                     cancellation.Token.ThrowIfCancellationRequested();
-                    return await action(entry.Plugin, cancellation.Token);
+                    return await action(entry.Plugin, cancellation.Token).ConfigureAwait(false);
                 }
                 finally { entry.ReleaseLease(); }
             }
         }
         public async Task UnloadAllPluginsAsync()
         {
-            await lifecycle.WaitAsync();
-            try { foreach (var id in entries.Keys.ToArray()) await UnloadAsync(id); }
+            await lifecycle.WaitAsync().ConfigureAwait(false);
+            try { foreach (var id in entries.Keys.ToArray()) await UnloadAsync(id).ConfigureAwait(false); }
             finally { lifecycle.Release(); }
         }
         public void RenderPluginInterfaces()
@@ -348,20 +445,34 @@ namespace El_Garnan_Plugin_Loader
             }
         }
         public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
-        public async ValueTask DisposeAsync()
+
+        public ValueTask DisposeAsync()
+        {
+            lock (disposeGate)
+                return new ValueTask(disposeTask ??= DisposeCoreAsync());
+        }
+
+        private async Task DisposeCoreAsync()
         {
             if (disposed) return;
-            disposed = true; watcher?.Dispose(); await lifetime.CancelAsync();
-            if (watchTask is not null) await watchTask;
-            if (renderStopped is not null) await renderStopped.Task;
-            try { await UnloadAllPluginsAsync(); }
+            disposed = true;
+            watcher?.Dispose();
+            await lifetime.CancelAsync().ConfigureAwait(false);
+            if (watchTask is not null) await watchTask.ConfigureAwait(false);
+            if (renderStopped is not null) await renderStopped.Task.ConfigureAwait(false);
+            try { await UnloadAllPluginsAsync().ConfigureAwait(false); }
             finally
             {
-                TryDeleteShadow(managerShadowRoot);
+                await TryDeleteShadowTreeAsync(managerShadowRoot, 20).ConfigureAwait(false);
                 shadowRootLock?.Dispose();
-                try { if (!Directory.Exists(managerShadowRoot)) File.Delete(managerShadowRoot + ".lock"); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                shadowRootLock = null;
+                try
+                {
+                    if (!Directory.Exists(managerShadowRoot)) File.Delete(managerShadowRoot + ".lock");
+                    else ScheduleManagerShadowCleanup(managerShadowRoot);
+                }
+                catch (IOException) { ScheduleManagerShadowCleanup(managerShadowRoot); }
+                catch (UnauthorizedAccessException) { ScheduleManagerShadowCleanup(managerShadowRoot); }
                 lifetime.Dispose();
             }
         }
