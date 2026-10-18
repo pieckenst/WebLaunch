@@ -1,5 +1,6 @@
 @using LaunchApp.Services
 @inject NavigationManager Navigation
+@inject GameNavigation GameNavigation
 
 <LumexNavbar As="div" Class="section-bar" Height="auto" Blurred="false" role="navigation" aria-label="@Label" Classes="@(new NavbarSlots { Wrapper = "section-bar-content" })">
     <LumexNavbarContent Class="section-tabs">
@@ -7,7 +8,7 @@
         {
             <LumexNavbarItem>
                 @* Section selection is fragment-specific; the library's page NavLink matching ignores fragments. *@
-                <LumexComponent As="a" href="@Navigation.ToAbsoluteUri(Route + "#" + section.Id)" aria-current="@(ActiveSection == section.Id ? "location" : null)"><NavigationIcon Name="@section.Id" />@section.Title</LumexComponent>
+                <LumexComponent As="a" href="@Navigation.ToAbsoluteUri(Route + "#" + section.Id)" @onclick="(args) => SectionClicked(section.Id, args)" aria-current="@(ActiveSection == section.Id ? "location" : null)"><NavigationIcon Name="@section.Id" />@section.Title</LumexComponent>
             </LumexNavbarItem>
         }
     </LumexNavbarContent>
@@ -29,4 +30,13 @@
     [Parameter] public RenderFragment? Actions { get; set; }
     [Parameter] public RenderFragment? Menu { get; set; }
     [Parameter] public string MenuLabel { get; set; } = "More";
+
+    // Publish the intended fragment directly to the shared state. Hash-only anchors may use
+    // pushState (which does not emit hashchange), and waiting for an asynchronous browser callback
+    // made ARIA selection race with Blazor's render cycle. Leave native modified clicks untouched.
+    private void SectionClicked(string sectionId, Microsoft.AspNetCore.Components.Web.MouseEventArgs args)
+    {
+        if (args.Button != 0 || args.CtrlKey || args.MetaKey || args.ShiftKey || args.AltKey) return;
+        GameNavigation.RefreshLocation(Navigation.ToAbsoluteUri(Route + "#" + sectionId).ToString());
+    }
 }
