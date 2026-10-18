@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using AriaNet;
 using LibDalamud;
 using LibDalamud.Common.Util;
+using LibDalamud.Common.Dalamud;
 using Serilog;
 using XIVLauncher.Common.Util;
 
@@ -38,7 +39,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "[ARIA] Could not kill stray process.");
+                        Log.Error("[ARIA] Could not stop the previous downloader ({ErrorType})", ex.GetType().Name);
+                LaunchCancellationContext.WriteTrace(() => $"Could not kill Aria process: {ex}");
                     }
                 }
 
@@ -59,7 +61,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
                 var ariaArgs =
                     $"--enable-rpc --rpc-secret={secret} --rpc-listen-port={ariaPort} --log=\"{logFile.FullName}\" --log-level=notice --max-connection-per-server=8 --auto-file-renaming=false --allow-overwrite=true";
 
-                Log.Verbose($"[ARIA] Aria process not there, creating from {ariaPath} {ariaArgs}...");
+                Log.Verbose("[ARIA] Downloader process was not running; starting it");
+            LaunchCancellationContext.WriteTrace(() => $"Aria executable={ariaPath}; arguments={ariaArgs}");
 
                 var startInfo = new ProcessStartInfo(ariaPath, ariaArgs)
                 {
@@ -123,14 +126,16 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
             {
                 if (t.IsFaulted || t.IsCanceled)
                 {
-                    Log.Error(t.Exception, $"[ARIA] Could not send download RPC for {url}");
+                    Log.Error("[ARIA] Could not submit download request ({Outcome})", t.IsCanceled ? "cancelled" : "faulted");
+                    LaunchCancellationContext.WriteTrace(() => $"Aria download request failed for {url}: {t.Exception}");
                     OnComplete(AcquisitionResult.Error);
                     return;
                 }
 
                 var gid = t.Result;
 
-                Log.Verbose($"[ARIA] GID# {gid} for {url}");
+                Log.Verbose("[ARIA] Download request accepted");
+                LaunchCancellationContext.WriteTrace(() => $"Aria transfer {gid} URL={url}");
 
                 var _ = Task.Run(async () =>
                 {
@@ -142,7 +147,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
 
                             if (status.Status == "complete")
                             {
-                                Log.Verbose($"[ARIA] GID# {gid} for {url} SUCCESS");
+                                Log.Verbose("[ARIA] Download completed");
+                                LaunchCancellationContext.WriteTrace(() => $"Aria transfer {gid} completed: {url}");
 
                                 OnComplete(AcquisitionResult.Success);
                                 return;
@@ -150,7 +156,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
 
                             if (status.Status == "removed")
                             {
-                                Log.Verbose($"[ARIA] GID# {gid} for {url} CANCEL");
+                                Log.Verbose("[ARIA] Download cancelled");
+                                LaunchCancellationContext.WriteTrace(() => $"Aria transfer {gid} cancelled: {url}");
 
                                 OnComplete(AcquisitionResult.Cancelled);
                                 return;
@@ -158,7 +165,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
 
                             if (status.Status == "error")
                             {
-                                Log.Verbose($"[ARIA] GID# {gid} for {url} FAULTED");
+                                Log.Verbose("[ARIA] Download failed");
+                                LaunchCancellationContext.WriteTrace(() => $"Aria transfer {gid} failed: {url}");
 
                                 OnComplete(AcquisitionResult.Error);
                                 return;
@@ -172,7 +180,8 @@ namespace XIVLauncher.Common.Game.Patch.Acquisition.Aria
                         }
                         catch (Exception ex)
                         {
-                            Log.Error(ex, $"[ARIA] Failed to get status for GID# {gid} ({url})");
+                            Log.Error("[ARIA] Failed to get transfer status ({ErrorType})", ex.GetType().Name);
+                            LaunchCancellationContext.WriteTrace(() => $"Aria status poll failed for transfer {gid}, URL={url}: {ex}");
                         }
 
                         Thread.Sleep(500);
