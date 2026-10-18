@@ -85,7 +85,7 @@
     private IJSObjectReference? module, dialogModule;
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
-    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting;
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
