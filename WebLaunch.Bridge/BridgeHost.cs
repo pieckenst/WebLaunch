@@ -109,6 +109,9 @@ public sealed class BridgeHost : IAsyncDisposable
             catch (OperationCanceledException) { context.Response.StatusCode = 408; }
         });
         app.MapPost("/v2/hello", HelloAsync);
+        // Cancellation bypasses the encrypted session gate so a pending approval can be expired
+        // even while the normal confirm request is awaiting desktop consent.
+        app.MapPost("/v2/session/{id}/cancel", CancelSessionAsync);
         app.MapPost("/v2/session/{id}", MessageAsync);
         await app.StartAsync(cancellationToken);
         reaper = ReapAsync();
@@ -150,6 +153,29 @@ public sealed class BridgeHost : IAsyncDisposable
         }
         finally { admission.Release(); }
     }
+    private async Task CancelSessionAsync(HttpContext context, string id)
+    {
+        // The random session ID is a per-session bearer capability; Origin is independently
+        // enforced by the loopback middleware and matched to the stored session before mutation.
+        // Returning the same status for unknown/mismatched IDs avoids exposing session existence.
+        if (!sessions.TryGetValue(id, out var session)
+            || session.Origin != context.Request.Headers.Origin.ToString())
+        {
+            context.Response.StatusCode = StatusCodes.Status204NoContent;
+            return;
+        }
+
+        // Expire before cancelling either token. Do not acquire Gate: MessageAsync deliberately
+        // holds it while waiting for approval, which is exactly the operation this endpoint must
+        // be able to interrupt.
+        session.Expires = DateTimeOffset.MinValue;
+        try { await session.PairingTimeout.CancelAsync(); }
+        catch (ObjectDisposedException) { }
+        try { await session.JobCancellation.CancelAsync(); }
+        catch (ObjectDisposedException) { }
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+    }
+
     private async Task MessageAsync(HttpContext context, string id)
     {
         if (!sessions.TryGetValue(id, out var session) || session.Origin != context.Request.Headers.Origin.ToString() || session.IsExpired)
@@ -172,7 +198,20 @@ public sealed class BridgeHost : IAsyncDisposable
             }
             if (!session.Paired)
             {
-                if (command.Action != "confirm" || command.Code != session.Code || !await session.Approval.WaitAsync(timeout.Token) || session.IsExpired)
+                if (command.Action != "confirm" || command.Code != session.Code)
+                {
+                    session.Expires = DateTimeOffset.MinValue;
+                    if (Interlocked.Increment(ref pairingFailures) >= 3) pairingRetryAfter = DateTimeOffset.UtcNow.AddMinutes(5);
+                    context.Response.StatusCode = 403; return;
+                }
+
+                // Cancellation can interrupt this approval wait independently of RequestAborted.
+                // The normal session gate remains held until the wait exits, but the dedicated
+                // /cancel endpoint can expire the session and cancel this token without taking Gate.
+                using var approvalCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                    timeout.Token,
+                    session.PairingTimeout.Token);
+                if (!await session.Approval.WaitAsync(approvalCancellation.Token) || session.IsExpired)
                 {
                     session.Expires = DateTimeOffset.MinValue;
                     if (Interlocked.Increment(ref pairingFailures) >= 3) pairingRetryAfter = DateTimeOffset.UtcNow.AddMinutes(5);
