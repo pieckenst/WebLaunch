@@ -8,7 +8,8 @@ namespace El_Garnan_Plugin_Loader
 {
     public class CoreFunctions : IDisposable, IAsyncDisposable
     {
-        private sealed record Entry(string Path, string ShadowDirectory, IGamePlugin Plugin, PluginLoadContext Context)
+        private sealed record PluginCandidate(string AssemblyPath, string BundleRoot, string? ManifestPath = null);
+        private sealed record Entry(PluginCandidate Candidate, string ShadowDirectory, IGamePlugin Plugin, PluginLoadContext Context)
         {
             private readonly object leaseLock = new();
             private int activeLeases;
@@ -112,8 +113,8 @@ namespace El_Garnan_Plugin_Loader
                 while (candidates.Count > 0)
                 {
                     var before = entries.Count;
-                    foreach (var path in candidates.ToArray())
-                        if (await LoadAsync(path).ConfigureAwait(false)) candidates.Remove(path);
+                    foreach (var candidate in candidates.ToArray())
+                        if (await LoadAsync(candidate).ConfigureAwait(false)) candidates.Remove(candidate);
                     if (entries.Count == before) break;
                 }
                 initialized = true;
@@ -128,14 +129,14 @@ namespace El_Garnan_Plugin_Loader
             }
             finally { lifecycle.Release(); }
         }
-        private IEnumerable<string> DiscoverPlugins()
+        private IEnumerable<PluginCandidate> DiscoverPlugins()
         {
             var directories = new Stack<string>();
             directories.Push(pluginsPath);
             while (directories.TryPop(out var directory))
             {
                 var affectedPath = directory;
-                string[] assemblies;
+                PluginCandidate[] assemblies;
                 try
                 {
                     SafePath.RejectLinks(directory);
@@ -147,11 +148,12 @@ namespace El_Garnan_Plugin_Loader
                         using var json = JsonDocument.Parse(File.ReadAllText(manifest));
                         if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
                         var assembly = json.RootElement.GetProperty("assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
-                        assemblies = [SafePath.Resolve(directory, assembly)];
+                        assemblies = [new(SafePath.Resolve(directory, assembly), directory, manifest)];
                     }
                     else
                     {
-                        assemblies = Directory.EnumerateFiles(directory, "*.dll").Order(StringComparer.Ordinal).ToArray();
+                        assemblies = Directory.EnumerateFiles(directory, "*.dll").Order(StringComparer.Ordinal)
+                            .Select(path => new PluginCandidate(path, directory)).ToArray();
                         foreach (var child in Directory.EnumerateDirectories(directory))
                             directories.Push(child); // Each directory is checked when popped, isolating link failures.
                     }
@@ -164,9 +166,10 @@ namespace El_Garnan_Plugin_Loader
                 foreach (var assembly in assemblies) yield return assembly;
             }
         }
-        private async Task<bool> LoadAsync(string path)
+        private async Task<bool> LoadAsync(PluginCandidate discovery)
         {
-            if (!File.Exists(path) || entries.Values.Any(e => string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase))) return true;
+            var path = discovery.AssemblyPath;
+            if (!File.Exists(path) || entries.Values.Any(e => string.Equals(e.Candidate.AssemblyPath, path, StringComparison.OrdinalIgnoreCase))) return true;
             PluginLoadContext? context = null;
             var candidates = new List<IGamePlugin>();
             string? shadow = null;
@@ -176,36 +179,33 @@ namespace El_Garnan_Plugin_Loader
                 // Shadow copies let Windows replace plugin files while an old context finishes unloading.
                 shadow = Path.Combine(managerShadowRoot, Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(shadow);
-                var sourceDirectory = Path.GetDirectoryName(path)!;
-                var manifest = Path.Combine(sourceDirectory, "plugin.json");
-                if (File.Exists(manifest))
+                var sourceDirectory = discovery.BundleRoot;
+                var manifest = discovery.ManifestPath;
+                var relativeAssembly = Path.GetRelativePath(sourceDirectory, path);
+                SafePath.Resolve(sourceDirectory, relativeAssembly);
+                if (manifest is not null)
                 {
-                    foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
-                    {
-                        var relative = Path.GetRelativePath(sourceDirectory, file);
-                        var source = SafePath.Resolve(sourceDirectory, relative);
-                        var target = SafePath.Resolve(shadow, relative);
-                        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                        File.Copy(source, target);
-                    }
+                    CopyManifestBundleDirectory(sourceDirectory, sourceDirectory, shadow);
                 }
                 else
                 {
                     CopyLegacyBundleDirectory(sourceDirectory, sourceDirectory, shadow, isRoot: true);
                 }
-                context = new PluginLoadContext(Path.Combine(shadow, Path.GetFileName(path)));
-                var assembly = context.LoadFromAssemblyPath(Path.Combine(shadow, Path.GetFileName(path)));
+                var shadowAssembly = SafePath.Resolve(shadow, relativeAssembly);
+                context = new PluginLoadContext(shadowAssembly);
+                var assembly = context.LoadFromAssemblyPath(shadowAssembly);
                 var types = assembly.GetTypes().Where(t => typeof(IGamePlugin).IsAssignableFrom(t) && !t.IsAbstract).ToArray();
-                if (types.Length == 0) return true;
                 string? manifestId = null;
-                if (File.Exists(manifest))
+                if (manifest is not null)
                 {
                     SafePath.RejectLinks(manifest);
                     using var json = JsonDocument.Parse(File.ReadAllText(manifest));
                     if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
                     manifestId = json.RootElement.GetProperty("id").GetString();
+                    if (string.IsNullOrWhiteSpace(manifestId)) throw new InvalidDataException("Invalid plugin manifest ID.");
                     if (types.Length != 1) throw new InvalidDataException("Manifest bundles must identify one plugin.");
                 }
+                if (types.Length == 0) return true;
                 foreach (var type in types)
                 {
                     var candidate = (IGamePlugin?)Activator.CreateInstance(type, logger) ?? throw new InvalidDataException("Invalid plugin constructor.");
@@ -228,7 +228,7 @@ namespace El_Garnan_Plugin_Loader
                 }
                 var loaded = candidates.ToArray();
                 lock (renderLock)
-                    foreach (var candidate in loaded) entries[candidate.PluginId] = new(path, shadow, candidate, context);
+                    foreach (var candidate in loaded) entries[candidate.PluginId] = new(discovery, shadow, candidate, context);
                 candidates.Clear(); context = null; shadow = null;
                 foreach (var candidate in loaded) PluginLoaded?.Invoke(this, new PluginLoadEventArgs(candidate));
                 return true;
@@ -251,6 +251,21 @@ namespace El_Garnan_Plugin_Loader
                 if (shadow is not null) ScheduleShadowCleanup(shadow);
             }
         }
+        private static void CopyManifestBundleDirectory(string directory, string bundleRoot, string shadowRoot)
+        {
+            SafePath.RejectLinks(directory);
+            foreach (var file in Directory.EnumerateFiles(directory))
+            {
+                var relative = Path.GetRelativePath(bundleRoot, file);
+                var source = SafePath.Resolve(bundleRoot, relative);
+                var target = SafePath.Resolve(shadowRoot, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(source, target);
+            }
+            foreach (var child in Directory.EnumerateDirectories(directory))
+                CopyManifestBundleDirectory(child, bundleRoot, shadowRoot);
+        }
+
         private static void CopyLegacyBundleDirectory(
             string directory, string bundleRoot, string shadowRoot, bool isRoot = false, bool privateTree = false)
         {
@@ -349,16 +364,16 @@ namespace El_Garnan_Plugin_Loader
                     await lifecycle.WaitAsync(lifetime.Token).ConfigureAwait(false);
                     try
                     {
-                        foreach (var group in entries.Values.ToArray().GroupBy(e => e.Path, StringComparer.OrdinalIgnoreCase))
+                        foreach (var group in entries.Values.ToArray().GroupBy(e => e.Candidate))
                         {
-                            if (!changed.Any(p => p.StartsWith(Path.GetDirectoryName(group.Key)! + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
+                            if (!changed.Any(p => p.StartsWith(Path.TrimEndingDirectorySeparator(group.Key.BundleRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
                             if (group.Any(e => !e.Plugin.SupportsHotReload)) continue;
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
                             foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
                             if (await LoadAsync(group.Key).ConfigureAwait(false))
                                 foreach (var id in ids.Where(entries.ContainsKey)) PluginReloaded?.Invoke(this, new PluginReloadEventArgs(id));
                         }
-                        foreach (var path in DiscoverPlugins()) await LoadAsync(path).ConfigureAwait(false);
+                        foreach (var candidate in DiscoverPlugins()) await LoadAsync(candidate).ConfigureAwait(false);
                     }
                     catch (Exception ex) { logger.Warning($"Plugin reload failed ({ex.GetType().Name})."); }
                     finally { lifecycle.Release(); }

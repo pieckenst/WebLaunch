@@ -10,9 +10,10 @@
 <ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
 <ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
 <ProjectReference Include="../El'GarnanPluginSystem/El'GarnanPluginSystem.csproj" />
+<ProjectReference Include="../WebLaunch.TestManifestPlugin/WebLaunch.TestManifestPlugin.csproj" ReferenceOutputAssembly="false" />
 <ProjectReference Include="../WebLaunch.TestPlugin/WebLaunch.TestPlugin.csproj" ReferenceOutputAssembly="false" />
 </ItemGroup>
-<Target Name="CopyFixture" AfterTargets="Build"><ItemGroup><FixtureFiles Include="../WebLaunch.TestPlugin/bin/$(Configuration)/net10.0/WebLaunch.TestPlugin.dll" /></ItemGroup><Copy SourceFiles="@(FixtureFiles)" DestinationFolder="$(OutDir)fixtures" /></Target>
+<Target Name="CopyFixture" AfterTargets="Build"><ItemGroup><FixtureFiles Include="../WebLaunch.TestManifestPlugin/bin/$(Configuration)/net10.0/WebLaunch.TestManifestPlugin.dll" /><FixtureFiles Include="../WebLaunch.TestPlugin/bin/$(Configuration)/net10.0/WebLaunch.TestPlugin.dll" /></ItemGroup><Copy SourceFiles="@(FixtureFiles)" DestinationFolder="$(OutDir)fixtures" /></Target>
 <ItemGroup>
 <None Update="crypto-interop.mjs" CopyToOutputDirectory="PreserveNewest" />
 <None Include="../LaunchApp/wwwroot/js/bridge.js" Link="fixtures/bridge.mjs" CopyToOutputDirectory="PreserveNewest" />
