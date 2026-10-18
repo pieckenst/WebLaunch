@@ -42,7 +42,7 @@
         </p>
     }
     <div class="actions">
-        <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(paired ? "Reconnect" : "Connect")</button>
+        <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(reconnecting ? "Reconnect now" : paired || savedPairing ? "Reconnect" : "Connect")</button>
         <button type="button" @onclick="Forget" disabled="@(busy || connecting)">Forget this browser pairing</button>
     </div>
     @if (pairingCode.Length > 0)
@@ -111,13 +111,13 @@
         await InvokeAsync(StateHasChanged);
     }
     private readonly CancellationTokenSource lifetime = new();
-    private CancellationTokenSource? pairingCancellation, launchCancellation;
-    private Task? confirmation;
+    private CancellationTokenSource? pairingCancellation, launchCancellation, recoveryCancellation;
+    private Task? confirmation, recoveryTask;
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
     private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
     private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
-    private string PairingState => paired ? "Paired · connected" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
+    private string PairingState => paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
     private Task? launch, connectionMonitor;
     private DateTimeOffset pairingExpires;
@@ -154,74 +154,220 @@
             while (await timer.WaitForNextTickAsync(lifetime.Token))
             {
                 if (connecting || busy || module is null) continue;
+
                 if (pairingCode.Length > 0 && DateTimeOffset.UtcNow >= pairingExpires)
                 {
-                    pairingCode = ""; message = "Pairing expired. Connect again to compare a new code.";
-                    try { await module.InvokeVoidAsync("disconnect"); }
-                    catch (JSException ex) { paired = false; actualMode = ""; message = UserMessage(ex); }
-                    await InvokeAsync(StateHasChanged);
-                }
-                if (!paired) continue;
-                try
-                {
-                    await module.InvokeAsync<Reply>("status");
-                }
-                catch (JSException ex)
-                {
-                    // bridge.js revokes the local channel after any failed exchange. Retrying
-                    // status on the same channel can never recover, so perform a new authenticated
-                    // handshake instead of leaving launch controls enabled against a dead session.
-                    BrowserDiagnostics.Report("connection status", ex);
-                    connecting = true;
-                    message = "The secure desktop session was interrupted. Re-establishing the connection…";
-                    await InvokeAsync(StateHasChanged);
-                    try
-                    {
-                        var recovered = await module.InvokeAsync<Connection>("connect");
-                        paired = recovered.Paired;
-                        pairingCode = recovered.Code;
-                        actualMode = recovered.DesktopMode;
-                        canBrowseFolders = recovered.CanBrowseFolders;
-                        if (paired)
-                        {
-                            savedPairing = true;
-                            message = "The desktop connection is restored.";
-                        }
-                        else if (!string.IsNullOrEmpty(pairingCode))
-                        {
-                            desktopView = true;
-                            pairingExpires = DateTimeOffset.UtcNow.AddMinutes(5);
-                            message = "A new secure session is ready. Compare the pairing codes and confirm again.";
-                            focusTarget = "pairing-confirm";
-                        }
-                        else
-                        {
-                            savedPairing = recovered.Paired || savedPairing;
-                            actualMode = "";
-                            canBrowseFolders = false;
-                            message = "The desktop connection could not be re-established. Connect again before launching.";
-                        }
-                    }
-                    catch (JSException recoveryError)
+                    pairingCode = "";
+                    message = "Pairing expired. Connect again to compare a new code.";
+                    try { await module.InvokeVoidAsync("disconnect", lifetime.Token); }
+                    catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
+                    catch (JSException ex)
                     {
                         paired = false;
                         actualMode = "";
                         canBrowseFolders = false;
-                        pairingCode = "";
-                        message = "The desktop connection could not be re-established. Connect again before launching.";
-                        BrowserDiagnostics.Report("connection recovery", recoveryError);
+                        message = "The pairing expired and the desktop could not be reached. Connect again to compare a new code.";
+                        BrowserDiagnostics.Report("pairing expiry disconnect", ex);
                     }
-                    finally
-                    {
-                        connecting = false;
-                    }
-                    await InvokeAsync(StateHasChanged);
+                    await RefreshConnectionStateAsync();
+                }
+
+                if (!paired) continue;
+                try
+                {
+                    await module.InvokeAsync<Reply>("status", lifetime.Token);
+                }
+                catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
+                catch (JSException ex)
+                {
+                    // A failed encrypted exchange revokes its JavaScript channel. Never keep
+                    // launch/browse enabled while recovering or retry status against that channel.
+                    BrowserDiagnostics.Report("connection status", ex);
+                    paired = false;
+                    actualMode = "";
+                    canBrowseFolders = false;
+                    hasNotice = true;
+                    message = savedPairing
+                        ? "The secure desktop session was interrupted. Re-establishing the connection…"
+                        : "The desktop connection was interrupted. Connect again before launching.";
+                    await RefreshConnectionStateAsync();
+
+                    if (savedPairing)
+                        await StartAutomaticRecoveryAsync();
                 }
             }
         }
-        catch (OperationCanceledException) { }
-        catch (JSException) { }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (JSException ex)
+        {
+            if (!lifetime.IsCancellationRequested)
+                BrowserDiagnostics.Report("connection monitor", ex);
+        }
     }
+
+    private Task StartAutomaticRecoveryAsync()
+    {
+        if (recoveryTask is { IsCompleted: false }) return recoveryTask;
+        if (!savedPairing || module is null || lifetime.IsCancellationRequested)
+            return Task.CompletedTask;
+
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        recoveryCancellation = cancellation;
+        reconnecting = true;
+        recoveryTask = RunAutomaticRecoveryAsync(cancellation);
+        return recoveryTask;
+    }
+
+    private async Task RunAutomaticRecoveryAsync(CancellationTokenSource recovery)
+    {
+        // Make sure StartAutomaticRecoveryAsync has published recoveryTask before any
+        // completion path can run, so manual reconnect/disposal can reliably await it.
+        await Task.Yield();
+        var token = recovery.Token;
+        var failures = 0;
+        try
+        {
+            while (!token.IsCancellationRequested && savedPairing && module is not null)
+            {
+                if (failures > 0)
+                {
+                    var delay = RecoveryDelay(failures);
+                    message = $"The desktop connection is unavailable. Retrying automatically in {delay.TotalSeconds:0} seconds. Select Reconnect now to retry immediately.";
+                    hasNotice = true;
+                    await RefreshConnectionStateAsync();
+                    await Task.Delay(delay, token);
+                }
+
+                token.ThrowIfCancellationRequested();
+                connecting = true;
+                message = failures == 0
+                    ? "The secure desktop session was interrupted. Reconnecting automatically…"
+                    : "Retrying the secure desktop connection…";
+                hasNotice = true;
+                await RefreshConnectionStateAsync();
+
+                try
+                {
+                    var recovered = await module.InvokeAsync<Connection>("connect", token);
+                    token.ThrowIfCancellationRequested();
+                    paired = recovered.Paired;
+                    pairingCode = recovered.Code;
+                    actualMode = recovered.DesktopMode;
+                    canBrowseFolders = recovered.Paired && recovered.CanBrowseFolders;
+
+                    if (recovered.Paired)
+                    {
+                        savedPairing = true;
+                        message = "The desktop connection is restored.";
+                        hasNotice = true;
+                        return;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(recovered.Code))
+                    {
+                        // A lost trust record must require fresh human confirmation. Never turn
+                        // a newly generated pairing code into an automatic trust decision.
+                        desktopView = true;
+                        pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
+                        message = "The desktop no longer recognizes this browser pairing. Compare the new codes and confirm in both windows.";
+                        hasNotice = true;
+                        await OpenSettings(true);
+                        focusTarget = "pairing-confirm";
+                        return;
+                    }
+
+                    paired = false;
+                    actualMode = "";
+                    canBrowseFolders = false;
+                    message = "The desktop did not confirm a secure session. Connect again before launching.";
+                    hasNotice = true;
+                    return;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+                catch (JSException ex)
+                {
+                    paired = false;
+                    actualMode = "";
+                    canBrowseFolders = false;
+                    pairingCode = "";
+                    if (IsUnsafeToRetryConnection(ex))
+                    {
+                        message = UserMessage(ex) + " Automatic reconnection stopped for safety. Review the pairing before trying again.";
+                        hasNotice = true;
+                        BrowserDiagnostics.Report("connection recovery stopped", ex);
+                        return;
+                    }
+
+                    failures++;
+                    if (failures == 1 || failures % 4 == 0)
+                        BrowserDiagnostics.Report("connection recovery", ex);
+                }
+                finally
+                {
+                    connecting = false;
+                    await RefreshConnectionStateAsync();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        finally
+        {
+            connecting = false;
+            reconnecting = false;
+            if (ReferenceEquals(recoveryCancellation, recovery))
+                recoveryCancellation = null;
+            recovery.Dispose();
+            await RefreshConnectionStateAsync();
+        }
+    }
+
+    private static TimeSpan RecoveryDelay(int failureCount)
+    {
+        var seconds = failureCount >= 6 ? 30 : 1 << Math.Max(0, failureCount - 1);
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static bool IsUnsafeToRetryConnection(JSException exception)
+    {
+        var message = UserMessage(exception);
+        return message.Contains("desktop identity changed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("pairing state changed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("signature verification failed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid desktop handshake", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("secure browser storage", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("browser pairing storage is unavailable", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unable to read browser pairing", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unable to save browser pairing", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task CancelAutomaticRecoveryAsync()
+    {
+        var cancellation = recoveryCancellation;
+        if (cancellation is null) return;
+
+        try { await cancellation.CancelAsync(); }
+        catch (ObjectDisposedException) { }
+
+        // Cancel the actual JavaScript handshake as well as the .NET interop wait. Otherwise
+        // a late /v2/hello response could install a channel after the component stopped waiting.
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("cancelConnect"); }
+            catch (JSException ex) { BrowserDiagnostics.Report("cancel connection recovery", ex); }
+        }
+
+        var running = recoveryTask;
+        if (running is not null)
+            await ObserveDisposalTask(running, "connection recovery");
+    }
+
+    private async Task RefreshConnectionStateAsync()
+    {
+        if (lifetime.IsCancellationRequested) return;
+        try { await InvokeAsync(StateHasChanged); }
+        catch (Exception) when (lifetime.IsCancellationRequested) { }
+    }
+
     private async Task SaveMode()
     {
         if (module is null) return;
@@ -232,20 +378,55 @@
     private void OpeningDesktop() => message = "Approve opening the desktop launcher in your browser, then choose Connect. If nothing opens, install or repair the desktop launcher.";
     private async Task Connect()
     {
-        if (module is null) return;
-        connecting = true; paired = false; actualMode = ""; pairingCode = ""; message = "Connecting to the desktop launcher…";
+        if (module is null || busy || connecting) return;
+        await CancelAutomaticRecoveryAsync();
+        if (module is null || lifetime.IsCancellationRequested) return;
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        connecting = true;
+        paired = false;
+        actualMode = "";
+        canBrowseFolders = false;
+        pairingCode = "";
+        message = "Connecting to the desktop launcher…";
+        hasNotice = true;
         try
         {
-            var result = await module.InvokeAsync<Connection>("connect");
-            paired = result.Paired; pairingCode = result.Code; actualMode = result.DesktopMode; canBrowseFolders = result.CanBrowseFolders;
+            var result = await module.InvokeAsync<Connection>("connect", cancellation.Token);
+            paired = result.Paired;
+            pairingCode = result.Code;
+            actualMode = result.DesktopMode;
+            canBrowseFolders = result.Paired && result.CanBrowseFolders;
             if (paired) savedPairing = true;
             pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
             focusTarget = paired ? "launch-status" : "pairing-confirm";
             message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
         }
-        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
-        finally { connecting = false; }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException)
+        {
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            message = "The connection attempt was cancelled. Connect again before launching.";
+        }
+        catch (JSException ex)
+        {
+            BrowserDiagnostics.Report("bridge", ex);
+            paired = false;
+            pairingCode = "";
+            actualMode = "";
+            canBrowseFolders = false;
+            message = UserMessage(ex);
+            focusTarget = "launch-status";
+        }
+        finally
+        {
+            connecting = false;
+            await RefreshConnectionStateAsync();
+        }
     }
+
     private Task Confirm() => confirmation = ConfirmPairing();
     private async Task ConfirmPairing()
     {
@@ -297,8 +478,9 @@
     }
     private async Task Forget()
     {
-        if (module is null) return;
-        try { await module.InvokeVoidAsync("forget"); paired = false; savedPairing = false; actualMode = ""; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; }
+        if (module is null || busy || connecting) return;
+        await CancelAutomaticRecoveryAsync();
+        try { await module.InvokeVoidAsync("forget", lifetime.Token); paired = false; savedPairing = false; actualMode = ""; canBrowseFolders = false; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; hasNotice = true; }
         catch (JSException) { message = "Could not clear pairing. Close this tab and clear WebLaunch site data in browser settings."; }
     }
     private Task Launch() => busy ? Task.CompletedTask : launch = LaunchCore();
@@ -402,6 +584,14 @@
         {
             try { await lifetime.CancelAsync(); }
             catch (Exception ex) { ReportDisposalFailure("lifetime cancellation", ex); }
+
+            // Stop pending connect() work in JavaScript before waiting for the monitor. Cancelling
+            // only the .NET interop token cannot guarantee that the browser-side fetch has stopped.
+            if (module is not null)
+            {
+                try { await module.InvokeVoidAsync("cancelConnect"); }
+                catch (Exception ex) { ReportDisposalFailure("connect cancellation", ex); }
+            }
 
             await ObserveDisposalTask(confirmation, "pairing confirmation");
             await ObserveDisposalTask(connectionMonitor, "connection monitor");
