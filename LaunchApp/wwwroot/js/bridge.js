@@ -80,13 +80,10 @@ async function post(path, body, timeout = 15000, signal) {
     return response.json();
 }
 export async function connect() {
-    // Dispose of a previous in-flight attempt, or close a settled channel before creating
-    // a replacement. A cancelled attempt must never publish a late channel into global state.
-    if (connectController) {
-        cancelConnect();
-    } else if (channel) {
-        try { await disconnect(); } catch { /* The old channel is invalidated locally before network work. */ }
-    }
+    // Cancel any previous handshake and invalidate unpaired sessions. Keep an established,
+    // paired channel until the replacement attempt is registered so disposal can cancel the
+    // whole operation, including its old-channel disconnect step.
+    if (connectController) cancelConnect();
     cancelConnect();
 
     const generation = connectGeneration;
@@ -96,6 +93,13 @@ export async function connect() {
 
     try {
         ensureActive();
+        if (channel) {
+            // The current channel is invalidated locally by disconnect() before its bounded
+            // best-effort notification. The controller already exists, so component disposal
+            // can abort this attempt and the check below prevents a stale handshake from starting.
+            try { await disconnect(); } catch { /* A failed remote disconnect must not strand reconnect. */ }
+            ensureActive();
+        }
         if (!crypto.subtle || !globalThis.indexedDB) throw new Error('Secure browser storage and HTTPS are required.');
         let identity = await readIdentity();
         ensureActive();
