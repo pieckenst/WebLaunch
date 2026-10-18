@@ -60,6 +60,48 @@ public sealed class ReviewRegressionTests
         Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_OTP"));
     }
 
+    private sealed class LaunchProgress(Action<WebLaunch.Core.LaunchStatus> report) : IProgress<WebLaunch.Core.LaunchStatus>
+    {
+        public void Report(WebLaunch.Core.LaunchStatus value) => report(value);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task FfxivLaunchClassifiesCancellationUsingTheCallerToken(bool cancelCaller)
+    {
+        using var root = new TemporaryDirectory();
+        var game = Directory.CreateDirectory(Path.Combine(root.Path, "game")).FullName;
+        File.WriteAllText(Path.Combine(game, "ffxiv_dx11.exe"), "synthetic executable");
+        var logger = new PluginLogger();
+        var plugin = new FFXIVGamePlugin(logger);
+        using var caller = new CancellationTokenSource();
+        var credentials = new GameCredentials { Username = "test", Password = "synthetic-password", OTP = "123456", Token = "synthetic-token" };
+        var request = new GameLaunchParameters { GamePath = root.Path, Credentials = credentials };
+        request.EnvironmentVariables["FFXIV_PASSWORD"] = credentials.Password;
+        request.EnvironmentVariables["FFXIV_OTP"] = credentials.OTP;
+        var failure = new TaskCanceledException("synthetic timeout");
+        // Raise the exception inside the launch try block without contacting the authentication service.
+        var progress = new LaunchProgress(_ =>
+        {
+            if (cancelCaller) caller.Cancel();
+            throw failure;
+        });
+
+        var error = await Record.ExceptionAsync(() => plugin.LaunchAsync(request, progress, caller.Token));
+
+        Assert.Same(failure, error);
+        Assert.Equal(cancelCaller, caller.IsCancellationRequested);
+        if (cancelCaller) Assert.Empty(logger.Errors);
+        else
+        {
+            var logged = Assert.Single(logger.Errors);
+            Assert.Equal("FFXIV launch failed: TaskCanceledException", logged.Message);
+            Assert.Null(logged.Exception);
+        }
+        Assert.Equal("", credentials.Password); Assert.Equal("", credentials.OTP); Assert.Equal("", credentials.Token);
+        Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_PASSWORD"));
+        Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_OTP"));
+    }
+
     [Fact] public void UnsupportedPlatformsDeleteLegacyCacheAndKeepNewSessionsInMemory()
     {
         if (OperatingSystem.IsWindows()) return;

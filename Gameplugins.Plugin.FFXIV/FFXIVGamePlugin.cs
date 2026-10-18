@@ -160,7 +160,7 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
             FfxivTraceLogger.Stage(correlationId, "Plugin launch completed", $"PID={process.Id}; Running={running}");
             return running;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             FfxivTraceLogger.Warn(correlationId, "Plugin launch cancelled");
             throw;

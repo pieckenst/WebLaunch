@@ -265,6 +265,46 @@ public sealed class LifecycleTests
         finally { firstRelease.TrySetResult(true); secondRelease.TrySetResult(true); }
     }
 
+    [Theory]
+    [InlineData("legacy-fixture")]
+    [InlineData("second-legacy-fixture")]
+    public async Task HotReloadDefersTheWholeGroupWhileLeasedWithoutBlockingNewActions(string leasedId)
+    {
+        using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
+        var asset = Path.Combine(root.Path, "one", "asset.txt");
+        File.WriteAllText(asset, "original");
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        await host.InitializeAsync();
+        var originals = host.GetLoadedPlugins().ToArray();
+        var reloaded = new ConcurrentBag<string>();
+        host.PluginReloaded += (_, e) => reloaded.Add(e.PluginId);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var action = host.UsePluginAsync(leasedId, _ => release.Task);
+        try
+        {
+            File.WriteAllText(asset, "updated");
+            // Allow several watcher ticks while the lease remains active.
+            await Task.Delay(1200);
+            foreach (var original in originals)
+            {
+                var current = await host.UsePluginAsync(original.PluginId, plugin => Task.FromResult(plugin))
+                    .WaitAsync(TimeSpan.FromSeconds(3));
+                Assert.Same(original, current);
+            }
+            Assert.Empty(reloaded);
+        }
+        finally { release.TrySetResult(true); await action; }
+
+        // No additional filesystem event is sent: the deferred paths must trigger the retry.
+        await Eventually(() => originals.All(original => reloaded.Contains(original.PluginId)));
+        foreach (var original in originals)
+        {
+            var replacement = host.GetPlugin(original.PluginId);
+            Assert.NotSame(original, replacement);
+            Assert.Equal("updated", File.ReadAllText(Path.Combine(Path.GetDirectoryName(replacement.GetType().Assembly.Location)!, "asset.txt")));
+        }
+    }
+
     [Theory][InlineData(false)][InlineData(true)]
     public async Task PluginActionReceivesCallerAndHostCancellation(bool disposeHost)
     {

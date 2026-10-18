@@ -14,6 +14,7 @@ namespace El_Garnan_Plugin_Loader
             private readonly object leaseLock = new();
             private int activeLeases;
             private TaskCompletionSource? drained;
+            public bool HasActiveLeases { get { lock (leaseLock) return activeLeases > 0; } }
             public void AcquireLease() { lock (leaseLock) activeLeases++; }
             public void ReleaseLease()
             {
@@ -367,9 +368,16 @@ namespace El_Garnan_Plugin_Loader
                         foreach (var group in entries.Values.ToArray().GroupBy(e => e.Candidate))
                         {
                             var directory = Path.TrimEndingDirectorySeparator(group.Key.BundleRoot);
-                            if (!changed.Any(p => p.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
-                                p.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
+                            var groupChanges = changed.Where(p => p.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
+                                p.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToArray();
+                            if (groupChanges.Length == 0) continue;
                             if (group.Any(e => !e.Plugin.SupportsHotReload)) continue;
+                            // Lease acquisition also holds lifecycle, so an idle group stays idle until unloaded.
+                            if (group.Any(e => e.HasActiveLeases))
+                            {
+                                foreach (var path in groupChanges) pendingChanges[path] = 0;
+                                continue;
+                            }
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
                             foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
                             if (await LoadAsync(group.Key).ConfigureAwait(false))
