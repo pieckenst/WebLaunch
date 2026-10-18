@@ -118,11 +118,37 @@ public sealed class BridgeTests
         var request = new LaunchRequest { Game = "spellborn", GamePath = @"C:\Games" };
         var reply = await client.Exchange(new() { Action = "launch", Launch = request });
         Assert.True(reply.Status.Success); Assert.Equal(1, launcher.Calls);
-        using var duplicate = await client.Send(new() { Action = "launch", Launch = request }); Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+        using var duplicate = await client.Send(new() { Action = "launch", Launch = request }); Assert.Equal(HttpStatusCode.TooManyRequests, duplicate.StatusCode);
         var envelope = client.Channel.Encrypt(new BridgeCommand { Action = "status" });
         using var first = await client.Http.PostAsJsonAsync("/v2/session/" + client.Session, envelope); first.EnsureSuccessStatusCode();
         using var replay = await client.Http.PostAsJsonAsync("/v2/session/" + client.Session, envelope); Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode);
     }
+    [Fact] public async Task LaunchRequestIdCannotBeReusedByAnotherPairedSession()
+    {
+        using var trust = new TrustStore();
+        var launcher = new Launcher();
+        await using var host = new BridgeHost(trust, new Prompt(true), launcher);
+        await host.StartAsync();
+
+        var requestId = Guid.NewGuid().ToString("N");
+        using var first = new Client();
+        await first.ConnectAsync();
+        await first.Exchange(new() { Action = "confirm", Code = first.Code });
+        var launch = new LaunchRequest { Game = "spellborn", GamePath = @"C:\Games", RequestId = requestId };
+        await first.Exchange(new() { Action = "launch", Launch = launch });
+
+        using var second = new Client();
+        await second.ConnectAsync();
+        await second.Exchange(new() { Action = "confirm", Code = second.Code });
+        using var duplicate = await second.Send(new()
+        {
+            Action = "launch",
+            Launch = new LaunchRequest { Game = "spellborn", GamePath = @"C:\Games", RequestId = requestId }
+        });
+        Assert.Equal(HttpStatusCode.TooManyRequests, duplicate.StatusCode);
+        Assert.Equal(1, launcher.Calls);
+    }
+
     [Fact] public async Task UnpairedLaunchAndDeniedPairingCannotExecute()
     {
         using var trust = new TrustStore(); var launcher = new Launcher();
