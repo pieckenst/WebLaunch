@@ -5,6 +5,29 @@ const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const unb64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 const digest = text => crypto.subtle.digest('SHA-256', encoder.encode(text));
 let channel;
+let connectGeneration = 0;
+let connectController;
+
+function assertConnectActive(generation, controller) {
+    if (controller.signal.aborted || generation !== connectGeneration)
+        throw new DOMException('Connection attempt cancelled.', 'AbortError');
+}
+
+// This cancels browser-side work too; cancelling a .NET JS interop wait alone is insufficient.
+export function cancelConnect() {
+    const controller = connectController;
+    connectController = undefined;
+    connectGeneration++;
+    controller?.abort();
+
+    const current = channel;
+    // Keep a settled paired channel available for disconnect() during component disposal.
+    // In-flight handshakes and unpaired sessions must be invalidated immediately.
+    if (current && (controller !== undefined || !current.paired)) {
+        channel = undefined;
+        current.abort.abort();
+    }
+}
 
 async function database() {
     return new Promise((resolve, reject) => {
@@ -45,6 +68,7 @@ async function post(path, body, timeout = 15000, signal) {
             redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
         });
     } catch {
+        if (signal?.aborted) throw new DOMException('Connection attempt cancelled.', 'AbortError');
         throw new Error('Cannot connect to WebLaunch. Open or update the desktop launcher, allow local network access, then retry.');
     }
     if (!response.ok) {
@@ -56,45 +80,78 @@ async function post(path, body, timeout = 15000, signal) {
     return response.json();
 }
 export async function connect() {
-    channel = undefined;
-    if (!crypto.subtle || !globalThis.indexedDB) throw new Error('Secure browser storage and HTTPS are required.');
-    let identity = await readIdentity();
-    if (!identity) {
-        const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
-        identity = { privateKey: keys.privateKey, publicKey: keys.publicKey, desktop: null };
-        await saveIdentity(identity);
+    // Dispose of a previous in-flight attempt, or close a settled channel before creating
+    // a replacement. A cancelled attempt must never publish a late channel into global state.
+    if (connectController) {
+        cancelConnect();
+    } else if (channel) {
+        try { await disconnect(); } catch { /* The old channel is invalidated locally before network work. */ }
     }
-    const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
-    const hello = {
-        version: 2,
-        identity: b64(await crypto.subtle.exportKey('spki', identity.publicKey)),
-        ephemeral: b64(await crypto.subtle.exportKey('spki', ephemeral.publicKey)),
-        nonce: b64(crypto.getRandomValues(new Uint8Array(32)))
-    };
-    const clientTranscript = `weblaunch-v2\n${location.origin}\n${hello.identity}\n${hello.ephemeral}\n${hello.nonce}`;
-    hello.signature = b64(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, identity.privateKey, encoder.encode(clientTranscript)));
-    const response = await post('/v2/hello', hello);
-    if (!/^[a-f0-9]{32}$/.test(response.sessionId) || typeof response.identity !== 'string' || response.identity.length > 256 ||
-        typeof response.ephemeral !== 'string' || response.ephemeral.length > 256 || unb64(response.nonce).length !== 32)
-        throw new Error('Invalid desktop handshake.');
-    if (identity.desktop && identity.desktop !== response.identity)
-        throw new Error('The desktop identity changed. Verify your installation, then forget this browser pairing and pair again.');
-    if (response.knownBrowser && !identity.desktop)
-        throw new Error('Pairing state changed. Forget this browser pairing and pair again.');
-    const transcript = `${clientTranscript}\n${response.identity}\n${response.ephemeral}\n${response.nonce}\n${response.sessionId}`;
-    const desktopKey = await crypto.subtle.importKey('spki', unb64(response.identity), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-    if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, desktopKey, unb64(response.signature), encoder.encode(transcript)))
-        throw new Error('Desktop signature verification failed.');
-    const peer = await crypto.subtle.importKey('spki', unb64(response.ephemeral), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
-    const secret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, ephemeral.privateKey, 256));
-    const salt = new Uint8Array(await digest(transcript));
-    const hkdf = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
-    secret.fill(0);
-    const derive = direction => crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode('weblaunch-v2/' + direction) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-    const code = (new DataView(salt.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');
-    channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: await derive('client'), receive: await derive('desktop'), sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve() };
-    if (response.knownBrowser) await confirmPairing();
-    return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '', canBrowseFolders: !!channel.canBrowseFolders };
+    cancelConnect();
+
+    const generation = connectGeneration;
+    const controller = new AbortController();
+    connectController = controller;
+    const ensureActive = () => assertConnectActive(generation, controller);
+
+    try {
+        ensureActive();
+        if (!crypto.subtle || !globalThis.indexedDB) throw new Error('Secure browser storage and HTTPS are required.');
+        let identity = await readIdentity();
+        ensureActive();
+        if (!identity) {
+            const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+            ensureActive();
+            identity = { privateKey: keys.privateKey, publicKey: keys.publicKey, desktop: null };
+            await saveIdentity(identity);
+            ensureActive();
+        }
+        const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+        ensureActive();
+        const hello = {
+            version: 2,
+            identity: b64(await crypto.subtle.exportKey('spki', identity.publicKey)),
+            ephemeral: b64(await crypto.subtle.exportKey('spki', ephemeral.publicKey)),
+            nonce: b64(crypto.getRandomValues(new Uint8Array(32)))
+        };
+        ensureActive();
+        const clientTranscript = `weblaunch-v2\\n${location.origin}\\n${hello.identity}\\n${hello.ephemeral}\\n${hello.nonce}`;
+        hello.signature = b64(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, identity.privateKey, encoder.encode(clientTranscript)));
+        ensureActive();
+        const response = await post('/v2/hello', hello, 15000, controller.signal);
+        ensureActive();
+        if (!/^[a-f0-9]{32}$/.test(response.sessionId) || typeof response.identity !== 'string' || response.identity.length > 256 ||
+            typeof response.ephemeral !== 'string' || response.ephemeral.length > 256 || unb64(response.nonce).length !== 32)
+            throw new Error('Invalid desktop handshake.');
+        if (identity.desktop && identity.desktop !== response.identity)
+            throw new Error('The desktop identity changed. Verify your installation, then forget this browser pairing and pair again.');
+        if (response.knownBrowser && !identity.desktop)
+            throw new Error('Pairing state changed. Forget this browser pairing and pair again.');
+        const transcript = `${clientTranscript}\\n${response.identity}\\n${response.ephemeral}\\n${response.nonce}\\n${response.sessionId}`;
+        const desktopKey = await crypto.subtle.importKey('spki', unb64(response.identity), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+        ensureActive();
+        if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, desktopKey, unb64(response.signature), encoder.encode(transcript)))
+            throw new Error('Desktop signature verification failed.');
+        ensureActive();
+        const peer = await crypto.subtle.importKey('spki', unb64(response.ephemeral), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+        const secret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, ephemeral.privateKey, 256));
+        ensureActive();
+        const salt = new Uint8Array(await digest(transcript));
+        const hkdf = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
+        secret.fill(0);
+        const derive = direction => crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode('weblaunch-v2/' + direction) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        const [sendKey, receiveKey] = await Promise.all([derive('client'), derive('desktop')]);
+        ensureActive();
+        const code = (new DataView(salt.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');
+        channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: sendKey, receive: receiveKey, sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve(), connectGeneration: generation };
+        if (response.knownBrowser) await confirmPairing();
+        ensureActive();
+        if (!channel || channel.connectGeneration !== generation)
+            throw new DOMException('Connection attempt cancelled.', 'AbortError');
+        return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '', canBrowseFolders: !!channel.canBrowseFolders };
+    } finally {
+        if (connectController === controller) connectController = undefined;
+    }
 }
 function nonce(sequence) {
     const bytes = new Uint8Array(12);
