@@ -69,7 +69,13 @@
             catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("bridge module initialization", ex); }
 
             try { navigationModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/navigation.js"); }
-            catch (Microsoft.JSInterop.JSException ex) { BrowserDiagnostics.Report("navigation module initialization", ex); }
+            catch (Microsoft.JSInterop.JSException ex)
+            {
+                BrowserDiagnostics.Report("navigation module initialization", ex);
+                // Navigation is a required part of section/history behavior. Show the safe recovery
+                // boundary instead of leaving a launcher that renders but cannot track its route.
+                throw new InvalidOperationException("Navigation initialization failed. Use the recovery screen to reload the launcher.", ex);
+            }
 
             if (module is not null)
             {
