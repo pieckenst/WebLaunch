@@ -63,6 +63,24 @@ namespace El_Garnan_Plugin_Loader
         public event EventHandler<PluginReloadEventArgs>? PluginReloaded;
         /// <summary>Raised when discovery, validation, initialization or reload fails for an individual plugin.</summary>
         public event EventHandler<PluginErrorEventArgs>? PluginError;
+
+        private void Notify<TEventArgs>(EventHandler<TEventArgs>? observers, TEventArgs args, string eventName)
+            where TEventArgs : EventArgs
+        {
+            if (observers is null) return;
+            foreach (EventHandler<TEventArgs> observer in observers.GetInvocationList())
+            {
+                try { observer(this, args); }
+                catch (Exception ex)
+                {
+                    // Observers are diagnostics/UI integrations, not part of plugin ownership.
+                    // One failing subscriber must not abort discovery, roll back registered plugins,
+                    // or prevent remaining unload/cleanup notifications from running.
+                    try { logger.Warning($"Plugin lifecycle observer failed for {eventName} ({ex.GetType().Name})."); }
+                    catch { /* Logging must not turn an observer failure into a host failure. */ }
+                }
+            }
+        }
         /// <summary>Creates a plugin host using the built-in ImGui renderer.</summary>
         /// <param name="pluginsPath">Directory scanned for manifest-based and legacy plugin assemblies.</param>
         /// <param name="logger">Logger shared with plugin instances and renderer initialization.</param>
@@ -163,7 +181,7 @@ namespace El_Garnan_Plugin_Loader
                 }
                 catch (Exception ex)
                 {
-                    PluginError?.Invoke(this, new PluginErrorEventArgs(affectedPath, ex));
+                    Notify(PluginError, new PluginErrorEventArgs(affectedPath, ex), nameof(PluginError));
                     continue;
                 }
                 foreach (var assembly in assemblies) yield return assembly;
@@ -233,14 +251,14 @@ namespace El_Garnan_Plugin_Loader
                 lock (renderLock)
                     foreach (var candidate in loaded) entries[candidate.PluginId] = new(discovery, shadow, candidate, context);
                 candidates.Clear(); context = null; shadow = null;
-                foreach (var candidate in loaded) PluginLoaded?.Invoke(this, new PluginLoadEventArgs(candidate));
+                foreach (var candidate in loaded) Notify(PluginLoaded, new PluginLoadEventArgs(candidate), nameof(PluginLoaded));
                 return true;
             }
             catch (BadImageFormatException) when (discovery.ManifestPath is null) { return true; } // Native dependencies in legacy bundles.
             catch (Exception ex)
             {
                 logger.Warning($"Plugin could not load ({ex.GetType().Name}).");
-                PluginError?.Invoke(this, new PluginErrorEventArgs(path, ex));
+                Notify(PluginError, new PluginErrorEventArgs(path, ex), nameof(PluginError));
                 return false;
             }
             finally
@@ -393,7 +411,7 @@ namespace El_Garnan_Plugin_Loader
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
                             foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
                             if (await LoadAsync(group.Key).ConfigureAwait(false))
-                                foreach (var id in ids.Where(entries.ContainsKey)) PluginReloaded?.Invoke(this, new PluginReloadEventArgs(id));
+                                foreach (var id in ids.Where(entries.ContainsKey)) Notify(PluginReloaded, new PluginReloadEventArgs(id), nameof(PluginReloaded));
                         }
                         foreach (var candidate in DiscoverPlugins()) await LoadAsync(candidate).ConfigureAwait(false);
                     }
@@ -420,7 +438,7 @@ namespace El_Garnan_Plugin_Loader
                     if (!entries.Values.Any(e => ReferenceEquals(e.Context, entry.Context)))
                     { entry.Context.Unload(); ScheduleShadowCleanup(entry.ShadowDirectory); }
                 }
-                PluginUnloaded?.Invoke(this, new PluginUnloadEventArgs(id));
+                Notify(PluginUnloaded, new PluginUnloadEventArgs(id), nameof(PluginUnloaded));
             }
         }
         private static FileStream LockShadowRoot(string path) =>
