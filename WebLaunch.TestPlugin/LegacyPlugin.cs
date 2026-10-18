@@ -17,8 +17,10 @@ public class LegacyPlugin(ILogger logger) : GamePluginBase(logger)
     protected override Task<bool> LaunchGameInternalAsync(GameLaunchParameters parameters) => Task.FromResult(true);
 }
 
+#if !SINGLE_PLUGIN_FIXTURE
 public sealed class SecondLegacyPlugin(ILogger logger) : LegacyPlugin(logger)
 {
     public override string PluginId => "second-legacy-fixture";
     protected override Task ShutdownInternalAsync() => throw new InvalidOperationException("Synthetic shutdown failure");
 }
+#endif

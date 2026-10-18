@@ -54,6 +54,127 @@ public sealed class LifecycleTests
         Assert.False(Directory.Exists(Path.Combine(shadow, "nested-plugin")));
     }
 
+    private static string CreateManifestBundle(string root, string id = "legacy-fixture", bool multiplePlugins = false)
+    {
+        var bundle = Directory.CreateDirectory(Path.Combine(root, "bundle")).FullName;
+        var nested = Directory.CreateDirectory(Path.Combine(bundle, "lib", "managed")).FullName;
+        var fixture = multiplePlugins ? "WebLaunch.TestPlugin.dll" : "WebLaunch.TestManifestPlugin.dll";
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "fixtures", fixture), Path.Combine(nested, fixture));
+        WriteManifest(bundle, id, "lib/managed/" + fixture);
+        File.WriteAllText(Path.Combine(bundle, "asset.txt"), "bundle asset");
+        return bundle;
+    }
+    private static void WriteManifest(string bundle, string id, string assembly) =>
+        File.WriteAllText(Path.Combine(bundle, "plugin.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { version = 1, id, assembly }));
+
+    [Fact] public async Task ManifestNestedAssemblyPreservesBundleRootAndAssets()
+    {
+        using var root = new TemporaryDirectory();
+        CreateManifestBundle(root.Path);
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        await host.InitializeAsync();
+        var plugin = Assert.Single(host.GetLoadedPlugins());
+        var shadowAssembly = plugin.GetType().Assembly.Location;
+        var shadowRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(shadowAssembly)!, "../.."));
+        Assert.Equal(Path.Combine(shadowRoot, "lib", "managed", "WebLaunch.TestManifestPlugin.dll"), shadowAssembly);
+        Assert.Equal("bundle asset", File.ReadAllText(Path.Combine(shadowRoot, "asset.txt")));
+        Assert.True(File.Exists(Path.Combine(shadowRoot, "plugin.json")));
+    }
+
+    [Theory]
+    [InlineData("wrong-id", false)]
+    [InlineData("legacy-fixture", true)]
+    public async Task NestedManifestEnforcesPluginIdentityAndSinglePluginRule(string id, bool multiplePlugins)
+    {
+        using var root = new TemporaryDirectory();
+        CreateManifestBundle(root.Path, id, multiplePlugins);
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+        await host.InitializeAsync();
+        Assert.Empty(host.GetLoadedPlugins());
+        Assert.IsType<InvalidDataException>(Assert.Single(errors).Error);
+    }
+
+    [Theory]
+    [InlineData("../outside.dll")]
+    [InlineData("lib/../../../outside.dll")]
+    [InlineData("/outside.dll")]
+    public async Task ManifestAssemblyCannotEscapeBundle(string assembly)
+    {
+        using var root = new TemporaryDirectory();
+        var bundle = CreateManifestBundle(root.Path);
+        WriteManifest(bundle, "legacy-fixture", assembly);
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+        await host.InitializeAsync();
+        Assert.Empty(host.GetLoadedPlugins());
+        Assert.IsType<InvalidDataException>(Assert.Single(errors).Error);
+    }
+
+    [Theory]
+    [InlineData("assembly")]
+    [InlineData("manifest")]
+    [InlineData("asset-directory")]
+    public async Task ManifestBundlesRejectLinks(string linkedItem)
+    {
+        using var root = new TemporaryDirectory();
+        using var outside = new TemporaryDirectory();
+        var bundle = CreateManifestBundle(root.Path);
+        try
+        {
+            if (linkedItem == "asset-directory")
+                Directory.CreateSymbolicLink(Path.Combine(bundle, "assets"), outside.Path);
+            else
+            {
+                var path = linkedItem == "manifest" ? Path.Combine(bundle, "plugin.json")
+                    : Path.Combine(bundle, "lib", "managed", "WebLaunch.TestManifestPlugin.dll");
+                var target = Path.Combine(outside.Path, Path.GetFileName(path));
+                File.Move(path, target);
+                File.CreateSymbolicLink(path, target);
+            }
+        }
+        catch (UnauthorizedAccessException) when (OperatingSystem.IsWindows()) { return; }
+        await using var host = new CoreFunctions(root.Path, new Logger(), false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+        await host.InitializeAsync();
+        Assert.Empty(host.GetLoadedPlugins());
+        Assert.IsType<InvalidDataException>(Assert.Single(errors).Error);
+    }
+
+    [Theory]
+    [InlineData("plugin.json")]
+    [InlineData("asset.txt")]
+    public async Task BundleRootChangesReloadNestedManifestPlugin(string changedFile)
+    {
+        using var root = new TemporaryDirectory();
+        var bundle = CreateManifestBundle(root.Path);
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        await host.InitializeAsync();
+        var original = host.GetPlugin("legacy-fixture");
+        var reloaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.PluginReloaded += (_, _) => reloaded.TrySetResult();
+        File.AppendAllText(Path.Combine(bundle, changedFile), " ");
+        await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var replacement = Assert.Single(host.GetLoadedPlugins());
+        Assert.NotSame(original, replacement);
+        var shadowRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(replacement.GetType().Assembly.Location)!, "../.."));
+        Assert.Equal(File.ReadAllText(Path.Combine(bundle, changedFile)), File.ReadAllText(Path.Combine(shadowRoot, changedFile)));
+
+        // Reload must keep enforcing the originating manifest, even after a successful replacement.
+        var rejected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.PluginError += (_, error) =>
+        {
+            if (error.Error is InvalidDataException) rejected.TrySetResult();
+        };
+        WriteManifest(bundle, "wrong-id", "lib/managed/WebLaunch.TestManifestPlugin.dll");
+        await rejected.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Empty(host.GetLoadedPlugins());
+    }
+
     [Fact] public async Task InitializationRemovesStaleShadowDirectoriesBeforeLoading()
     {
         var stale = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins", Guid.NewGuid().ToString("N"));
