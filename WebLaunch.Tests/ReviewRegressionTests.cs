@@ -249,6 +249,30 @@ public sealed class ReviewRegressionTests
         finally { Log.Logger = original; }
     }
 
+    [Fact] public void ConsoleLoggerRedactsPluginMessagesAndExceptionPayloads()
+    {
+        var originalLogger = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            Log.Logger = logger;
+            var pluginLogger = new WMConsole.ConsoleLogger();
+            const string sensitiveMessage = @"C:\Users\Alice\Game\game.exe password=synthetic-password";
+            pluginLogger.Information(sensitiveMessage);
+            pluginLogger.Error("Synthetic plugin failure", new IOException(@"C:\Users\Alice\private-response.json"));
+
+            Assert.Equal(2, sink.Events.Count);
+            Assert.DoesNotContain(sensitiveMessage, sink.Events[0].RenderMessage());
+            Assert.DoesNotContain(@"C:\Users\Alice\private-response.json", sink.Events[1].RenderMessage());
+            Assert.DoesNotContain("synthetic-password", string.Join("\n", sink.Events.Select(e => e.RenderMessage())));
+            Assert.Contains("MessageLength=", sink.Events[0].RenderMessage());
+            Assert.Contains("ExceptionType=IOException", sink.Events[1].RenderMessage());
+            Assert.All(sink.Events, entry => Assert.Null(entry.Exception));
+        }
+        finally { Log.Logger = originalLogger; }
+    }
+
     [Fact] public void StageLazyDoesNotFormatSensitiveDetailsWhenTraceIsDisabled()
     {
         var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
