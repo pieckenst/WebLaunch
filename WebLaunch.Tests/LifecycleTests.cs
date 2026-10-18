@@ -118,6 +118,30 @@ public sealed class LifecycleTests
         }
     }
 
+    [Fact]
+    public async Task ThrowingEventObserversCannotAbortPluginDiscoveryOrLifecycleNotifications()
+    {
+        using var root = new TemporaryDirectory();
+        CreateManifestBundle(root.Path, multiplePlugins: true);
+        var invalid = Directory.CreateDirectory(Path.Combine(root.Path, "invalid-bundle")).FullName;
+        File.WriteAllText(Path.Combine(invalid, "plugin.json"), "{ malformed json");
+        var logger = new Logger();
+        await using var host = new CoreFunctions(root.Path, logger, false, false);
+        var reportedErrors = 0;
+        var loadedNotifications = 0;
+        host.PluginError += (_, _) => throw new InvalidOperationException("faulty error observer");
+        host.PluginError += (_, _) => Interlocked.Increment(ref reportedErrors);
+        host.PluginLoaded += (_, _) => throw new InvalidOperationException("faulty load observer");
+        host.PluginLoaded += (_, _) => Interlocked.Increment(ref loadedNotifications);
+
+        await host.InitializeAsync();
+
+        Assert.Equal(2, host.GetLoadedPlugins().Count());
+        Assert.Equal(1, reportedErrors);
+        Assert.Equal(2, loadedNotifications);
+        Assert.Equal(3, logger.Messages.Count(message => message.Contains("Plugin lifecycle observer failed")));
+    }
+
     [Theory]
     [InlineData("wrong-id", false)]
     [InlineData("legacy-fixture", true)]
