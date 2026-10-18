@@ -2,6 +2,7 @@ using CoreLibLaunchSupport;
 using El_Garnan_Plugin_Loader.Interfaces;
 using El_Garnan_Plugin_Loader.Models;
 using GamePlugins.FFXIV;
+using LibDalamud.Common.Dalamud;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -162,6 +163,28 @@ public sealed class ReviewRegressionTests
         public List<LogEvent> Events { get; } = [];
         public void Emit(LogEvent logEvent) => Events.Add(logEvent);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LazyTraceFormattingFollowsTheExplicitTracePolicy(bool enabled)
+    {
+        var evaluated = false;
+        var sinkCalled = false;
+        using var scope = LaunchCancellationContext.Enter(
+            CancellationToken.None,
+            _ => sinkCalled = true,
+            () => enabled);
+
+        LaunchCancellationContext.WriteTrace(() =>
+        {
+            evaluated = true;
+            return "synthetic-sensitive-detail";
+        });
+
+        Assert.Equal(enabled, evaluated);
+        Assert.Equal(enabled, sinkCalled);
+    }
+
     [Fact] public void NormalTraceLoggerErrorsNeverIncludeExceptionDetails()
     {
         var original = Log.Logger;
