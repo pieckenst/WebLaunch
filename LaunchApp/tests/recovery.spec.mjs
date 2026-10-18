@@ -8,7 +8,7 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
     await page.goto(base + 'counter');
     await page.locator('.connection-summary').click();
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
-    await expect(page.locator('.pairing-code')).toHaveText(/^\\d{6}$/);
+    await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
     await page.getByRole('button', { name: 'The codes match', exact: true }).click();
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
 
