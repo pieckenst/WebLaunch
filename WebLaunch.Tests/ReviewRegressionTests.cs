@@ -267,7 +267,7 @@ public sealed class ReviewRegressionTests
             Assert.DoesNotContain(@"C:\Users\Alice\private-response.json", sink.Events[1].RenderMessage());
             Assert.DoesNotContain("synthetic-password", string.Join("\n", sink.Events.Select(e => e.RenderMessage())));
             Assert.Contains("MessageLength=", sink.Events[0].RenderMessage());
-            Assert.Contains("ExceptionType=\"IOException\"", sink.Events[1].RenderMessage());
+            Assert.Equal("IOException", Assert.IsType<ScalarValue>(sink.Events[1].Properties["ExceptionType"]).Value);
             Assert.All(sink.Events, entry => Assert.Null(entry.Exception));
         }
         finally { Log.Logger = originalLogger; }
