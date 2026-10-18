@@ -14,7 +14,14 @@ public class LegacyPlugin(ILogger logger) : GamePluginBase(logger)
     public override IReadOnlyCollection<PluginDependency> Dependencies => [];
     protected override Task InitializeInternalAsync() { Logger.Information("fixture-initialize"); return Task.CompletedTask; }
     protected override Task ShutdownInternalAsync() { Logger.Information("fixture-shutdown"); return Task.CompletedTask; }
-    protected override Task<bool> LaunchGameInternalAsync(GameLaunchParameters parameters) => Task.FromResult(true);
+    protected override Task<bool> LaunchGameInternalAsync(GameLaunchParameters parameters)
+    {
+        var resources = Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location)!, "resources");
+        if (!Directory.Exists(resources)) return Task.FromResult(true);
+
+        var icon = Path.Combine(resources, "ui", "icon.txt");
+        return Task.FromResult(File.Exists(icon) && File.ReadAllText(icon) == "private resource");
+    }
 }
 
 #if !SINGLE_PLUGIN_FIXTURE
