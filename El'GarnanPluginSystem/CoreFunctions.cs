@@ -51,18 +51,35 @@ namespace El_Garnan_Plugin_Loader
         private Thread? renderThread;
         private TaskCompletionSource? renderStopped;
         private bool standalone, initialized, disposed;
+        /// <summary>Raised after a plugin has completed validation and initialization and is registered for use.</summary>
         public event EventHandler<PluginLoadEventArgs>? PluginLoaded;
+        /// <summary>Raised after a plugin has been removed from the active registry and its shutdown begins.</summary>
         public event EventHandler<PluginUnloadEventArgs>? PluginUnloaded;
+        /// <summary>Raised after a file-watcher reload has replaced the plugin associated with the reported ID.</summary>
         public event EventHandler<PluginReloadEventArgs>? PluginReloaded;
+        /// <summary>Raised when discovery, validation, initialization or reload fails for an individual plugin.</summary>
         public event EventHandler<PluginErrorEventArgs>? PluginError;
+        /// <summary>Creates a plugin host using the built-in ImGui renderer.</summary>
+        /// <param name="pluginsPath">Directory scanned for manifest-based and legacy plugin assemblies.</param>
+        /// <param name="logger">Logger shared with plugin instances and renderer initialization.</param>
+        /// <param name="enableHotReload">Whether filesystem changes trigger serialized unload/reload operations.</param>
+        /// <param name="useStandaloneWindow">Whether the renderer starts with a standalone window.</param>
         public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false, bool useStandaloneWindow = true)
             : this(pluginsPath, logger, enableHotReload, useStandaloneWindow, () => new ImGuiPluginRenderer(logger)) { }
+        /// <summary>Creates a plugin host with an injected renderer factory for native or embedded rendering.</summary>
+        /// <param name="pluginsPath">Directory scanned for plugin assemblies.</param>
+        /// <param name="logger">Logger shared with plugin instances.</param>
+        /// <param name="enableHotReload">Whether filesystem changes trigger reloads.</param>
+        /// <param name="useStandaloneWindow">Whether standalone rendering is initially enabled.</param>
+        /// <param name="rendererFactory">Factory invoked when a renderer is first required.</param>
         public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload, bool useStandaloneWindow, Func<IPluginRenderer> rendererFactory)
         {
             this.pluginsPath = Path.GetFullPath(pluginsPath);
             this.logger = logger; hotReload = enableHotReload; standalone = useStandaloneWindow;
             this.rendererFactory = rendererFactory ?? throw new ArgumentNullException(nameof(rendererFactory));
         }
+        /// <summary>Discovers plugins, retries dependencies deferred by directory order, and optionally starts hot reload.</summary>
+        /// <remarks>Individual plugin failures are reported through <see cref="PluginError"/> and do not abort discovery of other candidates.</remarks>
         public async Task InitializeAsync()
         {
             await lifecycle.WaitAsync().ConfigureAwait(false);
@@ -375,10 +392,25 @@ namespace El_Garnan_Plugin_Loader
         {
             try { Directory.Delete(path, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
+        /// <summary>Returns the active plugin for an exact plugin ID.</summary>
+        /// <param name="pluginId">Stable ID declared by the plugin.</param>
+        /// <exception cref="KeyNotFoundException">No active plugin has the requested ID.</exception>
         public IGamePlugin GetPlugin(string pluginId) => entries.TryGetValue(pluginId, out var entry) ? entry.Plugin : throw new KeyNotFoundException("Requested game plugin is not installed.");
+        /// <summary>Returns a snapshot of currently registered plugin instances.</summary>
         public IEnumerable<IGamePlugin> GetLoadedPlugins() => entries.Values.Select(e => e.Plugin).ToArray();
+        /// <summary>Runs an asynchronous action while holding a lease that prevents the selected plugin from unloading.</summary>
+        /// <typeparam name="T">Type returned by the plugin action.</typeparam>
+        /// <param name="id">Stable ID of the active plugin.</param>
+        /// <param name="action">Operation to invoke while the plugin lease is active.</param>
+        /// <param name="token">Caller cancellation token.</param>
         public Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, Task<T>> action, CancellationToken token = default) =>
             UsePluginAsync(id, (plugin, _) => action(plugin), token);
+        /// <summary>Runs a cancellable plugin operation under a lease linked to caller and host shutdown.</summary>
+        /// <typeparam name="T">Type returned by the plugin operation.</typeparam>
+        /// <param name="id">Stable ID of the active plugin.</param>
+        /// <param name="action">Operation receiving the plugin and linked cancellation token.</param>
+        /// <param name="token">Caller cancellation token.</param>
+        /// <exception cref="KeyNotFoundException">The plugin is not active when the lease is requested.</exception>
         public async Task<T> UsePluginAsync<T>(string id, Func<IGamePlugin, CancellationToken, Task<T>> action, CancellationToken token = default)
         {
             Entry entry;
@@ -402,18 +434,22 @@ namespace El_Garnan_Plugin_Loader
                 finally { entry.ReleaseLease(); }
             }
         }
+        /// <summary>Stops new leases, waits for existing actions, shuts down active plugins, and releases their load contexts.</summary>
         public async Task UnloadAllPluginsAsync()
         {
             await lifecycle.WaitAsync().ConfigureAwait(false);
             try { foreach (var id in entries.Keys.ToArray()) await UnloadAsync(id).ConfigureAwait(false); }
             finally { lifecycle.Release(); }
         }
+        /// <summary>Requests rendering of active plugin interfaces on the renderer's owned thread.</summary>
         public void RenderPluginInterfaces()
         {
             lock (renderLock)
                 foreach (var plugin in GetLoadedPlugins().Where(p => p.SupportsImGui)) plugin.RenderImGui();
         }
+        /// <summary>Enables the renderer's standalone-window mode for the next render lifecycle.</summary>
         public void EnableStandaloneRenderer() => standalone = true;
+        /// <summary>Starts the renderer thread once; repeated calls do not create duplicate render workers.</summary>
         public void StartRendering()
         {
             lock (renderLock)
@@ -444,8 +480,11 @@ namespace El_Garnan_Plugin_Loader
                 renderThread.Start();
             }
         }
+        /// <summary>Synchronously disposes the host while keeping asynchronous lifecycle continuations context-independent.</summary>
         public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
+        /// <summary>Begins or joins the single shared asynchronous shutdown operation.</summary>
+        /// <remarks>Concurrent callers await the same task so plugin callbacks and file cleanup are not duplicated.</remarks>
         public ValueTask DisposeAsync()
         {
             lock (disposeGate)
