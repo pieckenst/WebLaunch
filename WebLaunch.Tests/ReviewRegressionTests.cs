@@ -173,6 +173,76 @@ public sealed class ReviewRegressionTests
         Assert.True(File.Exists(file));
     }
 
+    [Fact] public void CacheResetRemovesPersistedCredentials()
+    {
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        if (!OperatingSystem.IsWindows()) File.WriteAllText(file, "old persisted credentials");
+        Assert.True(File.Exists(file));
+
+        cache.Reset();
+
+        Assert.False(cache.HasValidCache("test"));
+        Assert.False(File.Exists(file));
+        Assert.False(new CommonUniqueIdCache(new FileInfo(file)).HasValidCache("test"));
+        cache.Reset(); // Reset remains safe when the file is already absent.
+    }
+
+    [Fact] public void WindowsCacheResetReportsFailureToRemovePreviousCredentials()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<IOException>(() => cache.Reset());
+            Assert.False(cache.HasValidCache("test"));
+            Assert.True(File.Exists(file));
+        }
+        cache.Reset();
+        Assert.False(File.Exists(file));
+    }
+
+    private sealed class FailingSessionAddon(Exception failure) : IAddon
+    {
+        public string Name => "test";
+        public void Setup(int pid) => throw failure;
+    }
+
+    [Fact] public void SessionFailureLogsSanitizedErrorAndPropagatesOriginalException()
+    {
+        var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
+        var originalLogger = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        using var game = System.Diagnostics.Process.GetCurrentProcess();
+        var failure = new IOException("synthetic-private-session-data");
+        try
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", null);
+            FfxivTraceLogger.ResetForTest();
+            Log.Logger = logger;
+
+            Assert.Same(failure, Assert.Throws<IOException>(() => DalamudGameSession.Start(game, [new FailingSessionAddon(failure)])));
+
+            var entry = Assert.Single(sink.Events, e => e.Level == LogEventLevel.Error);
+            Assert.Contains("Dalamud game session failed", entry.RenderMessage());
+            Assert.Contains("IOException", entry.RenderMessage());
+            Assert.DoesNotContain(failure.Message, string.Join("\n", sink.Events.Select(e => e.RenderMessage())));
+            Assert.Null(entry.Exception);
+        }
+        finally
+        {
+            Log.Logger = originalLogger;
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", originalTrace);
+            FfxivTraceLogger.ResetForTest();
+        }
+    }
+
     [Fact] public void WindowsReadOnlyCorruptCacheStartsEmpty()
     {
         if (!OperatingSystem.IsWindows()) return;

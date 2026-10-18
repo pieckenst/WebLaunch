@@ -142,7 +142,8 @@ namespace CoreLibLaunchSupport
         public void Reset()
         {
             _cache.Clear();
-            Save();
+            // A reset must not silently retain persisted session credentials.
+            File.Delete(configFile.FullName);
         }
 
         #endregion

@@ -139,7 +139,10 @@ export async function secureLaunch(page, base) {
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel launch' })).toBeVisible();
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
     await expect(page.locator('.launch-status')).toHaveText('Game process started. Reconnect to launch again or browse folders.', { timeout: 15000 });
+    await page.getByRole('button', { name: 'Game settings', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeDisabled();
     await desktopSettings(page);

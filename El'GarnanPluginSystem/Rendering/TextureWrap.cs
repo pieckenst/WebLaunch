@@ -16,16 +16,19 @@ namespace El_Garnan_Plugin_Loader.Rendering
         public IntPtr ImGuiHandle { get; }
 
         private readonly Texture _deviceTexture;
+        private readonly ImGuiBindings _bindings;
+        private bool _disposed;
 
         public uint Width => _deviceTexture.Width;
         public uint Height => _deviceTexture.Height;
 
         public Vector2 Size => new(Width, Height);
 
-        private TextureWrap(Texture texture, IntPtr handle)
+        private TextureWrap(Texture texture, IntPtr handle, ImGuiBindings bindings)
         {
             _deviceTexture = texture;
             ImGuiHandle = handle;
+            _bindings = bindings;
         }
 
         /// <summary>
@@ -86,16 +89,23 @@ namespace El_Garnan_Plugin_Loader.Rendering
                     arrayLayer: 0);
 
                 var handle = bindings.GetOrCreateImGuiBinding(device.ResourceFactory, texture);
-                return new TextureWrap(texture, handle);
+                return new TextureWrap(texture, handle, bindings);
             }
             catch
             {
+                bindings.RemoveImGuiBinding(texture);
                 texture.Dispose();
                 throw;
             }
         }
 
-        /// <summary>Releases the owned GPU texture.</summary>
-        public void Dispose() => _deviceTexture.Dispose();
+        /// <summary>Releases the ImGui binding and owned GPU texture.</summary>
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _bindings.RemoveImGuiBinding(_deviceTexture);
+            _deviceTexture.Dispose();
+            _disposed = true;
+        }
     }
 }

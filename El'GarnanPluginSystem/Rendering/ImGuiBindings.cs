@@ -251,6 +251,22 @@ namespace El_Garnan_Plugin_Loader.Rendering
         return GetOrCreateImGuiBinding(factory, textureView);
     }
 
+    /// <summary>Removes a texture's binding and releases its cached view and resource set.</summary>
+    public void RemoveImGuiBinding(Texture texture)
+    {
+        if (!autoViewsByTexture.Remove(texture, out var textureView)) return;
+
+        if (setsByView.Remove(textureView, out var info))
+        {
+            viewsById.Remove(info.ImGuiBinding);
+            ownedResources.Remove(info.ResourceSet);
+            info.ResourceSet.Dispose();
+        }
+
+        ownedResources.Remove(textureView);
+        textureView.Dispose();
+    }
+
     /// <summary>
     /// Retrieves the shader texture binding for the given helper handle.
     /// </summary>
@@ -705,11 +721,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
         textureLayout.Dispose();
         pipeline.Dispose();
         mainResourceSet.Dispose();
-
-        foreach (IDisposable resource in ownedResources)
-        {
-            resource.Dispose();
-        }
+        ClearCachedImageResources();
     }
 
     private struct ResourceSetInfo

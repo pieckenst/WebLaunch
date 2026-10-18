@@ -106,7 +106,6 @@
     {
         if (connecting && pairingCancellation is null) return;
         password = otp = "";
-        if (busy) await Cancel();
         if (pairingCode.Length > 0) await CancelPairing();
         if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException ex) { Report("close-settings", ex, "Could not close settings. Reload the page to reset the launcher."); } }
         await InvokeAsync(StateHasChanged);

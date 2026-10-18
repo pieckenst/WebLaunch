@@ -236,7 +236,7 @@ namespace El_Garnan_Plugin_Loader
                 foreach (var candidate in loaded) PluginLoaded?.Invoke(this, new PluginLoadEventArgs(candidate));
                 return true;
             }
-            catch (BadImageFormatException) { return true; } // Native dependencies in legacy bundles.
+            catch (BadImageFormatException) when (discovery.ManifestPath is null) { return true; } // Native dependencies in legacy bundles.
             catch (Exception ex)
             {
                 logger.Warning($"Plugin could not load ({ex.GetType().Name}).");

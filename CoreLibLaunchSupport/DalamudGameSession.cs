@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Serilog;
 using XIVLauncher.Common.Addon;
 
 namespace CoreLibLaunchSupport;
@@ -76,7 +77,12 @@ public sealed class DalamudGameSession
             process.Dispose();
             lock (stopLock) { stopped = true; stopping.Dispose(); }
             if (failure is null) completion.TrySetResult();
-            else completion.TrySetException(failure);
+            else
+            {
+                Log.Error("Dalamud game session failed ({ErrorType})", failure.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud game session failure: {failure}");
+                completion.TrySetException(failure);
+            }
             Active.TryRemove(pid, out _);
         }
     }

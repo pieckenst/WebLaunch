@@ -90,6 +90,34 @@ public sealed class LifecycleTests
         Assert.True(File.Exists(Path.Combine(shadowRoot, "plugin.json")));
     }
 
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task InvalidAssemblyReportsFailureOnlyForManifestBundles(bool manifest)
+    {
+        using var root = new TemporaryDirectory();
+        var assembly = manifest
+            ? Path.Combine(CreateManifestBundle(root.Path), "lib", "managed", "WebLaunch.TestManifestPlugin.dll")
+            : Path.Combine(root.Path, "NativeDependency.dll");
+        File.WriteAllText(assembly, "not a managed assembly");
+        var logger = new Logger();
+        await using var host = new CoreFunctions(root.Path, logger, false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+
+        await host.InitializeAsync();
+
+        Assert.Empty(host.GetLoadedPlugins());
+        if (manifest)
+        {
+            Assert.IsType<BadImageFormatException>(Assert.Single(errors).Error);
+            Assert.Contains(logger.Messages, message => message.Contains("BadImageFormatException"));
+        }
+        else
+        {
+            Assert.Empty(errors);
+            Assert.DoesNotContain(logger.Messages, message => message.Contains("BadImageFormatException"));
+        }
+    }
+
     [Theory]
     [InlineData("wrong-id", false)]
     [InlineData("legacy-fixture", true)]

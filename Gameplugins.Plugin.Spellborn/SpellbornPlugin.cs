@@ -57,8 +57,14 @@ public sealed class SpellbornVersionStore : IInstalledVersionStore
         if (OperatingSystem.IsWindows())
         {
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\The Chronicles of Spellborn");
-            if (key?.GetValue("installPath") is string previous && string.Equals(Path.GetFullPath(previous), Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
-                return key.GetValue("installedVersion") as string;
+            if (key?.GetValue("installPath") is string previous && !string.IsNullOrWhiteSpace(previous))
+            {
+                string previousRoot;
+                try { previousRoot = Path.GetFullPath(previous); }
+                catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException) { return null; }
+                if (string.Equals(previousRoot, Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
+                    return key.GetValue("installedVersion") as string;
+            }
         }
         return null;
     }
