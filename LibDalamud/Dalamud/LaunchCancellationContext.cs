@@ -9,7 +9,7 @@ namespace LibDalamud.Common.Dalamud;
 /// </summary>
 public static class LaunchCancellationContext
 {
-    private sealed record Context(CancellationToken CancellationToken, Action<string>? TraceSink);
+    private sealed record Context(CancellationToken CancellationToken, Action<string>? TraceSink, Func<bool>? TraceEnabled);
     private static readonly AsyncLocal<Context?> Active = new();
 
     public static CancellationToken CurrentCancellationToken =>
@@ -18,13 +18,33 @@ public static class LaunchCancellationContext
     public static void WriteTrace(string diagnostic)
     {
         ArgumentNullException.ThrowIfNull(diagnostic);
-        Active.Value?.TraceSink?.Invoke(diagnostic);
+        WriteTrace(() => diagnostic);
     }
 
-    public static IDisposable Enter(CancellationToken cancellationToken, Action<string>? traceSink = null)
+    /// <summary>
+    /// Defers formatting of potentially sensitive exception details until the active opt-in trace
+    /// policy confirms that a trace sink is enabled.
+    /// </summary>
+    public static void WriteTrace(Func<string> diagnosticFactory)
+    {
+        ArgumentNullException.ThrowIfNull(diagnosticFactory);
+        var context = Active.Value;
+        if (context?.TraceSink is null || context.TraceEnabled is not null && !context.TraceEnabled())
+            return;
+
+        context.TraceSink(diagnosticFactory());
+    }
+
+    public static IDisposable Enter(
+        CancellationToken cancellationToken,
+        Action<string>? traceSink = null,
+        Func<bool>? traceEnabled = null)
     {
         var previous = Active.Value;
-        Active.Value = new Context(cancellationToken, traceSink ?? previous?.TraceSink);
+        Active.Value = new Context(
+            cancellationToken,
+            traceSink ?? previous?.TraceSink,
+            traceEnabled ?? previous?.TraceEnabled);
         return new Scope(previous);
     }
 
