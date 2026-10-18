@@ -277,7 +277,7 @@ namespace El_Garnan_Plugin_Loader
             foreach (var child in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly))
             {
                 SafePath.RejectLinks(child);
-                CopyLegacyBundleDirectory(child, bundleRoot, shadowRoot, privateTree: keepPrivateTree);
+                CopyLegacyBundleDirectory(child, bundleRoot, shadowRoot, privateTree: privateTree || LegacyDependencyDirectoryNames.Contains(Path.GetFileName(child)));
             }
         }
 
