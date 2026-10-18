@@ -84,9 +84,9 @@ else
             catch (Microsoft.JSInterop.JSException ex)
             {
                 BrowserDiagnostics.Report("navigation module initialization", ex);
-                // Navigation is a required part of section/history behavior. Show the safe recovery
-                // boundary instead of leaving a launcher that renders but cannot track its route.
-                throw new InvalidOperationException("Navigation initialization failed. Use the recovery screen to reload the launcher.", ex);
+                navigationFailed = true;
+                StateHasChanged();
+                return;
             }
 
             if (module is not null)
