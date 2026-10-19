@@ -16,8 +16,8 @@ namespace CoreLibLaunchSupport;
 ///   - No credential payloads or request/response bodies are emitted by this class.
 ///
 /// Trace mode (FFXIV_TRACE=1):
-///   - Full HTTP request/response details, including bodies.
-///   - Process arguments and process lifecycle information.
+///   - Full launch arguments, local paths and process-launch details via Trace/Stage detail.
+///   - Full exception text for failures.
 ///   - Detailed Dalamud launch stages.
 ///   - Trace data is written to a separate local forensic log.
 ///
@@ -180,83 +180,6 @@ public static class FfxivTraceLogger
         TraceWrite(LogEventLevel.Verbose, $"[FFXIV:{correlationId}] TRACE {messageFactory()}");
     }
 
-    public static void TraceHttp(
-        string correlationId,
-        string label,
-        string method,
-        string url,
-        int? statusCode = null,
-        string? requestBody = null,
-        string? responseBody = null,
-        string? requestHeaders = null,
-        string? responseHeaders = null)
-    {
-        if (!TraceEnabled)
-            return;
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"[FFXIV:{correlationId}] TRACE HTTP {label}");
-        sb.AppendLine($"  {method} {url}");
-
-        if (statusCode.HasValue)
-            sb.AppendLine($"  Status: {statusCode}");
-
-        if (requestHeaders is not null)
-            sb.AppendLine($"  Request Headers:{Environment.NewLine}{Indent(requestHeaders)}");
-
-        if (requestBody is not null)
-            sb.AppendLine($"  Request Body:{Environment.NewLine}{Indent(requestBody)}");
-
-        if (responseHeaders is not null)
-            sb.AppendLine($"  Response Headers:{Environment.NewLine}{Indent(responseHeaders)}");
-
-        if (responseBody is not null)
-            sb.AppendLine($"  Response Body:{Environment.NewLine}{Indent(responseBody)}");
-
-        TraceWrite(LogEventLevel.Verbose, sb.ToString());
-    }
-
-    public static void TraceProcess(
-        string correlationId,
-        string label,
-        string? executable = null,
-        string? workingDir = null,
-        string? arguments = null,
-        int? pid = null,
-        int? exitCode = null,
-        string? stdout = null,
-        string? stderr = null)
-    {
-        if (!TraceEnabled)
-            return;
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"[FFXIV:{correlationId}] TRACE PROCESS {label}");
-
-        if (executable is not null)
-            sb.AppendLine($"  Executable: {executable}");
-
-        if (workingDir is not null)
-            sb.AppendLine($"  Working Dir: {workingDir}");
-
-        if (arguments is not null)
-            sb.AppendLine($"  Arguments: {arguments}");
-
-        if (pid.HasValue)
-            sb.AppendLine($"  PID: {pid}");
-
-        if (exitCode.HasValue)
-            sb.AppendLine($"  Exit Code: {exitCode}");
-
-        if (stdout is not null)
-            sb.AppendLine($"  stdout:{Environment.NewLine}{Indent(stdout)}");
-
-        if (stderr is not null)
-            sb.AppendLine($"  stderr:{Environment.NewLine}{Indent(stderr)}");
-
-        TraceWrite(LogEventLevel.Verbose, sb.ToString());
-    }
-
     // ---- Internal trace-file management -------------------------------
 
     private static void TraceWrite(LogEventLevel level, string message)
@@ -296,7 +219,7 @@ public static class FfxivTraceLogger
                 _traceFileLogger = CreateTraceFileLogger(fullPath);
 
                 _traceFileLogger.Information("=== FFXIV trace log started ===");
-                _traceFileLogger.Information("WARNING: This file contains FULL HTTP payloads and may contain plaintext credentials.");
+                _traceFileLogger.Information("WARNING: This file may contain full launch arguments, local paths, exception details and plaintext session material.");
                 _traceFileLogger.Information("WARNING: Do NOT commit or share this file without reviewing and redacting it.");
                 _traceFileLogger.Information("File: {Path}", fullPath);
                 _traceFileLogger.Information("");
@@ -382,22 +305,6 @@ public static class FfxivTraceLogger
             _traceFileLogger = null;
             _traceFilePath = null;
         }
-    }
-
-    private static string Indent(string text, int spaces = 4)
-    {
-        if (string.IsNullOrEmpty(text))
-            return text;
-
-        var pad = new string(' ', spaces);
-        using var reader = new StringReader(text);
-        var sb = new StringBuilder();
-        string? line;
-
-        while ((line = reader.ReadLine()) is not null)
-            sb.Append(pad).AppendLine(line);
-
-        return sb.ToString();
     }
 
     /// <summary>Scope returned by BeginCorrelation.</summary>

@@ -119,7 +119,7 @@ include request IDs, phases and plugin identifiers.
 
 For detailed FFXIV launch investigation, set `FFXIV_TRACE=1` in the environment of a
 new desktop-handler process and restart the handler. This separate forensic trace can
-contain full game launch arguments, filesystem paths, HTTP payloads or plaintext
+contain full game launch arguments, filesystem paths, exception details or plaintext
 credentials. Do not share it without inspecting and redacting it first. The normal
 desktop log does not contain those raw payloads.
 
