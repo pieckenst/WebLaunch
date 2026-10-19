@@ -135,10 +135,10 @@ export async function secureLaunch(page, base) {
     await page.getByLabel('Username', { exact: true }).fill('synthetic-user');
     await page.getByLabel('Password', { exact: true }).fill('synthetic-secret:+?=é');
     await page.getByLabel('One-time password (optional)').fill('12');
-    await page.getByRole('button', { name: 'Launch game', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
     expect(await page.getByLabel('One-time password (optional)').evaluate(element => element.validity.valid)).toBe(false);
     await page.getByLabel('One-time password (optional)').fill('');
-    await page.getByRole('button', { name: 'Launch game', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel launch' })).toBeVisible();
     // The launch is still in flight, so its credentials must not be readable from the form.
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
@@ -148,7 +148,7 @@ export async function secureLaunch(page, base) {
     // The desktop confirmed the game started, so the retained details are cleared.
     await page.getByRole('button', { name: 'Game settings', exact: true }).click();
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
-    await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeDisabled();
     await desktopSettings(page);
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Pairing saved · disconnected');
@@ -159,7 +159,7 @@ export async function secureLaunch(page, base) {
     await expect(page.locator('.launch-status')).toHaveText('Connected. Enter your game settings.');
     await gameSettings(page);
     await page.getByLabel('Password', { exact: true }).fill('synthetic-cancel');
-    await page.getByRole('button', { name: 'Launch game', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel launch' }).click();
     await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
     // A cancelled launch is not a success, so the entered details survive for the retry.
@@ -226,7 +226,7 @@ export async function unavailableHandler(page, base) {
     // while the connection is in its backoff window.
     await expect(page.locator('.launch-status')).toContainText(/Retrying automatically/i, { timeout: 15000 });
     await gameSettings(page);
-    await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
     await desktopSettings(page);
     const forget = page.getByRole('button', { name: 'Forget this browser pairing' });
     await expect(forget).toBeEnabled({ timeout: 10000 });
@@ -418,7 +418,7 @@ export async function disconnect() { window.launchDisconnected = true; }
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
     await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
-    await page.getByRole('button', { name: 'Launch game', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
     if (action.endsWith('timeout')) await page.clock.runFor(1100);
     await expect.poll(() => page.evaluate(() => !!window.launchStatusStarted)).toBe(true);
     if (action === 'cancel') {

@@ -61,7 +61,7 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
     // recovered session actually enables the launch action instead of querying a hidden control.
     await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeEnabled();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true })).toBeEnabled();
     expect(aborted).toBe(true);
     await page.unroute('http://127.0.0.1:47832/v2/session/**');
 });

@@ -248,14 +248,22 @@
         try
         {
         desktopView = desktop;
-        focusTarget = desktop ? "desktop-mode" : "game-path";
+        var target = desktop ? "desktop-mode" : "game-path";
+        focusTarget = target;
         // Refresh this panel so the navbar's Launch game button - which reaches us through a plain
         // Func<Task> that only re-renders the layout - actually applies desktopView and the focus
         // target instead of reopening with whatever view the previous interaction left behind.
+        // OnAfterRender may consume focusTarget during this render, before showModal() runs, so
+        // apply the initial focus again after the native dialog is open.
         await InvokeAsync(StateHasChanged);
         dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
         dialogReference ??= DotNetObjectReference.Create(this);
         await dialogModule.InvokeVoidAsync("open", dialog, dialogReference);
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("focus", target); }
+            catch (JSException ex) { Report("focus", ex, "Could not focus the control. Select it manually or reload the page."); }
+        }
         }
         catch (JSException ex) { Report("open-settings", ex, "Could not open settings. Reload the page and try again."); }
     }

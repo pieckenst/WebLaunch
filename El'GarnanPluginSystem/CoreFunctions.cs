@@ -354,12 +354,15 @@ namespace El_Garnan_Plugin_Loader
         {
             _ = Task.Run(async () =>
             {
-                for (var attempt = 0; attempt < ShadowCleanupAttempts; attempt++)
+                // Collectible plugin assemblies may keep Windows file handles alive beyond the
+                // original 30-second retry window. Keep this low-frequency reaper alive until the
+                // uniquely owned manager root is actually gone; a bounded retry loop can leave a
+                // permanent shadow directory after the CLR releases those handles late.
+                var retryDelayMs = ShadowCleanupRetryDelay.TotalMilliseconds;
+                while (true)
                 {
                     try
                     {
-                        // One deletion attempt per outer iteration gives the documented
-                        // 300 x 100ms retry window instead of multiplying nested retry delays.
                         using (LockShadowRoot(path))
                             await TryDeleteShadowTreeAsync(path, 1).ConfigureAwait(false);
                         if (!Directory.Exists(path))
@@ -368,9 +371,11 @@ namespace El_Garnan_Plugin_Loader
                             return;
                         }
                     }
-                    catch (IOException) { } // A live manager owns the lock.
+                    catch (IOException) { } // A live manager or concurrent cleaner currently owns the lock.
                     catch (UnauthorizedAccessException) { }
-                    await Task.Delay(ShadowCleanupRetryDelay).ConfigureAwait(false);
+
+                    await Task.Delay(TimeSpan.FromMilliseconds(retryDelayMs)).ConfigureAwait(false);
+                    retryDelayMs = Math.Min(retryDelayMs * 2, TimeSpan.FromSeconds(2).TotalMilliseconds);
                 }
             });
         }
