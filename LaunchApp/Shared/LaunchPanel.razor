@@ -132,7 +132,7 @@
     {
         if (!firstRender)
         {
-            if (focusTarget is { } target && module is not null)
+            if (focusTarget is { } target && module is not null && !manualConnectPending)
             { focusTarget = null; try { await module.InvokeVoidAsync("focus", target); } catch (JSException ex) { Report("focus", ex, "Could not focus the control. Select it manually or reload the page."); } }
             return;
         }
