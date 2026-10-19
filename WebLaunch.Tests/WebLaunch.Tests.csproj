@@ -7,6 +7,7 @@
 <ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
 <Compile Include="../handlerlaunch/DesktopTrustStore.cs" Link="test-support/DesktopTrustStore.cs" />
 <Compile Include="../handlerlaunch/ConsoleLogger.cs" Link="test-support/ConsoleLogger.cs" />
+<Compile Include="../LaunchApp/Shared/BrowserDiagnosticText.cs" Link="test-support/BrowserDiagnosticText.cs" />
 <ProjectReference Include="../CoreLibLaunchSupport/CoreLibLaunchSupport.csproj" />
 <ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
 <ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
