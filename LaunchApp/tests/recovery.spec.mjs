@@ -43,6 +43,7 @@ test('manual reconnect wins over a status request from the replaced channel', as
     let helloRouteInstalled = false;
     let heldStatus = false;
     let reconnectHandshakes = 0;
+    let pairedSuccessfully = false;
 
     try {
         await prepare(page, base);
@@ -52,6 +53,7 @@ test('manual reconnect wins over a status request from the replaced channel', as
         await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
         await page.getByRole('button', { name: 'The codes match', exact: true }).click();
         await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+        pairedSuccessfully = true;
 
         // Hold the next encrypted status exchange so a manual reconnect can replace its channel
         // while the old request is still in flight.
@@ -88,15 +90,18 @@ test('manual reconnect wins over a status request from the replaced channel', as
         releaseStatus();
         if (statusRouteInstalled) await page.unroute('http://127.0.0.1:47832/v2/session/**');
         if (helloRouteInstalled) await page.unroute('http://127.0.0.1:47832/v2/hello');
-        // If an assertion fails midway, do not leave the synthetic host's single pending
-        // pairing slot occupied and cascade failures into unrelated browser tests.
-        try {
-            await page.evaluate(async () => {
-                const bridge = await import('./js/bridge.js');
-                try { await bridge.cancelPendingPairing(); }
-                finally { await bridge.forget(); }
-            });
-        } catch { /* The page may already have navigated or disposed. */ }
+        // Only cancel explicitly when pairing did not complete. On success, let component
+        // disposal disconnect the paired session; cancelling it here could race the monitor's
+        // recovery loop and create a fresh pending session as the test ends.
+        if (!pairedSuccessfully) {
+            try {
+                await page.evaluate(async () => {
+                    const bridge = await import('./js/bridge.js');
+                    try { await bridge.cancelPendingPairing(); }
+                    finally { await bridge.forget(); }
+                });
+            } catch { /* The page may already have navigated or disposed. */ }
+        }
     }
 });
 
