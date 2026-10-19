@@ -42,7 +42,7 @@
         </p>
     }
     <div class="actions">
-        <button type="button" @onclick="Connect" disabled="@(busy || connecting || !supported)">@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</button>
+        <button type="button" @onclick="Connect" disabled="@(busy || connecting || manualConnectPending || !supported)">@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</button>
         <button type="button" @onclick="Forget" disabled="@(busy || connecting)">Forget this browser pairing</button>
     </div>
     @if (pairingCode.Length > 0)
@@ -117,6 +117,7 @@
     private string path = "", username = "", password = "", otp = "", pairingCode = "";
     private string message = "Open the desktop launcher, then choose Connect.";
     private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
+    private bool manualConnectPending;
     private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
     private string PairingState => paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
@@ -221,7 +222,7 @@
     private Task StartAutomaticRecoveryAsync()
     {
         if (recoveryTask is { IsCompleted: false }) return recoveryTask;
-        if (!savedPairing || module is null || lifetime.IsCancellationRequested)
+        if (manualConnectPending || !savedPairing || module is null || lifetime.IsCancellationRequested)
             return Task.CompletedTask;
 
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -420,63 +421,76 @@
     private void OpeningDesktop() => message = "Approve opening the desktop launcher in your browser, then choose Connect. If nothing opens, install or repair the desktop launcher.";
     private async Task Connect()
     {
-        if (module is null || busy || connecting) return;
+        if (module is null || busy || connecting || manualConnectPending) return;
 
-        // Publish manual intent before the first await. A status request already in flight can
-        // fail because connect() replaces its JS channel; that stale failure must not launch
-        // automatic recovery or overwrite the result of this explicit reconnect.
+        // Publish manual intent before any awaited cancellation work. A status request already in
+        // flight can fail because connect() replaces its JS channel; stale failure handling must
+        // not start competing automatic recovery or overwrite this explicit reconnect.
         Interlocked.Increment(ref connectionGeneration);
-        await CancelAutomaticRecoveryAsync();
-        if (module is null || lifetime.IsCancellationRequested) return;
-
-        var retrySavedPairing = false;
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        connecting = true;
-        paired = false;
-        actualMode = "";
-        canBrowseFolders = false;
-        pairingCode = "";
-        message = "Connecting to the desktop launcher…";
+        manualConnectPending = true;
+        message = "Reconnecting to the desktop launcher…";
         hasNotice = true;
         try
         {
-            var result = await module.InvokeAsync<Connection>("connect", cancellation.Token);
-            paired = result.Paired;
-            pairingCode = result.Code;
-            actualMode = result.DesktopMode;
-            canBrowseFolders = result.Paired && result.CanBrowseFolders;
-            if (paired) savedPairing = true;
-            pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
-            focusTarget = paired ? "launch-status" : "pairing-confirm";
-            message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
-        }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (OperationCanceledException)
-        {
+            await RefreshConnectionStateAsync();
+            await Task.Yield(); // Let the disabled button/state render before cancelling old work.
+            await CancelAutomaticRecoveryAsync();
+            if (module is null || lifetime.IsCancellationRequested) return;
+
+            var retrySavedPairing = false;
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            connecting = true;
             paired = false;
             actualMode = "";
             canBrowseFolders = false;
-            message = "The connection attempt was cancelled. Connect again before launching.";
-        }
-        catch (JSException ex)
-        {
-            BrowserDiagnostics.Report("bridge", ex);
-            paired = false;
             pairingCode = "";
-            actualMode = "";
-            canBrowseFolders = false;
-            message = UserMessage(ex);
-            focusTarget = "launch-status";
-            retrySavedPairing = savedPairing && !IsUnsafeToRetryConnection(ex);
+            message = "Connecting to the desktop launcher…";
+            hasNotice = true;
+            try
+            {
+                var result = await module.InvokeAsync<Connection>("connect", cancellation.Token);
+                paired = result.Paired;
+                pairingCode = result.Code;
+                actualMode = result.DesktopMode;
+                canBrowseFolders = result.Paired && result.CanBrowseFolders;
+                if (paired) savedPairing = true;
+                pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
+                focusTarget = paired ? "launch-status" : "pairing-confirm";
+                message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
+            }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            catch (OperationCanceledException)
+            {
+                paired = false;
+                actualMode = "";
+                canBrowseFolders = false;
+                message = "The connection attempt was cancelled. Connect again before launching.";
+            }
+            catch (JSException ex)
+            {
+                BrowserDiagnostics.Report("bridge", ex);
+                paired = false;
+                pairingCode = "";
+                actualMode = "";
+                canBrowseFolders = false;
+                message = UserMessage(ex);
+                focusTarget = "launch-status";
+                retrySavedPairing = savedPairing && !IsUnsafeToRetryConnection(ex);
+            }
+            finally
+            {
+                connecting = false;
+                await RefreshConnectionStateAsync();
+            }
+
+            if (retrySavedPairing && !lifetime.IsCancellationRequested)
+                _ = StartAutomaticRecoveryAsync();
         }
         finally
         {
-            connecting = false;
+            manualConnectPending = false;
             await RefreshConnectionStateAsync();
         }
-
-        if (retrySavedPairing && !lifetime.IsCancellationRequested)
-            _ = StartAutomaticRecoveryAsync();
     }
 
     private Task Confirm() => confirmation = ConfirmPairing();
