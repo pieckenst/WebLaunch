@@ -271,6 +271,9 @@ public sealed class LifecycleTests
             Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
             Assert.Throws<IOException>(() => new FileStream(firstRoot + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None));
         }
+        // Do not keep the disposed host (and any completed async state-machine references) alive
+        // while asking the collectible plugin context to release its shadow DLLs.
+        second = null!;
         // Unload is asynchronous for collectible contexts. A test-only collection lets Windows
         // release file handles deterministically; production cleanup continues retrying in the background.
         GC.Collect();
