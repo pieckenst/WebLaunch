@@ -121,6 +121,8 @@
     private string PairingState => paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
     private Task? launch, connectionMonitor;
+    // Invalidates a status failure that belongs to a connection replaced by a manual reconnect.
+    private long connectionGeneration;
     private DateTimeOffset pairingExpires;
     private string? focusTarget;
     private sealed record Connection(bool Paired, string Code, string DesktopMode, bool CanBrowseFolders);
@@ -174,6 +176,7 @@
                 }
 
                 if (!paired) continue;
+                var observedConnectionGeneration = Interlocked.Read(ref connectionGeneration);
                 try
                 {
                     await module.InvokeAsync<Reply>("status", lifetime.Token);
@@ -181,6 +184,12 @@
                 catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
                 catch (JSException ex)
                 {
+                    // A manual reconnect may intentionally invalidate the status exchange. Its
+                    // failed response belongs to the replaced channel and must not clear the new
+                    // connection or start a competing automatic handshake.
+                    if (observedConnectionGeneration != Interlocked.Read(ref connectionGeneration))
+                        continue;
+
                     // A failed encrypted exchange revokes its JavaScript channel. Never keep
                     // launch/browse enabled while recovering or retry status against that channel.
                     BrowserDiagnostics.Report("connection status", ex);
@@ -409,6 +418,11 @@
     private async Task Connect()
     {
         if (module is null || busy || connecting) return;
+
+        // Publish manual intent before the first await. A status request already in flight can
+        // fail because connect() replaces its JS channel; that stale failure must not launch
+        // automatic recovery or overwrite the result of this explicit reconnect.
+        Interlocked.Increment(ref connectionGeneration);
         await CancelAutomaticRecoveryAsync();
         if (module is null || lifetime.IsCancellationRequested) return;
 
