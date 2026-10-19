@@ -178,6 +178,7 @@ public sealed class LifecycleTests
     [InlineData("assembly")]
     [InlineData("manifest")]
     [InlineData("asset-directory")]
+    [InlineData("asset-file")]
     public async Task ManifestBundlesRejectLinks(string linkedItem)
     {
         using var root = new TemporaryDirectory();
@@ -189,8 +190,12 @@ public sealed class LifecycleTests
                 Directory.CreateSymbolicLink(Path.Combine(bundle, "assets"), outside.Path);
             else
             {
-                var path = linkedItem == "manifest" ? Path.Combine(bundle, "plugin.json")
-                    : Path.Combine(bundle, "lib", "managed", "WebLaunch.TestManifestPlugin.dll");
+                var path = linkedItem switch
+                {
+                    "manifest" => Path.Combine(bundle, "plugin.json"),
+                    "asset-file" => Path.Combine(bundle, "asset.txt"),
+                    _ => Path.Combine(bundle, "lib", "managed", "WebLaunch.TestManifestPlugin.dll")
+                };
                 var target = Path.Combine(outside.Path, Path.GetFileName(path));
                 File.Move(path, target);
                 File.CreateSymbolicLink(path, target);
