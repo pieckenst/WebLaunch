@@ -153,17 +153,24 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
     /// <summary>
     /// Releases the GPU resources so they can be recreated with <see cref="CreateDeviceResources"/>,
-    /// for example after the graphics device or swapchain output changes. Unlike <see cref="Dispose"/>
-    /// this does not end the renderer's lifetime.
+    /// for example after the swapchain output changes. Unlike <see cref="Dispose"/> this does not end
+    /// the renderer's lifetime. Image bindings (and the handles callers hold, such as
+    /// <c>TextureWrap.ImGuiHandle</c>) are preserved: their resource sets are rebuilt by
+    /// <see cref="CreateDeviceResources"/> when it is given the same graphics device. If it is given a
+    /// different device, the bindings are discarded because their textures belong to the old device.
     /// </summary>
     public void DestroyDeviceObjects()
     {
-        ReleaseDeviceResources();
+        ReleaseDeviceResources(preserveImageBindings: true);
     }
 
     public void CreateDeviceResources(GraphicsDevice gd, OutputDescription outputDescription, float fontPxSize)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        // Textures registered before DestroyDeviceObjects only stay usable on the device that created them,
+        // so discard the bindings up front: a failed attempt must not leave old-device views registered
+        // for a retry to rebuild against the new device.
+        if (!ReferenceEquals(this.gd, gd)) ClearCachedImageResources();
         this.gd = gd;
         ResourceFactory factory = gd.ResourceFactory;
         vertexBuffer = factory.CreateBuffer(new BufferDescription(10000, BufferUsage.VertexBuffer | BufferUsage.Dynamic));
@@ -215,6 +222,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
             gd.PointSampler));
 
         fontTextureResourceSet = factory.CreateResourceSet(new ResourceSetDescription(textureLayout, fontTextureView));
+
+        RebuildImageResourceSets(factory);
     }
 
     /// <summary>
@@ -225,6 +234,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
     {
         if (!setsByView.TryGetValue(textureView, out ResourceSetInfo rsi))
         {
+            if (textureLayout is null)
+                throw new InvalidOperationException("ImGui device resources are not available; call CreateDeviceResources first.");
             ResourceSet resourceSet = factory.CreateResourceSet(new ResourceSetDescription(textureLayout, textureView));
             rsi = new ResourceSetInfo(GetNextImGuiBindingID(), resourceSet);
 
@@ -267,9 +278,12 @@ namespace El_Garnan_Plugin_Loader.Rendering
         if (setsByView.Remove(textureView, out var info))
         {
             viewsById.Remove(info.ImGuiBinding);
-            ownedResources.Remove(info.ResourceSet);
-            try { info.ResourceSet.Dispose(); }
-            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+            if (info.ResourceSet is not null)
+            {
+                ownedResources.Remove(info.ResourceSet);
+                try { info.ResourceSet.Dispose(); }
+                catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+            }
         }
 
         // Remove bookkeeping before disposal, and release the view even if its resource set
@@ -293,7 +307,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
             throw new InvalidOperationException("No registered ImGui binding with id " + imGuiBinding.ToString());
         }
 
-        return tvi.ResourceSet;
+        return tvi.ResourceSet
+            ?? throw new InvalidOperationException("ImGui binding " + imGuiBinding.ToString() + " is unavailable until device resources are recreated.");
     }
 
     public void ClearCachedImageResources()
@@ -312,7 +327,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
         setsByView.Clear();
         viewsById.Clear();
         autoViewsByTexture.Clear();
-        lastAssignedID = 100;
+        // Binding IDs are never reused: a caller that still holds a cleared handle must not be
+        // able to select a different texture that is registered later.
 
         if (failures is { Count: 1 }) throw failures[0];
         if (failures is { Count: > 1 })
@@ -737,12 +753,12 @@ namespace El_Garnan_Plugin_Loader.Rendering
     {
         if (_disposed) return;
         _disposed = true;
-        ReleaseDeviceResources();
+        ReleaseDeviceResources(preserveImageBindings: false);
     }
 
     // Shared by the reusable DestroyDeviceObjects teardown and terminal disposal. Fields are cleared
     // once released so a later CreateDeviceResources/Dispose never releases a resource twice.
-    private void ReleaseDeviceResources()
+    private void ReleaseDeviceResources(bool preserveImageBindings)
     {
         List<Exception>? failures = null;
         void DisposeOne(IDisposable? resource)
@@ -754,7 +770,11 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
         // Dispose dependants before the resources they reference, and attempt every cleanup
         // even if a native graphics resource throws during disposal.
-        try { ClearCachedImageResources(); }
+        try
+        {
+            if (preserveImageBindings) SuspendImageResourceSets();
+            else ClearCachedImageResources();
+        }
         catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
         DisposeOne(fontTextureResourceSet);
         DisposeOne(mainResourceSet);
@@ -787,12 +807,50 @@ namespace El_Garnan_Plugin_Loader.Rendering
             throw new AggregateException("One or more ImGui renderer resources could not be released.", failures);
     }
 
+    // Resource sets reference textureLayout, which is destroyed with the other device objects. Release
+    // only the sets; the views and binding IDs stay registered so handles held by callers remain valid.
+    private void SuspendImageResourceSets()
+    {
+        List<Exception>? failures = null;
+        foreach (var view in setsByView.Keys.ToArray())
+        {
+            var info = setsByView[view];
+            if (info.ResourceSet is null) continue;
+
+            var suspended = new ResourceSetInfo(info.ImGuiBinding, null);
+            setsByView[view] = suspended;
+            viewsById[info.ImGuiBinding] = suspended;
+            ownedResources.Remove(info.ResourceSet);
+            try { info.ResourceSet.Dispose(); }
+            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+        }
+
+        if (failures is { Count: 1 }) throw failures[0];
+        if (failures is { Count: > 1 })
+            throw new AggregateException("One or more cached ImGui image resource sets could not be released.", failures);
+    }
+
+    private void RebuildImageResourceSets(ResourceFactory factory)
+    {
+        foreach (var view in setsByView.Keys.ToArray())
+        {
+            var info = setsByView[view];
+            if (info.ResourceSet is not null) continue;
+
+            var resourceSet = factory.CreateResourceSet(new ResourceSetDescription(textureLayout, view));
+            var rebuilt = new ResourceSetInfo(info.ImGuiBinding, resourceSet);
+            setsByView[view] = rebuilt;
+            viewsById[info.ImGuiBinding] = rebuilt;
+            ownedResources.Add(resourceSet);
+        }
+    }
+
     private struct ResourceSetInfo
     {
         public readonly IntPtr ImGuiBinding;
-        public readonly ResourceSet ResourceSet;
+        public readonly ResourceSet? ResourceSet;
 
-        public ResourceSetInfo(IntPtr imGuiBinding, ResourceSet resourceSet)
+        public ResourceSetInfo(IntPtr imGuiBinding, ResourceSet? resourceSet)
         {
             ImGuiBinding = imGuiBinding;
             ResourceSet = resourceSet;
