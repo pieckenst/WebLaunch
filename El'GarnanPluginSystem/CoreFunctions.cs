@@ -68,6 +68,16 @@ namespace El_Garnan_Plugin_Loader
         /// <summary>Raised when discovery, validation, initialization or reload fails for an individual plugin.</summary>
         public event EventHandler<PluginErrorEventArgs>? PluginError;
 
+        private void TryLogWarning(string message)
+        {
+            try { logger.Warning(message); }
+            catch (Exception ex)
+            {
+                // Logger sinks are external integrations; a broken sink must not abort plugin loading or shutdown.
+                diagnostics.Record(PluginDiagnosticLevel.Warning, "logger", "host", "warning-write-failed", ex);
+            }
+        }
+
         private void Notify<TEventArgs>(EventHandler<TEventArgs>? observers, TEventArgs args, string eventName)
             where TEventArgs : EventArgs
         {
@@ -81,7 +91,7 @@ namespace El_Garnan_Plugin_Loader
                     // One failing subscriber must not abort discovery, roll back registered plugins,
                     // or prevent remaining unload/cleanup notifications from running.
                     diagnostics.Record(PluginDiagnosticLevel.Warning, "event-observer", "host", $"failed-{eventName}", ex);
-                    try { logger.Warning($"Plugin lifecycle observer failed for {eventName} ({ex.GetType().Name})."); }
+                    try { TryLogWarning($"Plugin lifecycle observer failed for {eventName} ({ex.GetType().Name})."); }
                     catch { /* Logging must not turn an observer failure into a host failure. */ }
                 }
             }
@@ -314,7 +324,7 @@ namespace El_Garnan_Plugin_Loader
 
                 var error = new FileNotFoundException("The entry assembly declared by plugin.json was not found.");
                 Record(PluginDiagnosticLevel.Error, "manifest", pluginId, "entry-assembly-missing", error);
-                logger.Warning($"Plugin manifest entry assembly is missing ({error.GetType().Name}).");
+                TryLogWarning($"Plugin manifest entry assembly is missing ({error.GetType().Name}).");
                 Notify(PluginError, new PluginErrorEventArgs(path, error), nameof(PluginError));
                 return false;
             }
@@ -434,7 +444,7 @@ namespace El_Garnan_Plugin_Loader
             catch (Exception ex)
             {
                 Record(PluginDiagnosticLevel.Error, stage, pluginId, "failed", ex);
-                logger.Warning($"Plugin could not load during {stage} ({ex.GetType().Name}).");
+                TryLogWarning($"Plugin could not load during {stage} ({ex.GetType().Name}).");
                 Notify(PluginError, new PluginErrorEventArgs(path, ex), nameof(PluginError));
                 return false;
             }
@@ -654,7 +664,7 @@ namespace El_Garnan_Plugin_Loader
                     catch (Exception ex)
                     {
                         diagnostics.Record(PluginDiagnosticLevel.Error, "hot-reload", "host", "batch-failed", ex);
-                        logger.Warning($"Plugin reload failed ({ex.GetType().Name}).");
+                        TryLogWarning($"Plugin reload failed ({ex.GetType().Name}).");
                     }
                     finally { lifecycle.Release(); }
                 }
@@ -678,7 +688,7 @@ namespace El_Garnan_Plugin_Loader
             catch (Exception ex)
             {
                 diagnostics.Record(PluginDiagnosticLevel.Warning, "plugin-shutdown", id, "failed", ex);
-                logger.Warning($"Plugin shutdown failed ({ex.GetType().Name}).");
+                TryLogWarning($"Plugin shutdown failed ({ex.GetType().Name}).");
             }
             finally
             {
@@ -686,7 +696,7 @@ namespace El_Garnan_Plugin_Loader
                 catch (Exception ex)
                 {
                     diagnostics.Record(PluginDiagnosticLevel.Warning, "plugin-disposal", id, "failed", ex);
-                    logger.Warning($"Plugin disposal failed ({ex.GetType().Name}).");
+                    TryLogWarning($"Plugin disposal failed ({ex.GetType().Name}).");
                 }
                 finally
                 {
@@ -763,7 +773,7 @@ namespace El_Garnan_Plugin_Loader
                 catch (Exception ex)
                 {
                     RecordExecution(PluginDiagnosticLevel.Error, "failed", ex);
-                    try { logger.Warning($"Plugin operation failed ({ex.GetType().Name})."); } catch { }
+                    try { TryLogWarning($"Plugin operation failed ({ex.GetType().Name})."); } catch { }
                     throw;
                 }
                 finally { entry.ReleaseLease(); }
@@ -796,7 +806,7 @@ namespace El_Garnan_Plugin_Loader
                             ex);
                         if (firstFailure)
                         {
-                            try { logger.Warning($"Plugin renderer failed ({ex.GetType().Name})."); } catch { }
+                            try { TryLogWarning($"Plugin renderer failed ({ex.GetType().Name})."); } catch { }
                         }
                     }
                 }
@@ -827,7 +837,7 @@ namespace El_Garnan_Plugin_Loader
                     catch (Exception ex)
                     {
                         diagnostics.Record(PluginDiagnosticLevel.Error, "renderer", "host", "failed", ex);
-                        try { logger.Warning($"Renderer stopped ({ex.GetType().Name})."); } catch { }
+                        try { TryLogWarning($"Renderer stopped ({ex.GetType().Name})."); } catch { }
                     }
                     finally
                     {
@@ -835,7 +845,7 @@ namespace El_Garnan_Plugin_Loader
                         catch (Exception ex)
                         {
                             diagnostics.Record(PluginDiagnosticLevel.Warning, "renderer-disposal", "host", "failed", ex);
-                            try { logger.Warning($"Renderer disposal failed ({ex.GetType().Name})."); } catch { }
+                            try { TryLogWarning($"Renderer disposal failed ({ex.GetType().Name})."); } catch { }
                         }
                         finally { renderer = null; renderStopped.TrySetResult(); }
                     }
