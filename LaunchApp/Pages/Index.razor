@@ -13,7 +13,6 @@
     var game = _games[index];
     <article class="game-card" style="--card-index: @index">
         <div class="game-cover" style="background-image: linear-gradient(0deg, #000d, #0001), url('@game.CoverImage')">
-            <span class="game-state">Ready to play</span>
             <h2>@game.Name</h2><div class="game-tags">@foreach (var tag in game.Tags) { <span>@tag</span> }</div>
         </div>
         <div class="game-card-body"><p>@game.Description</p><small>@game.ShortInfo</small><a class="card-play" href="@game.Route" aria-label="Open @game.Name">Open game <span aria-hidden="true">→</span></a></div>

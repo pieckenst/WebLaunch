@@ -124,7 +124,7 @@ footer { padding: 2rem 1rem; text-align: center; font-size: .8rem; color: var(--
 
 .library { max-width: 1180px; padding: clamp(3rem, 8vw, 6.5rem) 1.5rem 4rem; }
 .library-hero { max-width: 720px; margin: 0 auto clamp(2.5rem, 6vw, 4rem); text-align: center; animation: rise-in .65s cubic-bezier(.2, .75, .25, 1) both; }
-.eyebrow, .game-state { display: inline-flex; align-items: center; gap: .45rem; color: var(--accent); font-size: .72rem; font-weight: 750; letter-spacing: .12em; line-height: 1; text-transform: uppercase; }
+.eyebrow { display: inline-flex; align-items: center; gap: .45rem; color: var(--accent); font-size: .72rem; font-weight: 750; letter-spacing: .12em; line-height: 1; text-transform: uppercase; }
 .eyebrow::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 14%, transparent); }
 .library-hero h1 { margin: .9rem 0 1rem; font-size: clamp(2.7rem, 6vw, 5.5rem); font-weight: 720; letter-spacing: -.06em; line-height: .98; }
 .library-hero p { margin: auto; color: var(--muted); font-size: clamp(1rem, 1.8vw, 1.15rem); }
@@ -133,7 +133,6 @@ footer { padding: 2rem 1rem; text-align: center; font-size: .8rem; color: var(--
 .game-card:hover, .game-card:focus-within { transform: translateY(-8px); border-color: color-mix(in srgb, var(--accent) 56%, var(--line)); box-shadow: 0 20px 50px color-mix(in srgb, #000 24%, transparent); }
 .game-cover { position: relative; isolation: isolate; height: 235px; padding: 1.4rem; }
 .game-cover::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, transparent 24%, #000c 100%); }
-.game-state { align-self: flex-start; padding: .4rem .6rem; border: 1px solid #ffffff45; border-radius: 99px; background: #06080a80; color: #fff; letter-spacing: .08em; }
 .game-cover h2 { margin: auto 0 1rem; font-size: 1.45rem; }
 .game-tags { gap: .5rem; }
 .game-tags span { padding: .2rem .45rem; border-radius: 99px; background: #ffffff19; }
