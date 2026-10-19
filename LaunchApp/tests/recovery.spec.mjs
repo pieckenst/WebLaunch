@@ -3,6 +3,35 @@ import { prepare, pendingLaunchStatus } from './scenarios.mjs';
 
 const base = process.env.WEBLAUNCH_TEST_URL || 'http://localhost:5148/WebLaunch/';
 
+test('bridge request deadlines remain enforced without AbortSignal helpers', async ({ page }) => {
+    await page.addInitScript(() => {
+        try { Object.defineProperty(AbortSignal, 'timeout', { configurable: true, writable: true, value: undefined }); }
+        catch { AbortSignal.timeout = undefined; }
+        try { Object.defineProperty(AbortSignal, 'any', { configurable: true, writable: true, value: undefined }); }
+        catch { AbortSignal.any = undefined; }
+    });
+    await prepare(page, base);
+    await page.route('**/js/bridge.js', async route => {
+        const response = await route.fetch();
+        const source = await response.text();
+        const patched = source.replace(
+            "post('/v2/hello', hello, 15000, controller.signal)",
+            "post('/v2/hello', hello, 40, controller.signal)");
+        if (patched === source) throw new Error('Could not shorten the handshake deadline for the fallback test.');
+        await route.fulfill({ response, body: patched });
+    });
+    await page.route('http://127.0.0.1:47832/v2/hello', async route => {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        try { await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }); }
+        catch { /* Browser abort is expected after the deadline expires. */ }
+    });
+
+    await page.goto(base + 'counter');
+    await page.locator('.connection-summary').click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.launch-status')).toContainText('timed out', { timeout: 5000 });
+});
+
 test('status transport failure re-establishes a fresh authenticated desktop session', async ({ page }) => {
     await prepare(page, base);
     await page.goto(base + 'counter');

@@ -36,17 +36,38 @@ function timeoutFor(action) {
 
 function deadlineSignal(timeout) {
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
-        return AbortSignal.timeout(timeout);
+        return { signal: AbortSignal.timeout(timeout), dispose() {} };
+
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), timeout);
-    return controller.signal;
+    const timer = setTimeout(() => controller.abort(), timeout);
+    return { signal: controller.signal, dispose() { clearTimeout(timer); } };
 }
 
 function combineSignals(signal, deadline) {
-    if (!signal) return deadline;
-    if (!deadline) return signal;
-    if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, deadline]);
-    return signal;
+    if (!signal) return { signal: deadline, dispose() {} };
+    if (!deadline) return { signal, dispose() {} };
+    if (typeof AbortSignal.any === 'function')
+        return { signal: AbortSignal.any([signal, deadline]), dispose() {} };
+
+    // Older browsers need a real fan-in signal instead of silently dropping the deadline.
+    const controller = new AbortController();
+    const forwardAbort = source => {
+        if (!controller.signal.aborted) controller.abort(source.reason);
+    };
+    const abortFromCaller = () => forwardAbort(signal);
+    const abortFromDeadline = () => forwardAbort(deadline);
+    if (signal.aborted) abortFromCaller();
+    else signal.addEventListener('abort', abortFromCaller, { once: true });
+    if (deadline.aborted) abortFromDeadline();
+    else deadline.addEventListener('abort', abortFromDeadline, { once: true });
+
+    return {
+        signal: controller.signal,
+        dispose() {
+            signal.removeEventListener('abort', abortFromCaller);
+            deadline.removeEventListener('abort', abortFromDeadline);
+        }
+    };
 }
 
 function emptyReply(current) {
@@ -106,31 +127,44 @@ async function saveIdentity(identity) {
     } finally { db.close(); }
 }
 async function post(path, body, timeout = 15000, signal) {
-    // Use an AbortSignal for the deadline. Passing the millisecond count itself to fetch's
-    // signal option causes a TypeError in browsers that enforce the Fetch contract.
     const deadline = deadlineSignal(timeout);
-    let response;
+    const combined = combineSignals(signal, deadline.signal);
     try {
-        response = await fetch(endpoint + path, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body), credentials: 'omit', cache: 'no-store',
-            redirect: 'error', signal: combineSignals(signal, deadline)
-        });
-    } catch (error) {
-        if (asAbort(error) && signal?.aborted) throw new DOMException('Connection attempt cancelled.', 'AbortError');
-        if (asAbort(error) || error?.name === 'TimeoutError' || deadline?.aborted)
-            throw new Error('The desktop launcher timed out. Check that it is still running, then retry.');
-        throw new Error('Cannot connect to WebLaunch. Open or update the desktop launcher, allow local network access, then retry.');
+        let response;
+        try {
+            response = await fetch(endpoint + path, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body), credentials: 'omit', cache: 'no-store',
+                redirect: 'error', signal: combined.signal
+            });
+        } catch (error) {
+            if (asAbort(error) && signal?.aborted)
+                throw new DOMException('Connection attempt cancelled.', 'AbortError');
+            if (asAbort(error) || error?.name === 'TimeoutError' || deadline.signal.aborted)
+                throw new Error('The desktop launcher timed out. Check that it is still running, then retry.');
+            throw new Error('Cannot connect to WebLaunch. Open or update the desktop launcher, allow local network access, then retry.');
+        }
+
+        if (!response.ok) {
+            if (response.status === 410) throw new Error('Connection expired. Connect again.');
+            if (response.status === 429) throw new Error('Pairing is busy or temporarily locked. Close other pairing requests and retry in five minutes.');
+            if (response.status === 403) throw new Error('Pairing was declined or expired. Connect again and compare both codes.');
+            throw new Error('The desktop launcher rejected this request. Update the launcher and reconnect.');
+        }
+        if (response.status === 204) return null;
+        try {
+            return await response.json();
+        } catch (error) {
+            if (signal?.aborted)
+                throw new DOMException('Connection attempt cancelled.', 'AbortError');
+            if (deadline.signal.aborted || asAbort(error) || error?.name === 'TimeoutError')
+                throw new Error('The desktop launcher timed out. Check that it is still running, then retry.');
+            throw new Error('Invalid desktop response.');
+        }
+    } finally {
+        combined.dispose();
+        deadline.dispose();
     }
-    if (!response.ok) {
-        if (response.status === 410) throw new Error('Connection expired. Connect again.');
-        if (response.status === 429) throw new Error('Pairing is busy or temporarily locked. Close other pairing requests and retry in five minutes.');
-        if (response.status === 403) throw new Error('Pairing was declined or expired. Connect again and compare both codes.');
-        throw new Error('The desktop launcher rejected this request. Update the launcher and reconnect.');
-    }
-    if (response.status === 204) return null;
-    try { return await response.json(); }
-    catch { throw new Error('Invalid desktop response.'); }
 }
 export async function connect() {
     // Cancel any previous handshake and invalidate unpaired sessions. Keep an established,
@@ -370,10 +404,14 @@ export async function disconnect() {
     // Invalidate locally before awaiting network work; an old request must never revive this channel.
     channel = undefined;
     current.abort.abort();
-    const timeout = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
-        ? AbortSignal.timeout(2000) : undefined;
-    await current.pending;
-    await exchange(current, { action: 'disconnect' }, timeout ?? current.abort.signal);
+    // The channel is already revoked above; use a separate active signal for best-effort disconnect.
+    const timeout = deadlineSignal(2000);
+    try {
+        await current.pending;
+        await exchange(current, { action: 'disconnect' }, timeout.signal);
+    } finally {
+        timeout.dispose();
+    }
 }
 export async function forget() {
     try { await disconnect(); } catch { /* Local revocation must work while the desktop is unavailable. */ }

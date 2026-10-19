@@ -371,6 +371,7 @@ namespace El_Garnan_Plugin_Loader.Base
             lock (notificationGate)
             {
                 if (NotificationQueue.Count > 0) NotificationQueue.Dequeue();
+                if (NotificationQueue.Count > 0 && SupportsImGui) _popupQueued = true;
             }
         }
 

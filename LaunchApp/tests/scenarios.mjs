@@ -26,14 +26,16 @@ export async function navigationAndPreferences(page, base) {
     await page.reload();
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     expect(await page.evaluate(() => localStorage.getItem('unrelated-app'))).toBe('keep');
-    await page.getByRole('link', { name: 'Play now, Final Fantasy XIV', exact: true }).focus();
+    await page.getByRole('link', { name: 'Open Final Fantasy XIV', exact: true }).focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { level: 1, name: 'Final Fantasy XIV' })).toBeVisible();
     await page.getByRole('link', { name: 'Story', exact: true }).click();
     await expect(page).toHaveURL(base + 'counter#story');
     await page.goto(base + 'counter?section=world');
     await expect(page).toHaveURL(base + 'counter#world');
-    await page.getByRole('link', { name: 'Spellborn', exact: true }).click();
+    await page.getByRole('link', { name: 'Game Launcher', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Your game library' })).toBeVisible();
+    await page.getByRole('link', { name: 'Open Chronicles of Spellborn', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Classes', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'Classes', exact: true }).click();
     await expect(page).toHaveURL(base + 'spellborn#classes');
@@ -279,7 +281,18 @@ export async function settingsDialogs(page, base) {
 
 export async function playNowRoutesByReadiness(page, base) {
     await prepare(page, base);
+    // Force the true first-run path state, even when this scenario shares a tab with
+    // prior tests that have saved an installation folder.
+    await page.evaluate(() => localStorage.removeItem('weblaunch.spellborn.path'));
     await page.goto(base + 'spellborn');
+
+    // Missing paths must route through game settings before pairing or direct launch.
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('Game settings');
+    await expect(page.getByLabel('Installation folder')).toHaveValue('');
+    await expect(page.locator('.launch-summary')).toContainText('Choose the installation folder before launching.');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
 
     // Spellborn needs no sign-in details, so once a paired session holds the folder,
     // Play now submits the launch without opening any dialog at all.
@@ -306,10 +319,30 @@ export async function playNowRoutesByReadiness(page, base) {
     await expect(page.getByLabel('Username', { exact: true })).toBeFocused();
     await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(page.getByLabel('One-time password (optional)')).toBeVisible();
+
+    // Escape belongs to the sign-in dialog, not the hidden game-settings dialog.
+    await page.keyboard.press('Escape');
+    await expect(prompt).not.toBeVisible();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(prompt).toHaveAccessibleName('Sign in to launch');
+
     // The prompt can hand off to full settings without losing the pairing.
     await prompt.getByRole('button', { name: 'Game settings', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveAccessibleName('Login settings');
     await page.keyboard.press('Escape');
+
+    // Cancellation remains reachable while credential inputs are disabled during launch.
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(prompt).toHaveAccessibleName('Sign in to launch');
+    await prompt.getByLabel('Username', { exact: true }).fill('synthetic-user');
+    await prompt.getByLabel('Password', { exact: true }).fill('synthetic-cancel');
+    await prompt.getByRole('button', { name: 'Launch game', exact: true }).click();
+    await expect(prompt.getByRole('button', { name: 'Cancel launch', exact: true })).toBeVisible();
+    await prompt.getByRole('button', { name: 'Cancel launch', exact: true }).click();
+    await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
+    await expect(prompt).not.toBeVisible();
 }
 
 export async function browserRecovery(page, base) {

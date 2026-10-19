@@ -90,9 +90,9 @@
 {
     <dialog @ref="credentialDialog" class="launcher-dialog credential-dialog" aria-labelledby="credential-title" aria-busy="@busy">
         <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="credential-title">Sign in to launch</h2></div>
-            <button type="button" class="close-dialog" aria-label="Close sign in" @onclick="CloseCredentialPrompt">×</button>
+            <button type="button" class="close-dialog" aria-label="Close sign in" disabled="@busy" @onclick="CloseCredentialPrompt">×</button>
         </div>
-        <p class="credential-intro">Your sign-in details were cleared after the previous launch. Enter them again to start @Title.</p>
+        <p class="credential-intro">Enter the sign-in details needed to start @Title. They are kept only in this tab and cleared after a confirmed launch.</p>
         <form @onsubmit="SubmitCredentials" @onsubmit:preventDefault>
             <fieldset disabled="@busy">
                 @if (missingUsername)
@@ -104,6 +104,11 @@
                 <div class="dialog-actions"><button type="button" @onclick="OpenSettingsFromCredentialPrompt">Game settings</button><button type="button" @onclick="CloseCredentialPrompt">Cancel</button><button class="primary launch-submit" type="submit">@if (busy) { <span class="button-spinner" aria-hidden="true"></span> } <span>Launch game</span></button></div>
             </fieldset>
         </form>
+        @if (busy)
+        {
+            <div class="launch-progress" role="status"><span class="loader-spinner" aria-hidden="true"></span><span>Working with your desktop launcher…</span></div>
+            <button type="button" class="connection-action" @onclick="Cancel">Cancel launch</button>
+        }
     </dialog>
 }
 
@@ -128,6 +133,15 @@
     {
         if (busy || connecting || manualConnectPending) return Task.CompletedTask;
         if (!supported) return OpenGame();
+
+        try { LaunchRequest.ValidateGamePath(path); }
+        catch (ArgumentException)
+        {
+            message = "Choose the installation folder before launching.";
+            hasNotice = true;
+            return OpenGame();
+        }
+
         if (!paired) return OpenDesktop();
         if (CredentialsComplete()) return Launch();
 
@@ -152,7 +166,7 @@
         {
             dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
             credentialDialogReference ??= DotNetObjectReference.Create(this);
-            await dialogModule.InvokeVoidAsync("open", credentialDialog, credentialDialogReference);
+            await dialogModule.InvokeVoidAsync("open", credentialDialog, credentialDialogReference, "CloseCredentialPrompt");
             focusTarget = missingUsername ? "credential-username" : "credential-password";
         }
         catch (JSException ex)
@@ -168,6 +182,9 @@
 
     [JSInvokable] public async Task CloseCredentialPrompt()
     {
+        // Escape must not hide the only available cancellation control during an active launch.
+        if (busy) return;
+
         // A dismissed prompt clears the prompt's own inputs, matching the settings dialog's
         // dismissal behaviour, while the submitted request keeps its in-memory copies until a
         // launch is confirmed successful.
@@ -209,18 +226,15 @@
         try { await Launch(); }
         finally
         {
-            // A launch consumes its session, so the prompt must not stay open over the result.
-            // Dismissal keeps the in-memory details when the launch failed or was cancelled;
-            // confirmed success clears them.
-            if (!successConfirmed)
+            // Always dismiss the sign-in modal after a terminal outcome. LaunchCore owns
+            // credential retention: failures/cancellation keep inputs for retry; confirmed
+            // success clears the secrets.
+            needsCredentials = false;
+            CloseCredentialPromptReference();
+            if (dialogModule is not null)
             {
-                needsCredentials = false;
-                CloseCredentialPromptReference();
-                if (dialogModule is not null)
-                {
-                    try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
-                    catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
-                }
+                try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+                catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
             }
             credentialPrompt = null;
             await InvokeAsync(StateHasChanged);
@@ -878,7 +892,7 @@
         var recoverAfterAmbiguousLaunch = false;
         try
         {
-            await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path");
+            await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
             pendingLaunchRequestId = request.RequestId;
             // Persist only the non-secret correlation ID so a page reload cannot silently discard
             // the duplicate-launch guard. Never store credentials or launch arguments here.

@@ -348,8 +348,14 @@ public sealed class LifecycleTests
         using var root = new TemporaryDirectory(); CopyPlugin(root.Path, "one");
         var asset = Path.Combine(root.Path, "one", "asset.txt");
         File.WriteAllText(asset, "original");
-        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        var invalidBundle = Directory.CreateDirectory(Path.Combine(root.Path, "invalid-bundle")).FullName;
+        File.WriteAllText(Path.Combine(invalidBundle, "plugin.json"), "{ malformed json");
+        var logger = new Logger();
+        var discoveryErrors = 0;
+        await using var host = new CoreFunctions(root.Path, logger, true, false);
+        host.PluginError += (_, _) => Interlocked.Increment(ref discoveryErrors);
         await host.InitializeAsync();
+        Assert.Equal(1, Volatile.Read(ref discoveryErrors));
         var originals = host.GetLoadedPlugins().ToArray();
         var reloaded = new ConcurrentBag<string>();
         host.PluginReloaded += (_, e) => reloaded.Add(e.PluginId);
@@ -360,6 +366,9 @@ public sealed class LifecycleTests
             File.WriteAllText(asset, "updated");
             // Allow several watcher ticks while the lease remains active.
             await Task.Delay(1200);
+            // Discovery reported the malformed candidate once. A lease-deferred watcher batch
+            // must not rescan it on each 400 ms tick.
+            Assert.Equal(1, Volatile.Read(ref discoveryErrors));
             foreach (var original in originals)
             {
                 var current = await host.UsePluginAsync(original.PluginId, plugin => Task.FromResult(plugin))

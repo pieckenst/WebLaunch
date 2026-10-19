@@ -410,6 +410,9 @@ namespace El_Garnan_Plugin_Loader
                     await lifecycle.WaitAsync(lifetime.Token).ConfigureAwait(false);
                     try
                     {
+                        // Track deferred paths separately so a long-running plugin lease does not
+                        // make the general discovery pass repeat on every watcher tick.
+                        var requeuedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         foreach (var group in entries.Values.ToArray().GroupBy(e => e.Candidate))
                         {
                             var directory = Path.TrimEndingDirectorySeparator(group.Key.BundleRoot);
@@ -420,7 +423,11 @@ namespace El_Garnan_Plugin_Loader
                             // Lease acquisition also holds lifecycle, so an idle group stays idle until unloaded.
                             if (group.Any(e => e.HasActiveLeases))
                             {
-                                foreach (var path in groupChanges) pendingChanges[path] = 0;
+                                foreach (var path in groupChanges)
+                                {
+                                    pendingChanges[path] = 0;
+                                    requeuedPaths.Add(path);
+                                }
                                 continue;
                             }
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
@@ -428,7 +435,11 @@ namespace El_Garnan_Plugin_Loader
                             if (await LoadAsync(group.Key).ConfigureAwait(false))
                                 foreach (var id in ids.Where(entries.ContainsKey)) Notify(PluginReloaded, new PluginReloadEventArgs(id), nameof(PluginReloaded));
                         }
-                        foreach (var candidate in DiscoverPlugins()) await LoadAsync(candidate).ConfigureAwait(false);
+                        // A wholly deferred batch has no new discovery work. Running discovery
+                        // here would repeatedly copy invalid/legacy candidates every 400 ms until
+                        // the outstanding lease completes.
+                        if (changed.Any(path => !requeuedPaths.Contains(path)))
+                            foreach (var candidate in DiscoverPlugins()) await LoadAsync(candidate).ConfigureAwait(false);
                     }
                     catch (Exception ex) { logger.Warning($"Plugin reload failed ({ex.GetType().Name})."); }
                     finally { lifecycle.Release(); }
