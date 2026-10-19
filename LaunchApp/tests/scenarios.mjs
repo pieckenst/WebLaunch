@@ -260,6 +260,8 @@ export async function settingsDialogs(page, base) {
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('synthetic-dismiss-secret');
     await expect(page.getByLabel('One-time password (optional)')).toHaveValue('123456');
     await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await gear.click();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
@@ -401,6 +403,7 @@ export async function pendingLaunchStatus(page, base, action, terminalState = 'c
         let body = await response.text();
         for (const name of ['connect', 'launch', 'disconnect'])
             body = body.replace(`export async function ${name}(`, `async function original_${name}(`);
+        body = body.replace('export function abandon()', 'function original_abandon()');
         body = body.replace('export const status =', 'const original_status =');
         body = body.replace('export const cancel =', 'const original_cancel =');
         body += `
@@ -409,6 +412,7 @@ export async function launch() { return { status: { message: 'Synthetic pending 
 export function status() { window.launchStatusStarted = (window.launchStatusStarted || 0) + 1; return new Promise(resolve => { window.finishLaunchStatus = resolve; }); }
 export async function cancel() { window.launchCancelSent = true; return { status: ${JSON.stringify(action.startsWith('cancel-pending') ? { message: 'Cancellation requested; still updating.', completed: false } : { message: 'Launch cancelled.', completed: true })} }; }
 export async function disconnect() { window.launchDisconnected = true; }
+export function abandon() { window.launchDisconnected = true; }
 `;
         await route.fulfill({ response, body });
     });
