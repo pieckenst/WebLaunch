@@ -1,8 +1,18 @@
 const endpoint = 'http://127.0.0.1:47832';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)));
-const unb64 = text => Uint8Array.from(atob(text), c => c.charCodeAt(0));
+const chunk = 0x8000;
+const b64 = bytes => {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    let binary = '';
+    for (let offset = 0; offset < view.length; offset += chunk)
+        binary += String.fromCharCode(...view.subarray(offset, offset + chunk));
+    return btoa(binary);
+};
+const unb64 = text => {
+    try { return Uint8Array.from(atob(text), c => c.charCodeAt(0)); }
+    catch { throw new Error('Invalid desktop response.'); }
+};
 const digest = text => crypto.subtle.digest('SHA-256', encoder.encode(text));
 let channel;
 let connectGeneration = 0;
@@ -11,6 +21,42 @@ let connectController;
 function assertConnectActive(generation, controller) {
     if (controller.signal.aborted || generation !== connectGeneration)
         throw new DOMException('Connection attempt cancelled.', 'AbortError');
+}
+
+function asAbort(error) {
+    return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function timeoutFor(action) {
+    if (action === 'confirm' || action === 'browse') return 120000;
+    if (action === 'launch') return 60000;
+    if (action === 'disconnect') return 2000;
+    return 15000;
+}
+
+function deadlineSignal(timeout) {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
+        return AbortSignal.timeout(timeout);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), timeout);
+    return controller.signal;
+}
+
+function combineSignals(signal, deadline) {
+    if (!signal) return deadline;
+    if (!deadline) return signal;
+    if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, deadline]);
+    return signal;
+}
+
+function emptyReply(current) {
+    return current.lastReply ?? {
+        paired: !!current.paired,
+        status: { state: 'ready', message: 'Connected to the desktop launcher.', completed: false, success: false },
+        desktopMode: current.desktopMode || '',
+        canBrowseFolders: !!current.canBrowseFolders,
+        folderPath: null
+    };
 }
 
 // This cancels browser-side work too; cancelling a .NET JS interop wait alone is insufficient.
@@ -60,15 +106,19 @@ async function saveIdentity(identity) {
     } finally { db.close(); }
 }
 async function post(path, body, timeout = 15000, signal) {
+    const deadline = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+        ? AbortSignal.timeout(timeout) : undefined;
     let response;
     try {
         response = await fetch(endpoint + path, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body), credentials: 'omit', cache: 'no-store',
-            redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
+            redirect: 'error', signal: combineSignals(signal, timeout)
         });
-    } catch {
-        if (signal?.aborted) throw new DOMException('Connection attempt cancelled.', 'AbortError');
+    } catch (error) {
+        if (asAbort(error) && signal?.aborted) throw new DOMException('Connection attempt cancelled.', 'AbortError');
+        if (asAbort(error) || error?.name === 'TimeoutError' || deadline?.aborted)
+            throw new Error('The desktop launcher timed out. Check that it is still running, then retry.');
         throw new Error('Cannot connect to WebLaunch. Open or update the desktop launcher, allow local network access, then retry.');
     }
     if (!response.ok) {
@@ -77,7 +127,9 @@ async function post(path, body, timeout = 15000, signal) {
         if (response.status === 403) throw new Error('Pairing was declined or expired. Connect again and compare both codes.');
         throw new Error('The desktop launcher rejected this request. Update the launcher and reconnect.');
     }
-    return response.json();
+    if (response.status === 204) return null;
+    try { return await response.json(); }
+    catch { throw new Error('Invalid desktop response.'); }
 }
 export async function connect() {
     // Cancel any previous handshake and invalidate unpaired sessions. Keep an established,
@@ -124,7 +176,7 @@ export async function connect() {
         ensureActive();
         const response = await post('/v2/hello', hello, 15000, controller.signal);
         ensureActive();
-        if (!/^[a-f0-9]{32}$/.test(response.sessionId) || typeof response.identity !== 'string' || response.identity.length > 256 ||
+        if (!response || !/^[a-f0-9]{32}$/.test(response.sessionId) || typeof response.identity !== 'string' || response.identity.length > 256 ||
             typeof response.ephemeral !== 'string' || response.ephemeral.length > 256 || unb64(response.nonce).length !== 32)
             throw new Error('Invalid desktop handshake.');
         if (identity.desktop && identity.desktop !== response.identity)
@@ -146,7 +198,7 @@ export async function connect() {
         const derive = direction => crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode('weblaunch-v2/' + direction) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
         const [sendKey, receiveKey] = await Promise.all([derive('client'), derive('desktop')]);
         ensureActive();
-        const code = (new DataView(salt.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');
+        const code = (new DataView(salt.buffer, salt.byteOffset, 4).getUint32(0) % 1000000).toString().padStart(6, '0');
         channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: sendKey, receive: receiveKey, sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve(), connectGeneration: generation };
         if (response.knownBrowser) await confirmPairing();
         ensureActive();
@@ -172,11 +224,17 @@ async function exchange(current, command, signal = current.abort.signal) {
     } finally { plaintext.fill(0); }
     try {
         signal.throwIfAborted();
-        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, ['confirm', 'browse'].includes(command.action) ? 120000 : 15000, signal);
-        if (response.sequence !== current.received + 1 || typeof response.ciphertext !== 'string' || response.ciphertext.length > 60000)
+        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, timeoutFor(command.action), signal);
+        if (!response || response.sequence !== current.received + 1 || typeof response.ciphertext !== 'string' || response.ciphertext.length > 60000)
             throw new Error('Invalid desktop response.');
         const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce(response.sequence), additionalData: encoder.encode(`${current.hash}\ndesktop\n${response.sequence}`), tagLength: 128 }, current.receive, unb64(response.ciphertext)));
-        try { current.received = response.sequence; return JSON.parse(decoder.decode(bytes)); }
+        try {
+            current.received = response.sequence;
+            const parsed = JSON.parse(decoder.decode(bytes));
+            if (!parsed || typeof parsed !== 'object') throw new Error('Invalid desktop response.');
+            current.lastReply = parsed;
+            return parsed;
+        }
         finally { bytes.fill(0); }
     } catch (error) {
         if (channel === current) channel = undefined;
@@ -189,13 +247,27 @@ async function exchange(current, command, signal = current.abort.signal) {
 function send(command) {
     const current = channel;
     if (!current) return Promise.reject(new Error('Connect to the desktop launcher first.'));
+    if (command.action === 'status' && current.coalescedStatus) return current.coalescedStatus;
+
+    const ticket = { skip: false };
+    if (command.action === 'status') current.queuedStatusTicket = ticket;
+    else if (current.queuedStatusTicket) current.queuedStatusTicket.skip = true;
+
     const result = current.pending.then(() => {
-        // The caller may have queued this while a status request was in flight. Re-check
-        // channel ownership when it actually reaches the head of the queue.
         current.abort.signal.throwIfAborted();
         if (channel !== current) throw new DOMException('Desktop session was replaced.', 'AbortError');
+        if (ticket.skip) return emptyReply(current);
         return exchange(current, command);
     });
+    if (command.action === 'status') {
+        current.coalescedStatus = result.finally(() => {
+            if (current.coalescedStatus === result) current.coalescedStatus = undefined;
+            if (current.queuedStatusTicket === ticket) current.queuedStatusTicket = undefined;
+        });
+    } else {
+        current.coalescedStatus = undefined;
+        if (current.queuedStatusTicket === ticket) current.queuedStatusTicket = undefined;
+    }
     current.pending = result.catch(() => {});
     return result;
 }
@@ -214,8 +286,12 @@ export async function confirmPairing() {
 }
 export async function launch(request) {
     if (!channel?.paired) throw new Error('Complete pairing before signing in.');
-    try { return await send({ action: 'launch', launch: request }); }
-    finally { request.password = ''; request.otp = ''; }
+    const payload = request && typeof request === 'object' ? { ...request } : {};
+    try { return await send({ action: 'launch', launch: payload }); }
+    finally {
+        payload.password = '';
+        payload.otp = '';
+    }
 }
 export async function browseFolder() {
     if (!channel?.paired) throw new Error('Pair the desktop launcher before choosing a folder.');
@@ -244,9 +320,10 @@ export async function disconnect() {
     // Invalidate locally before awaiting network work; an old request must never revive this channel.
     channel = undefined;
     current.abort.abort();
-    const timeout = AbortSignal.timeout(2000);
+    const timeout = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+        ? AbortSignal.timeout(2000) : undefined;
     await current.pending;
-    await exchange(current, { action: 'disconnect' }, timeout);
+    await exchange(current, { action: 'disconnect' }, timeout ?? current.abort.signal);
 }
 export async function forget() {
     try { await disconnect(); } catch { /* Local revocation must work while the desktop is unavailable. */ }
