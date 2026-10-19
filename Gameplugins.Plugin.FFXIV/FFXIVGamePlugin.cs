@@ -93,7 +93,7 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
         using var correlationScope = FfxivTraceLogger.BeginCorrelation();
         var correlationId = correlationScope.Id;
 
-        // Keep traces useful without persisting a user's local folder path. The marker-file
+        // Keep traces useful. The marker-file
         // booleans distinguish a path-transfer problem from selecting the wrong installation root.
         var gameRoot = parameters.GamePath ?? "";
         var bootDirectory = Path.Combine(gameRoot, "boot");
@@ -104,7 +104,7 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
         FfxivTraceLogger.StageLazy(
             correlationId,
             "Plugin launch requested",
-            () => $"GamePathLength={gameRoot.Length}; RootExists={Directory.Exists(gameRoot)}; BootDirectoryExists={Directory.Exists(bootDirectory)}; GameDirectoryExists={Directory.Exists(gameDirectory)}; BootExecutableExists={File.Exists(bootExecutable)}; GameExecutableExists={File.Exists(gameExecutable)}; GameVersionExists={File.Exists(gameVersion)}; Steam={parameters.IsSteam}; DX11={parameters.DirectX11}; Region={parameters.Region}");
+            () => $"GamePath={gameRoot}; GamePathLength={gameRoot.Length}; RootExists={Directory.Exists(gameRoot)}; BootDirectoryExists={Directory.Exists(bootDirectory)}; GameDirectoryExists={Directory.Exists(gameDirectory)}; BootExecutableExists={File.Exists(bootExecutable)}; GameExecutableExists={File.Exists(gameExecutable)}; GameVersionExists={File.Exists(gameVersion)}; Steam={parameters.IsSteam}; DX11={parameters.DirectX11}; Region={parameters.Region}");
 
         var credentials = parameters.Credentials ?? new GameCredentials
         {
