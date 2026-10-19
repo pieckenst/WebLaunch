@@ -151,13 +151,19 @@ namespace El_Garnan_Plugin_Loader.Rendering
         windowHeight = height;
     }
 
+    /// <summary>
+    /// Releases the GPU resources so they can be recreated with <see cref="CreateDeviceResources"/>,
+    /// for example after the graphics device or swapchain output changes. Unlike <see cref="Dispose"/>
+    /// this does not end the renderer's lifetime.
+    /// </summary>
     public void DestroyDeviceObjects()
     {
-        Dispose();
+        ReleaseDeviceResources();
     }
 
     public void CreateDeviceResources(GraphicsDevice gd, OutputDescription outputDescription, float fontPxSize)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         this.gd = gd;
         ResourceFactory factory = gd.ResourceFactory;
         vertexBuffer = factory.CreateBuffer(new BufferDescription(10000, BufferUsage.VertexBuffer | BufferUsage.Dynamic));
@@ -725,13 +731,19 @@ namespace El_Garnan_Plugin_Loader.Rendering
     }
 
     /// <summary>
-    /// Frees all graphics resources used by the renderer.
+    /// Frees all graphics resources used by the renderer and ends its lifetime.
     /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        ReleaseDeviceResources();
+    }
 
+    // Shared by the reusable DestroyDeviceObjects teardown and terminal disposal. Fields are cleared
+    // once released so a later CreateDeviceResources/Dispose never releases a resource twice.
+    private void ReleaseDeviceResources()
+    {
         List<Exception>? failures = null;
         void DisposeOne(IDisposable? resource)
         {
@@ -756,6 +768,19 @@ namespace El_Garnan_Plugin_Loader.Rendering
         DisposeOne(fontTexture);
         DisposeOne(indexBuffer);
         DisposeOne(vertexBuffer);
+
+        fontTextureResourceSet = null!;
+        mainResourceSet = null!;
+        pipeline = null!;
+        textureLayout = null!;
+        layout = null!;
+        fragmentShader = null!;
+        vertexShader = null!;
+        projMatrixBuffer = null!;
+        fontTextureView = null!;
+        fontTexture = null!;
+        indexBuffer = null!;
+        vertexBuffer = null!;
 
         if (failures is { Count: 1 }) throw failures[0];
         if (failures is { Count: > 1 })
