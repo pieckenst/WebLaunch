@@ -39,8 +39,37 @@
   </ItemGroup>
 
 <ItemGroup>
-<ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
-<ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
-<ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
+  <ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
+  <!-- Build plugins with the host, but do not link/copy them as default-context references.
+       Their manifests and private dependencies are loaded from isolated bundle directories. -->
+  <ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" ReferenceOutputAssembly="false" />
+  <ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" ReferenceOutputAssembly="false" />
 </ItemGroup>
+
+<!-- Stage real bundle layouts for F5/Debug as well as ordinary local builds. Release packaging
+     also publishes each plugin independently into the same Plugins/<id> layout. -->
+<Target Name="StagePluginBundlesForDesktopHost" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+  <PropertyGroup>
+    <FfxivPluginOutput Condition="'$(RuntimeIdentifier)' != '' and Exists('$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.FFXIV\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\Gameplugins.Plugin.FFXIV.dll')">$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.FFXIV\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\</FfxivPluginOutput>
+    <FfxivPluginOutput Condition="'$(FfxivPluginOutput)' == '' and Exists('$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.FFXIV\bin\$(Configuration)\net10.0\Gameplugins.Plugin.FFXIV.dll')">$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.FFXIV\bin\$(Configuration)\net10.0\</FfxivPluginOutput>
+    <SpellbornPluginOutput Condition="'$(RuntimeIdentifier)' != '' and Exists('$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.Spellborn\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\Gameplugins.Plugin.Spellborn.dll')">$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.Spellborn\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\</SpellbornPluginOutput>
+    <SpellbornPluginOutput Condition="'$(SpellbornPluginOutput)' == '' and Exists('$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.Spellborn\bin\$(Configuration)\net10.0\Gameplugins.Plugin.Spellborn.dll')">$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.Spellborn\bin\$(Configuration)\net10.0\</SpellbornPluginOutput>
+  </PropertyGroup>
+
+  <Error Condition="'$(FfxivPluginOutput)' == ''" Text="FFXIV plugin output was not found after its project build; cannot stage the dynamic plugin bundle." />
+  <Error Condition="'$(SpellbornPluginOutput)' == ''" Text="Spellborn plugin output was not found after its project build; cannot stage the dynamic plugin bundle." />
+
+  <RemoveDir Directories="$(OutDir)Plugins\FFXIV;$(OutDir)Plugins\Spellborn" />
+  <MakeDir Directories="$(OutDir)Plugins\FFXIV;$(OutDir)Plugins\Spellborn" />
+
+  <ItemGroup>
+    <FfxivBundleFiles Include="$(FfxivPluginOutput)**\*" />
+    <SpellbornBundleFiles Include="$(SpellbornPluginOutput)**\*" />
+  </ItemGroup>
+
+  <Copy SourceFiles="@(FfxivBundleFiles)" DestinationFiles="@(FfxivBundleFiles->'$(OutDir)Plugins\FFXIV\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  <Copy SourceFiles="@(SpellbornBundleFiles)" DestinationFiles="@(SpellbornBundleFiles->'$(OutDir)Plugins\Spellborn\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.FFXIV\plugin.json" DestinationFolder="$(OutDir)Plugins\FFXIV" />
+  <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Gameplugins.Plugin.Spellborn\plugin.json" DestinationFolder="$(OutDir)Plugins\Spellborn" />
+</Target>
 </Project>
