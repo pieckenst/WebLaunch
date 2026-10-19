@@ -901,6 +901,7 @@
         cancellation.CancelAfter(TimeSpan.FromHours(2));
         launchCancellation = cancellation;
         launchCancellationConfirmed = false;
+        terminalStatus = null;
         launchOutcomeAmbiguous = false;
         launchOutcomeWarning = null;
         successConfirmed = false;
@@ -949,9 +950,13 @@
         {
             if (launchCancellationConfirmed)
             {
-                // Cancel() has already received an authoritative terminal status. Clear the
-                // persisted duplicate-launch guard even though Poll exits via cancellation.
-                if (module is null)
+                // Cancel() may confirm success if the game started before cancellation arrived.
+                if (terminalStatus?.Success == true)
+                {
+                    successConfirmed = true;
+                    message = "Game process started.";
+                }
+                else if (module is null)
                 {
                     launchOutcomeAmbiguous = true;
                     launchVerificationReady = false;
@@ -1090,6 +1095,7 @@
             message = reply.Status.Message;
             if (reply.Status.Completed)
             {
+                terminalStatus = reply.Status;
                 launchCancellationConfirmed = true;
                 cancellation.Cancel();
             }

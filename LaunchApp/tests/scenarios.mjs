@@ -410,26 +410,38 @@ export async function pendingLaunchStatus(page, base, action, terminalState = 'c
 export async function connect() { return { paired: true, code: '', desktopMode: 'gui' }; }
 export async function launch() { return { status: { message: 'Synthetic pending launch', completed: false } }; }
 export function status() { window.launchStatusStarted = (window.launchStatusStarted || 0) + 1; return new Promise(resolve => { window.finishLaunchStatus = resolve; }); }
-export async function cancel() { window.launchCancelSent = true; return { status: ${JSON.stringify(action.startsWith('cancel-pending') ? { message: 'Cancellation requested; still updating.', completed: false } : { message: 'Launch cancelled.', completed: true })} }; }
+export async function cancel() { window.launchCancelSent = true; return { status: ${JSON.stringify(action.startsWith('cancel-pending') ? { message: 'Cancellation requested; still updating.', completed: false } : { state: terminalState, message: terminalState === 'launched' ? 'Game process started.' : 'Launch cancelled.', completed: true, success: terminalState === 'launched' })} }; }
 export async function disconnect() { window.launchDisconnected = true; }
 export function abandon() { window.launchDisconnected = true; }
 `;
         await route.fulfill({ response, body });
     });
     await prepare(page, base);
-    await page.goto(base + 'spellborn');
+    await page.goto(base + (action === 'cancel' ? 'counter' : 'spellborn'));
     if (action.endsWith('timeout')) await page.clock.install();
     await page.locator('.connection-summary').click();
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
     await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
+    if (action === 'cancel') {
+        await page.getByLabel('Username', { exact: true }).fill('synthetic-user');
+        await page.getByLabel('Password', { exact: true }).fill('synthetic-password');
+        await page.getByLabel('One-time password (optional)', { exact: true }).fill('123456');
+    }
     await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
     if (action.endsWith('timeout')) await page.clock.runFor(1100);
     await expect.poll(() => page.evaluate(() => !!window.launchStatusStarted)).toBe(true);
     if (action === 'cancel') {
         await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
-        await expect(page.locator('.launch-status')).toHaveText('Launch cancelled.');
+        const succeeded = terminalState === 'launched';
+        await expect(page.locator('.launch-status')).toHaveText(succeeded ? 'Game process started.' : 'Launch cancelled.');
         expect(await page.evaluate(() => window.launchCancelSent)).toBe(true);
+        const pendingId = await page.evaluate(() => sessionStorage.getItem('weblaunch.pendingLaunchId'));
+        if (succeeded) expect(pendingId).toMatch(/^[a-f0-9]{32}$/);
+        else expect(pendingId).toBeNull();
+        await expect(page.getByLabel('Username', { exact: true })).toHaveValue('synthetic-user');
+        await expect(page.getByLabel('Password', { exact: true })).toHaveValue(succeeded ? '' : 'synthetic-password');
+        await expect(page.getByLabel('One-time password (optional)', { exact: true })).toHaveValue(succeeded ? '' : '123456');
     } else if (action.startsWith('cancel-pending')) {
         await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
         await expect(page.locator('.launch-status')).toHaveText('Cancellation requested; still updating.');

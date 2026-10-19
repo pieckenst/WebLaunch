@@ -261,6 +261,12 @@ for (const action of ['cancel', 'timeout', 'navigate']) {
     });
 }
 
+for (const state of ['launched', 'failed']) {
+    test(`terminal cancel response preserves the ${state} outcome`, async ({ page }) => {
+        await pendingLaunchStatus(page, base, 'cancel', state);
+    });
+}
+
 for (const state of ['cancelled', 'launched', 'failed']) {
     test(`nonterminal cancel keeps polling until ${state}`, async ({ page }) => {
         await pendingLaunchStatus(page, base, 'cancel-pending', state);
