@@ -604,6 +604,9 @@ namespace El_Garnan_Plugin_Loader
                     await lifecycle.WaitAsync(lifetime.Token).ConfigureAwait(false);
                     try
                     {
+                        // Disposal may win the semaphore race after the timer check above.
+                        if (disposed) break;
+
                         // Track deferred paths separately so a long-running plugin lease does not
                         // make the general discovery pass repeat on every watcher tick.
                         var requeuedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
