@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
 using WebLaunch.Core;
@@ -27,8 +28,25 @@ internal sealed class DesktopNotifications(string mode)
                 stage = "create-notifier";
                 var notifier = ToastNotificationManager.CreateToastNotifier(NotificationRegistration.AppId);
                 stage = "read-notification-setting";
-                if (notifier.Setting != NotificationSetting.Enabled)
-                { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId, detail: "notification-setting-" + notifier.Setting); return; }
+                try
+                {
+                    var setting = notifier.Setting;
+                    if (setting != NotificationSetting.Enabled)
+                    {
+                        DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId, detail: "notification-setting-" + setting);
+                        return;
+                    }
+                }
+                catch (COMException ex) when (ex.HResult == unchecked((int)0x80070490))
+                {
+                    // Some Windows builds return ELEMENT_NOT_FOUND while querying the setting for
+                    // a valid Start-menu AUMID. Do not silently disable notifications on that query
+                    // alone: attempt Show and let the toast API provide the definitive result.
+                    DesktopDiagnostics.Write(
+                        DiagnosticEvent.NotificationUnavailable,
+                        requestId,
+                        detail: "notification-setting-query-unavailable-hr-80070490");
+                }
 
                 stage = "build-toast";
                 var xml = new XmlDocument();
