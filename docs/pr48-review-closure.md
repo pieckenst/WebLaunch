@@ -4,7 +4,7 @@ Snapshot refreshed: 2026-10-19 (Europe/Amsterdam). PR: https://github.com/piecke
 
 ## Purpose and confidence
 
-This ledger consolidates the supplied assessment with the live GitHub review artifacts, maps duplicate comments to shared findings, records relevant implementation evidence, and separates source changes from actual acceptance. An item tagged **Fixed in source; validation pending** is not an assertion that CI or the complete fault matrix passed. Earlier CI iterations exposed and corrected two issues (the consumed-session duplicate status assertion and legacy-copy recursion); the ImageSharp replacement also went through a vulnerable patch release and a commercial-license-gated release before switching to StbImageSharp. At this snapshot the newest source changes are still awaiting a matching final-head build/test run. Native Windows UI, real installed-game authentication/injection and live historical plugin-binary compatibility remain external acceptance gates.
+This ledger consolidates the supplied assessment with the live GitHub review artifacts, maps duplicate comments to shared findings, records relevant implementation evidence, and separates source changes from actual acceptance. An item tagged **Fixed in source; validation pending** is not an assertion that CI or the complete fault matrix passed. Earlier CI iterations exposed and corrected two issues (the consumed-session duplicate status assertion and legacy-copy recursion); the ImageSharp replacement also went through a vulnerable patch release and a commercial-license-gated release before switching to StbImageSharp. At this snapshot the newest head is still awaiting a matching final-head workflow result; the preceding app-code head passed all 15 production-path browser scenarios and the portable build/test/audit steps. Native Windows UI, real installed-game authentication/injection and live historical plugin-binary compatibility remain external acceptance gates.
 
 Four dispositions are used throughout:
 - **Actionable** — code changes, tests, or evidence are still needed.
@@ -14,7 +14,7 @@ Four dispositions are used throughout:
 
 ## Refreshed review snapshot and Oct 18 delta
 
-The live GitHub snapshot most recently returned **221 normalized comment entries**, **55 submitted reviews**, and **69 inline review threads**; 68 threads are resolved and one stale/outdated Greptile status-channel recovery thread remains open pending matching-head Playwright validation. The latest source/test changes are still awaiting a successful matching-head CI run. The historical appendix below retains its original 155-artifact/49-thread baseline; later artifacts are summarized and linked below rather than silently rewriting old records. Counts can change as review agents publish or threads are resolved.
+The current live GitHub snapshot returns **238 timeline artifacts**, **58 submitted reviews**, and **73 inline review threads**; all 73 threads are now resolved. Appendices A–C preserve the original 155-artifact/49-thread baseline, and section D indexes all 83 later artifacts without overwriting the historical records. The production-path Playwright suite passed all 15 scenarios on app-code head `6e7f62c`; the latest head adds test-cleanup and ledger changes and has a matching workflow run in progress. Native Windows GUI/DPAPI/real-game acceptance remains separate.
 
 | New review point | Evidence / disposition |
 |---|---|
@@ -156,22 +156,7 @@ The two Greptile findings [temporary failures cannot recover](https://github.com
 
 ## Complete review artifact register
 
-Appendices A–C preserve the 155-artifact baseline at the original ledger snapshot (51 conversation comments, 66 inline comments/replies, and 38 submitted reviews) and its 49 inline threads. The live refreshed snapshot is 195 artifacts (60 conversation comments, 85 inline comments/replies, and 50 submitted reviews) plus 59 inline threads; 58 threads are resolved, with status-channel recovery still open until browser validation passes. The 40-artifact delta is source-linked in the refreshed section near the top. IDs/links preserve duplicates and review-body-only notes rather than silently dropping them. CI runs are acceptance evidence only when their head SHA matches the tested code. For repeated findings, use the unique finding matrix above as closure units.
-
-### D. Final ten reply/review artifacts added after the previous refresh (10 records)
-
-| Record | Author | Timestamp | Original GitHub item | Disposition |
-|---|---|---|---|---|
-| Inline reply | pieckenst | 2026-10-18T22:23:13Z | [4309019428](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4309019428) | Details ordinary-log redaction, lazy trace-only formatting, and the regression test; waiting on final-head CI. |
-| Reply review | pieckenst | 2026-10-18T22:23:13Z | [5565326500](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5565326500) | Submits the implementation response for the logging finding. |
-| Inline reply | pieckenst | 2026-10-18T22:23:16Z | [4309019589](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4309019589) | Details legacy private dependency/resource preservation and nested manifest boundaries; waiting on final-head CI. |
-| Reply review | pieckenst | 2026-10-18T22:23:16Z | [5565326677](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5565326677) | Submits the implementation response for the legacy bundle finding. |
-| Inline reply | pieckenst | 2026-10-18T22:23:20Z | [4309019763](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4309019763) | Explains the broken status retry, the fresh authenticated handshake and the real-bridge browser regression; thread remains open until CI. |
-| Reply review | pieckenst | 2026-10-18T22:23:20Z | [5565326859](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5565326859) | Submits the implementation response for the channel recovery finding. |
-| Inline reply | coderabbitai[bot] | 2026-10-18T22:23:45Z | [4309020994](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4309020994) | Acknowledges log/privacy source changes and requests independent build/review evidence. |
-| Reply review | coderabbitai[bot] | 2026-10-18T22:23:45Z | [5565328237](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5565328237) | Reviewer follow-up for the logging thread. |
-| Inline reply | coderabbitai[bot] | 2026-10-18T22:23:57Z | [4309021594](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4309021594) | Acknowledges legacy bundle path handling and calls for test/Windows validation. |
-| Reply review | coderabbitai[bot] | 2026-10-18T22:23:57Z | [5565328872](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5565328872) | Reviewer follow-up for the legacy bundle thread. |
+Appendices A–C preserve the 155-artifact baseline at the original ledger snapshot (51 conversation comments, 66 inline comments/replies, and 38 submitted reviews) and its 49 inline threads. Section D indexes all 83 subsequent timeline artifacts, including the 40-artifact Oct 18 delta, the previously summarized ten reply/review artifacts, and the latest two replies with their review submissions, for a total of 238. IDs/links preserve duplicates and review-body-only notes rather than silently dropping them. CI runs are acceptance evidence only when their head SHA matches the tested code. For repeated findings, use the unique finding matrix above as closure units.
 
 ### A. Connector-returned comment/review artifact register — original baseline (155 records)
 
