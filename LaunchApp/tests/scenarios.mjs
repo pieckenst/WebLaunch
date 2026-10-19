@@ -195,10 +195,11 @@ export async function connectionAutoRecovery(page, base) {
         await expect.poll(() => droppedHandshake, { timeout: 12000 }).toBe(true);
         await expect(page.locator('.launch-summary')).toContainText('restored', { timeout: 30000 });
         await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+        // Browse is rendered in the game-settings view, not the desktop-connection view.
+        await gameSettings(page);
         await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeEnabled();
 
         // Confirm the recovered channel is operational, not merely marked connected.
-        await gameSettings(page);
         await page.getByRole('button', { name: 'Browse on desktop', exact: true }).click();
         await expect(page.getByLabel('Installation folder')).toHaveValue('C:\\Games\\日本語', { timeout: 10000 });
     } finally {
