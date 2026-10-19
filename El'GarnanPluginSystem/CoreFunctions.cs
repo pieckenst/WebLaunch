@@ -89,13 +89,18 @@ namespace El_Garnan_Plugin_Loader
         /// <param name="logger">Logger shared with plugin instances and renderer initialization.</param>
         /// <param name="enableHotReload">Whether filesystem changes trigger serialized unload/reload operations.</param>
         /// <param name="useStandaloneWindow">Whether the renderer starts with a standalone window.</param>
+        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false, bool useStandaloneWindow = true)
+            : this(pluginsPath, logger, enableHotReload, useStandaloneWindow,
+                () => new ImGuiPluginRenderer(logger), null, false) { }
+
+        /// <summary>Creates a plugin host with explicit diagnostics and the built-in renderer.</summary>
         public CoreFunctions(
             string pluginsPath,
             ILogger logger,
-            bool enableHotReload = false,
-            bool useStandaloneWindow = true,
-            string? diagnosticsDirectory = null,
-            bool debugDiagnostics = false)
+            bool enableHotReload,
+            bool useStandaloneWindow,
+            string? diagnosticsDirectory,
+            bool debugDiagnostics)
             : this(pluginsPath, logger, enableHotReload, useStandaloneWindow,
                 () => new ImGuiPluginRenderer(logger), diagnosticsDirectory, debugDiagnostics) { }
 
