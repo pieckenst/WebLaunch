@@ -48,51 +48,16 @@ public sealed class SpellbornPlugin : GamePluginBase, ICancellableGamePlugin
     }
 }
 
+/// <summary>
+/// Compatibility adapter for older callers of the original Spellborn plugin assembly.
+/// Version persistence is implemented in WebLaunch.Core so the desktop host does not need
+/// a static reference to this dynamically loaded plugin.
+/// </summary>
 public sealed class SpellbornVersionStore : IInstalledVersionStore
 {
-    public string? Read(string root)
-    {
-        var file = SafePath.Resolve(root, ".weblaunch-version");
-        if (File.Exists(file)) return File.ReadAllText(file).Trim();
-        if (OperatingSystem.IsWindows())
-        {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\The Chronicles of Spellborn");
-            if (key?.GetValue("installPath") is string previous && !string.IsNullOrWhiteSpace(previous))
-            {
-                string previousRoot;
-                try { previousRoot = Path.GetFullPath(previous); }
-                catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException) { return null; }
-                if (string.Equals(previousRoot, Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
-                    return key.GetValue("installedVersion") as string;
-            }
-        }
-        return null;
-    }
-    public void Write(string root, string version)
-    {
-        root = Path.GetFullPath(root);
-        var file = SafePath.Resolve(root, ".weblaunch-version");
-        var temporary = file + ".tmp";
-        try
-        {
-            File.WriteAllText(temporary, version);
-            File.Move(temporary, file, true);
+    private readonly WebLaunch.Core.SpellbornVersionStore inner = new();
 
-            if (OperatingSystem.IsWindows())
-            {
-                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\The Chronicles of Spellborn")
-                    ?? throw new IOException("Could not open the Spellborn installation metadata key.");
-                key.SetValue("installPath", root);
-                key.SetValue("installedVersion", version);
-            }
-        }
-        finally
-        {
-            // The version file is replaced atomically. An incomplete temp file must never be
-            // mistaken for committed metadata on the next update attempt.
-            try { if (File.Exists(temporary)) File.Delete(temporary); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-    }
+    public string? Read(string root) => inner.Read(root);
+
+    public void Write(string root, string version) => inner.Write(root, version);
 }
