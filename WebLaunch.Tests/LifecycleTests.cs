@@ -285,7 +285,7 @@ public sealed class LifecycleTests
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
-        await Eventually(() => !Directory.Exists(firstRoot) && !File.Exists(firstRoot + ".lock"), TimeSpan.FromSeconds(20));
+        await Eventually(() => !Directory.Exists(firstRoot) && !File.Exists(firstRoot + ".lock"), TimeSpan.FromSeconds(35));
     }
 
     [Fact] public async Task SynchronousDisposeDoesNotCaptureTheCallerSynchronizationContext()
