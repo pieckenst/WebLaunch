@@ -169,15 +169,11 @@ namespace El_Garnan_Plugin_Loader
                         using var json = JsonDocument.Parse(File.ReadAllText(manifest));
                         if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
                         var assembly = json.RootElement.GetProperty("assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
+                        // Keep the bundle root distinct from the entry assembly path. A manifest
+                        // may place its entry assembly in a nested managed directory; the complete
+                        // bundle is shadow-copied with relative paths preserved and SafePath ensures
+                        // the manifest path cannot escape that bundle.
                         var resolvedAssembly = SafePath.Resolve(directory, assembly);
-                        // A manifest describes one plugin bundle and its entry assembly must be
-                        // at that bundle's root. Reject nested entry paths so discovery, manifest
-                        // validation, shadow-copy boundaries and diagnostics cannot disagree.
-                        if (!string.Equals(
-                            Path.GetDirectoryName(Path.GetFullPath(resolvedAssembly)),
-                            Path.GetFullPath(directory),
-                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-                            throw new InvalidDataException("Manifest entry assembly must be directly inside its plugin directory.");
                         assemblies = [new(resolvedAssembly, directory, manifest)];
                     }
                     else
