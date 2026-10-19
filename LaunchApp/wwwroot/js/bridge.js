@@ -178,12 +178,24 @@ async function exchange(current, command, signal = current.abort.signal) {
         const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce(response.sequence), additionalData: encoder.encode(`${current.hash}\ndesktop\n${response.sequence}`), tagLength: 128 }, current.receive, unb64(response.ciphertext)));
         try { current.received = response.sequence; return JSON.parse(decoder.decode(bytes)); }
         finally { bytes.fill(0); }
-    } catch (error) { if (channel === current) channel = undefined; throw error; }
+    } catch (error) {
+        if (channel === current) channel = undefined;
+        // A failed exchange makes the sequence state untrustworthy. Abort the old channel
+        // so commands already queued behind this request cannot run against a dead session.
+        current.abort.abort();
+        throw error;
+    }
 }
 function send(command) {
     const current = channel;
     if (!current) return Promise.reject(new Error('Connect to the desktop launcher first.'));
-    const result = current.pending.then(() => exchange(current, command));
+    const result = current.pending.then(() => {
+        // The caller may have queued this while a status request was in flight. Re-check
+        // channel ownership when it actually reaches the head of the queue.
+        current.abort.signal.throwIfAborted();
+        if (channel !== current) throw new DOMException('Desktop session was replaced.', 'AbortError');
+        return exchange(current, command);
+    });
     current.pending = result.catch(() => {});
     return result;
 }
