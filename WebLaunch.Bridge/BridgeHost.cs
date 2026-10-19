@@ -329,9 +329,14 @@ public sealed class BridgeHost : IAsyncDisposable
         public readonly SecureChannel Channel;
         public readonly SemaphoreSlim Gate = new(1, 1);
         public readonly CancellationTokenSource PairingTimeout, JobCancellation, RevocationCancellation;
-        public DateTimeOffset Expires = DateTimeOffset.UtcNow.AddMinutes(10);
+        private long expiresUtcTicks = DateTimeOffset.UtcNow.AddMinutes(10).UtcTicks;
         private readonly DateTimeOffset pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
         private int revoked;
+        public DateTimeOffset Expires
+        {
+            get => new(Interlocked.Read(ref expiresUtcTicks), TimeSpan.Zero);
+            set => Interlocked.Exchange(ref expiresUtcTicks, value.UtcTicks);
+        }
         public bool IsExpired => Volatile.Read(ref revoked) != 0 || DateTimeOffset.UtcNow >= Expires || (!Paired && DateTimeOffset.UtcNow >= pairingExpires);
         public bool Paired;
         public Task<bool> Approval = Task.FromResult(false);
