@@ -427,6 +427,7 @@
         // flight can fail because connect() replaces its JS channel; stale failure handling must
         // not start competing automatic recovery or overwrite this explicit reconnect.
         Interlocked.Increment(ref connectionGeneration);
+        var retrySavedPairing = false;
         manualConnectPending = true;
         message = "Reconnecting to the desktop launcher…";
         hasNotice = true;
@@ -437,7 +438,6 @@
             await CancelAutomaticRecoveryAsync();
             if (module is null || lifetime.IsCancellationRequested) return;
 
-            var retrySavedPairing = false;
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             connecting = true;
             paired = false;
@@ -483,14 +483,15 @@
                 await RefreshConnectionStateAsync();
             }
 
-            if (retrySavedPairing && !lifetime.IsCancellationRequested)
-                _ = StartAutomaticRecoveryAsync();
         }
         finally
         {
             manualConnectPending = false;
             await RefreshConnectionStateAsync();
         }
+
+        if (retrySavedPairing && !lifetime.IsCancellationRequested)
+            _ = StartAutomaticRecoveryAsync();
     }
 
     private Task Confirm() => confirmation = ConfirmPairing();
