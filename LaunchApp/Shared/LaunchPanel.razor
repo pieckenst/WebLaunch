@@ -627,7 +627,7 @@
                 message = launchRequestSubmitted
                     ? "Launch monitoring was interrupted. The game may still be starting; do not submit another launch until you verify its state. Re-establishing the desktop connection…"
                     : "The operation was cancelled before the launch request was submitted.";
-            if (launchRequestSubmitted) launchOutcomeAmbiguous = true;
+            if (launchRequestSubmitted && !launchCancellationConfirmed) launchOutcomeAmbiguous = true;
         }
         finally
         {
@@ -645,7 +645,7 @@
                 if (completed)
                     message += " Reconnect to launch again or browse folders.";
                 else
-                    recoverAfterAmbiguousLaunch = savedPairing && !lifetime.IsCancellationRequested;
+                    recoverAfterAmbiguousLaunch = savedPairing && launchOutcomeAmbiguous && !lifetime.IsCancellationRequested;
                 paired = false;
                 actualMode = "";
                 try { await module.InvokeVoidAsync("disconnect"); }
