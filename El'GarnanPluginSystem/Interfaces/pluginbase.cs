@@ -73,7 +73,12 @@ namespace El_Garnan_Plugin_Loader.Base
         /// </summary>
         public string LastError => _lastError;
 
+        /// <summary>
+        /// Legacy mutable notification queue. New producers should use <see cref="INotificationService.ShowNotification"/>
+        /// so enqueue operations participate in the base class synchronization policy.
+        /// </summary>
         public Queue<PluginNotification> NotificationQueue { get; } = new();
+        private readonly object notificationGate = new();
         public virtual bool SupportsImGui => false;
 
         protected Type ImGuiType;
@@ -273,14 +278,16 @@ namespace El_Garnan_Plugin_Loader.Base
 
             RenderNotificationPopup();
 
-            if (NotificationQueue.Count == 0)
+            PluginNotification[] notifications;
+            lock (notificationGate) notifications = NotificationQueue.ToArray();
+            if (notifications.Length == 0)
             {
                 return;
             }
 
             if (ImGuiNET.ImGui.Begin($"{Name} Notifications"))
             {
-                foreach (var notification in NotificationQueue.ToArray())
+                foreach (var notification in notifications)
                 {
                     var color = GetNotificationColor(notification.Type);
                     ImGuiNET.ImGui.PushStyleColor(ImGuiCol.Text, color);
@@ -298,11 +305,10 @@ namespace El_Garnan_Plugin_Loader.Base
 
         private void EnqueueNotification(PluginNotification notification)
         {
-            NotificationQueue.Enqueue(notification);
-
-            if (SupportsImGui)
+            lock (notificationGate)
             {
-                _popupQueued = true;
+                NotificationQueue.Enqueue(notification);
+                if (SupportsImGui) _popupQueued = true;
             }
 
             Logger?.Information($"[{notification.Type}] {notification.Title}: {notification.Message}");
@@ -310,20 +316,27 @@ namespace El_Garnan_Plugin_Loader.Base
 
         private void RenderNotificationPopup()
         {
-            if (NotificationQueue.Count == 0)
+            PluginNotification notification;
+            bool openPopup;
+            lock (notificationGate)
             {
-                _showNotification = true;
-                return;
+                if (NotificationQueue.Count == 0)
+                {
+                    _showNotification = true;
+                    return;
+                }
+
+                notification = NotificationQueue.Peek();
+                openPopup = _popupQueued;
+                if (openPopup)
+                {
+                    _popupQueued = false;
+                    _showNotification = true;
+                }
             }
 
-            var notification = NotificationQueue.Peek();
-
-            if (_popupQueued)
-            {
+            if (openPopup)
                 ImGuiNET.ImGui.OpenPopup(NotificationPopupId);
-                _popupQueued = false;
-                _showNotification = true;
-            }
 
             var io = ImGuiNET.ImGui.GetIO();
             ImGuiNET.ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 300, 10), ImGuiCond.Always);
@@ -339,7 +352,7 @@ namespace El_Garnan_Plugin_Loader.Base
 
                 if (!_showNotification)
                 {
-                    NotificationQueue.Dequeue();
+                    DequeueNotification();
                     ImGuiNET.ImGui.CloseCurrentPopup();
                     _showNotification = true;
                 }
@@ -348,8 +361,16 @@ namespace El_Garnan_Plugin_Loader.Base
             }
             else if (!_showNotification)
             {
-                NotificationQueue.Dequeue();
+                DequeueNotification();
                 _showNotification = true;
+            }
+        }
+
+        private void DequeueNotification()
+        {
+            lock (notificationGate)
+            {
+                if (NotificationQueue.Count > 0) NotificationQueue.Dequeue();
             }
         }
 
