@@ -27,10 +27,13 @@ public sealed class UpdaterTests
     {
         public int Downloads;
         public bool FailDownload;
+        public bool FailMetadata;
         public string UpdatesJson = "[]";
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            if (FailMetadata && request.RequestUri!.AbsolutePath is "/latest.json" or "/updates.json")
+                throw new HttpRequestException("Synthetic metadata transport failure");
             HttpContent content;
             switch (request.RequestUri!.AbsolutePath)
             {
@@ -91,6 +94,58 @@ public sealed class UpdaterTests
         Assert.Equal("previous installed data", File.ReadAllText(installedFile));
         Assert.False(Directory.Exists(Path.Combine(root.Path, ".weblaunch-transaction")));
         Assert.True(updater.InstallationStarted);
+    }
+
+    [Fact]
+    public async Task InterruptedInstallIsRecoveredBeforeOfflineMetadataFallback()
+    {
+        using var root = new TemporaryDirectory();
+        var installedFile = Path.Combine(root.Path, "bin", "client", "game.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(installedFile)!);
+        File.WriteAllText(installedFile, "partially updated data");
+
+        var transaction = Path.Combine(root.Path, ".weblaunch-transaction");
+        var backupFile = Path.Combine(transaction, "backup", "bin", "client", "game.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(backupFile)!);
+        File.WriteAllText(backupFile, "previous installed data");
+        Directory.CreateDirectory(Path.Combine(transaction, "stage"));
+        File.WriteAllText(Path.Combine(transaction, "journal.json"),
+            "{\"Changes\":[{\"Relative\":\"bin/client/game.txt\",\"Existed\":true}],\"Committed\":false,\"HasVersionMetadata\":true,\"PreviousVersion\":\"1\"}");
+
+        var version = new VersionStore { Version = "2" };
+        using var client = new HttpClient(new Provider(Archive(), new string('0', 32)) { FailMetadata = true });
+        var updater = new SpellbornUpdater(client, version, new ArchiveInstaller());
+
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            updater.EnsureUpdatedAsync(root.Path, new Progress<LaunchStatus>(), default));
+
+        Assert.Equal("1", version.Version);
+        Assert.Equal("previous installed data", File.ReadAllText(installedFile));
+        Assert.False(Directory.Exists(transaction));
+        Assert.False(updater.InstallationStarted); // Recovery completed; offline launch is now consistent and safe.
+    }
+
+    [Fact]
+    public async Task FailedInterruptedInstallRecoveryDisablesOfflineFallback()
+    {
+        using var root = new TemporaryDirectory();
+        var installedFile = Path.Combine(root.Path, "bin", "client", "game.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(installedFile)!);
+        File.WriteAllText(installedFile, "possibly partial data");
+        var transaction = Path.Combine(root.Path, ".weblaunch-transaction");
+        Directory.CreateDirectory(transaction);
+        File.WriteAllText(Path.Combine(transaction, "journal.json"), "{ malformed journal");
+
+        var version = new VersionStore { Version = "1" };
+        using var client = new HttpClient(new Provider(Archive(), new string('0', 32)) { FailMetadata = true });
+        var updater = new SpellbornUpdater(client, version, new ArchiveInstaller());
+
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() =>
+            updater.EnsureUpdatedAsync(root.Path, new Progress<LaunchStatus>(), default));
+
+        Assert.True(updater.InstallationStarted);
+        Assert.Equal("possibly partial data", File.ReadAllText(installedFile));
+        Assert.True(Directory.Exists(transaction));
     }
 
     [Fact] public async Task TransientFailuresHaveBoundedRetries()
