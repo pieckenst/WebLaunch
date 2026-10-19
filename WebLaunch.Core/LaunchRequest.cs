@@ -37,8 +37,8 @@ public sealed class LaunchRequest
         if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
             path = path[1..^1].Trim();
         path = path.Replace('/', '\\');
-        if (path.Length > 3)
-            path = path.TrimEnd('\\');
+        while (path.Length > 3 && path[^1] == '\\')
+            path = path[..^1];
         return path;
     }
 
