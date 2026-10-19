@@ -512,6 +512,14 @@
             catch (ObjectDisposedException) { }
             await stopBridge;
             if (confirmation is not null) await confirmation;
+
+            // ConfirmPairing deliberately avoids racing a second disconnect against the aborted
+            // JavaScript exchange. Once it has completed, clear the pending UI state here.
+            pairingCode = "";
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            hasNotice = true;
         }
         else await DisconnectPairing();
         message = "Pairing cancelled. Connect again when ready.";
