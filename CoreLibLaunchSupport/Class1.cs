@@ -373,7 +373,10 @@ namespace CoreLibLaunchSupport
 
             Log.Debug("[{Component}] Preparing native game process", nameof(NativeProcessLauncher));
             FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone,
-                () => $"Native process: executable={options.ExecutablePath}; workingDirectory={options.WorkingDirectory}; argumentLength={options.Arguments?.Length ?? 0}");
+                () => $"Native FFXIV process launch:{Environment.NewLine}" +
+                      $"  Executable: {options.ExecutablePath}{Environment.NewLine}" +
+                      $"  Working directory: {options.WorkingDirectory}{Environment.NewLine}" +
+                      $"  Arguments: {options.Arguments}");
 
             var pExplicitAccess = new PInvoke.EXPLICIT_ACCESS();
             PInvoke.BuildExplicitAccessWithName(
