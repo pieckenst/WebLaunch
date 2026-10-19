@@ -1,18 +1,25 @@
 @page "/"
 @inject LaunchApp.Services.GameNavigation GameNavigation
 <PageTitle>WebLaunch — your game library</PageTitle>
-<section class="library"><h1 class="visually-hidden">Your game library</h1>
-<div class="game-grid">
-@foreach (var game in _games)
+<section class="library">
+    <header class="library-hero">
+        <span class="eyebrow">Available games</span>
+         
+    </header>
+    <div class="game-grid" aria-label="Available games">
+@for (var index = 0; index < _games.Count; index++)
 {
-    <article class="game-card">
+    var game = _games[index];
+    <article class="game-card" style="--card-index: @index">
         <div class="game-cover" style="background-image: linear-gradient(0deg, #000d, #0001), url('@game.CoverImage')">
+            <span class="game-state">Ready to play</span>
             <h2>@game.Name</h2><div class="game-tags">@foreach (var tag in game.Tags) { <span>@tag</span> }</div>
         </div>
-        <div class="game-card-body"><p>@game.Description</p><small>@game.ShortInfo</small><a class="card-play" href="@game.Route" aria-label="Play now, @game.Name">Play now</a></div>
+        <div class="game-card-body"><p>@game.Description</p><small>@game.ShortInfo</small><a class="card-play" href="@game.Route" aria-label="Open @game.Name">Open game <span aria-hidden="true">→</span></a></div>
     </article>
 }
-</div></section>
+    </div>
+</section>
 @code {
 
     protected override void OnInitialized() => GameNavigation.Set(null);

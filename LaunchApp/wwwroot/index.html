@@ -4,15 +4,28 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#f7f8fa" />
     <title>WebLaunch</title>
     <base href="/" />
+    <script>
+        (() => {
+            try {
+                const preference = localStorage.getItem('weblaunch.theme');
+                const dark = preference === 'dark' || (preference !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+                const root = document.documentElement;
+                root.dataset.theme = dark ? 'dark' : 'light';
+                root.classList.add(dark ? 'dark' : 'light');
+                document.querySelector('meta[name="theme-color"]').content = dark ? '#08090b' : '#f7f8fa';
+            } catch { /* The launcher still follows its stylesheet defaults when storage is unavailable. */ }
+        })();
+    </script>
     <link href="_content/Masa.Blazor/css/masa-blazor.min.css" rel="stylesheet" />
     <link href="css/lumex.generated.css" rel="stylesheet" />
     <link href="css/weblaunch.css" rel="stylesheet" />
     <link rel="icon" type="image/png" href="favicon.png" />
 </head>
 <body>
-    <div id="app"><p role="status" class="initial-loading">Opening your game library…</p></div>
+    <div id="app"><div role="status" class="initial-loading"><span class="loader-spinner" aria-hidden="true"></span><span>Opening your game library…</span></div></div>
     <aside id="browser-notice" hidden role="alert">This action could not finish. Retry it, or <a href="">reload the launcher</a>. Safe diagnostic codes are available in the browser console.</aside>
     <div id="blazor-error-ui" role="alert">The launcher stopped responding. Reload and reconnect your desktop launcher. <a href="" class="reload">Reload WebLaunch</a></div>
     <script src="js/diagnostics.js"></script>

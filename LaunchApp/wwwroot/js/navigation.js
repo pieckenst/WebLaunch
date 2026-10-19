@@ -4,6 +4,9 @@ let lastLocation;
 let receiver;
 let reportFrame;
 let locationRevision = 0;
+let scrollFrame;
+let lastScrollY = 0;
+let sectionBarHidden = false;
 function reportLocation() {
     const revision = ++locationRevision;
     cancelAnimationFrame(reportFrame);
@@ -28,6 +31,20 @@ function dismissMenu(event) {
     if (event.type === 'click' && event.target.closest('a')) menu.open = false;
     if (event.type === 'keydown' && event.key === 'Escape') { menu.open = false; menu.querySelector('summary').focus(); }
 }
+function updateSectionBarVisibility() {
+    scrollFrame = undefined;
+    const bar = document.querySelector('.section-bar');
+    if (!bar) return;
+    const current = Math.max(window.scrollY, 0);
+    const change = current - lastScrollY;
+    if (current < 80 || change < -5) sectionBarHidden = false;
+    else if (change > 7) sectionBarHidden = true;
+    bar.classList.toggle('is-hidden', sectionBarHidden);
+    lastScrollY = current;
+}
+function sectionBarScrolled() {
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(updateSectionBarVisibility);
+}
 export function sync(route, selected, dotnet) {
     receiver = dotnet;
     document.removeEventListener('click', linkClicked, true);
@@ -40,6 +57,10 @@ export function sync(route, selected, dotnet) {
     document.removeEventListener('keydown', dismissMenu);
     document.addEventListener('click', dismissMenu);
     document.addEventListener('keydown', dismissMenu);
+    window.removeEventListener('scroll', sectionBarScrolled);
+    window.addEventListener('scroll', sectionBarScrolled, { passive: true });
+    lastScrollY = Math.max(window.scrollY, 0);
+    sectionBarHidden = false;
     observer?.disconnect();
     cancelAnimationFrame(frame);
     const header = document.querySelector('.site-header');
@@ -77,5 +98,9 @@ export function dispose() {
     document.removeEventListener('keydown', dismissMenu);
     observer?.disconnect();
     cancelAnimationFrame(frame);
+    window.removeEventListener('scroll', sectionBarScrolled);
+    cancelAnimationFrame(scrollFrame);
+    scrollFrame = undefined;
+    sectionBarHidden = false;
     lastLocation = undefined;
 }

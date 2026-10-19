@@ -1,5 +1,6 @@
 @using WebLaunch.Core
 @inject IJSRuntime JS
+@inject LaunchApp.Services.GameNavigation GameNavigation
 @implements IAsyncDisposable
 
 <section id="launch" class="launch-panel" aria-label="Launch controls">
@@ -10,7 +11,7 @@
     <button class="connection-summary" type="button" @onclick="OpenDesktop"><span class="status-dot @(paired ? "connected" : "")"></span>@PairingState</button>
     <p class="launch-summary" role="status">@(launchAttempted || hasNotice ? message : "")</p>
 </section>
-<dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title">
+<dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title" aria-busy="@busy">
     <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
         <button type="button" class="close-dialog" aria-label="Close settings" disabled="@((connecting || manualConnectPending) && pairingCancellation is null)" @onclick="CloseSettings">×</button>
     </div>
@@ -42,7 +43,7 @@
         </p>
     }
     <div class="actions">
-        <button type="button" @onclick="Connect" disabled="@(busy || connecting || manualConnectPending || !supported)">@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</button>
+        <button class="connection-action" type="button" @onclick="Connect" disabled="@(busy || connecting || manualConnectPending || !supported)">@if (connecting || manualConnectPending || reconnecting) { <span class="button-spinner" aria-hidden="true"></span> } <span>@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</span></button>
         <button type="button" @onclick="Forget" disabled="@(busy || connecting || manualConnectPending)">Forget this browser pairing</button>
     </div>
     @if (pairingCode.Length > 0)
@@ -71,11 +72,11 @@
                 <label for="otp">One-time password (optional)</label><input id="otp" @bind="otp" @bind:event="oninput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
                 <label class="check"><input type="checkbox" @bind="steam" /> I own the game on Steam</label>
             }
-            <div class="dialog-actions"><button type="button" @onclick="CloseSettings">Cancel</button><button class="primary" type="submit" disabled="@(!paired)">Launch game</button></div>
+            <div class="dialog-actions"><button type="button" @onclick="CloseSettings">Cancel</button><button class="primary launch-submit" type="submit" disabled="@(!paired || busy)">@if (busy) { <span class="button-spinner" aria-hidden="true"></span> } <span>@(busy ? "Launching…" : "Launch game")</span></button></div>
         </fieldset>
     </form>
     </div>
-    @if (busy) { <button type="button" @onclick="Cancel">Cancel launch</button> }
+    @if (busy) { <div class="launch-progress" role="status"><span class="loader-spinner" aria-hidden="true"></span><span>Working with your desktop launcher…</span></div><button type="button" @onclick="Cancel">Cancel launch</button> }
     <p id="launch-status" tabindex="-1" class="launch-status" role="status" aria-live="polite" aria-atomic="true">@message</p>
 </dialog>
 
@@ -83,6 +84,7 @@
     [Parameter] public string Game { get; set; } = "ffxiv";
     [Parameter] public string Title { get; set; } = "";
     private IJSObjectReference? module, dialogModule;
+    private IDisposable? pageActionRegistration;
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
     private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous;
@@ -128,6 +130,10 @@
     private string? focusTarget;
     private sealed record Connection(bool Paired, string Code, string DesktopMode, bool CanBrowseFolders);
     private sealed record Reply(bool Paired, LaunchStatus Status, string DesktopMode, bool CanBrowseFolders, string? FolderPath);
+    protected override void OnInitialized()
+    {
+        pageActionRegistration = GameNavigation.RegisterPageAction("Launch game", OpenGame);
+    }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender)
@@ -805,6 +811,8 @@
                 }
                 finally
                 {
+                    pageActionRegistration?.Dispose();
+                    pageActionRegistration = null;
                     dialogReference?.Dispose();
                     dialogReference = null;
                     password = otp = "";

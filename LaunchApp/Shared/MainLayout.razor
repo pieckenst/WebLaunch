@@ -24,12 +24,13 @@ else
         </LumexNavbarContent>
         <LumexNavbarContent Class="main-links">
             <LumexNavbarItem><LumexLink Href="./" Color="LumexUI.Common.ThemeColor.None"><NavigationIcon Name="overview" /> Home</LumexLink></LumexNavbarItem>
-            <LumexNavbarItem><LumexLink Href="counter" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "counter" ? "page" : null)">Final Fantasy XIV</LumexLink></LumexNavbarItem>
-            <LumexNavbarItem><LumexLink Href="spellborn" Color="LumexUI.Common.ThemeColor.None" aria-current="@(GameNavigation.Route == "spellborn" ? "page" : null)">Spellborn</LumexLink></LumexNavbarItem>
         </LumexNavbarContent>
         <LumexNavbarContent Class="theme-control">
             <LumexNavbarItem><LumexSwitch tabindex="-1" Class="theme-toggle" Value="@dark" ValueChanged="SetTheme" Size="LumexUI.Common.Size.Small">Dark theme</LumexSwitch></LumexNavbarItem>
-            <LumexNavbarItem><a class="nav-launch" href="@(GameNavigation.Route is { } route ? route + "#launch" : "./")">Launch Game</a></LumexNavbarItem>
+            @if (GameNavigation.HasPageAction)
+            {
+                <LumexNavbarItem><button class="nav-launch" type="button" @onclick="GameNavigation.InvokePageActionAsync" aria-label="@GameNavigation.PageActionLabel">@GameNavigation.PageActionLabel</button></LumexNavbarItem>
+            }
         </LumexNavbarContent>
     </LumexNavbar>
     @if (GameNavigation.Route is not null)
@@ -41,7 +42,7 @@ else
             </Menu>
         </SectionTabBar>
     }
-    <main id="main" tabindex="-1">@Body</main>
+    <main id="main" tabindex="-1"><div @key="GameNavigation.Route" class="route-transition">@Body</div></main>
     <footer>WebLaunch requires the Windows desktop launcher to start games. <a href="https://github.com/pieckenst/WebLaunch/releases/">Downloads</a></footer>
 </MApp>
 }
