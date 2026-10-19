@@ -15,6 +15,7 @@ public enum PluginDiagnosticLevel
 /// <remarks>Entries deliberately omit paths, exception messages, stack traces, credentials and plugin payloads.</remarks>
 public sealed record PluginDiagnosticEntry(
     DateTimeOffset TimestampUtc,
+    string CorrelationId,
     PluginDiagnosticLevel Level,
     string Stage,
     string PluginId,
@@ -60,12 +61,14 @@ public sealed class PluginDiagnostics
         string stage,
         string? pluginId,
         string outcome,
-        Exception? exception = null)
+        Exception? exception = null,
+        string? correlationId = null)
     {
         if (level == PluginDiagnosticLevel.Trace && !DebugEnabled) return;
 
         var entry = new PluginDiagnosticEntry(
             DateTimeOffset.UtcNow,
+            Sanitize(correlationId ?? Guid.NewGuid().ToString("N"), "unknown"),
             level,
             Sanitize(stage, "unknown"),
             Sanitize(pluginId, "host"),
@@ -86,7 +89,7 @@ public sealed class PluginDiagnostics
                 if (File.Exists(logPath) && new FileInfo(logPath).Length >= MaximumFileBytes)
                     File.Move(logPath, logPath + ".1", overwrite: true);
 
-                var line = $"{entry.TimestampUtc:O} level={entry.Level} stage={entry.Stage} " +
+                var line = $"{entry.TimestampUtc:O} correlation={entry.CorrelationId} level={entry.Level} stage={entry.Stage} " +
                     $"plugin={entry.PluginId} outcome={entry.Outcome} error={entry.ExceptionType ?? "-"} " +
                     $"hr={entry.HResult ?? "-"}{Environment.NewLine}";
                 File.AppendAllText(logPath, line, Encoding.UTF8);
