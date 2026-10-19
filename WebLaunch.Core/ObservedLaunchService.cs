@@ -1,11 +1,13 @@
 namespace WebLaunch.Core;
 
 /// <summary>Shared, nonsecret lifecycle reporting for all desktop modes.</summary>
-public sealed class ObservedLaunchService(ILaunchService inner, Action<string, LaunchStatus> observe) : ILaunchService
+public sealed class ObservedLaunchService(
+    ILaunchService inner,
+    Action<string, LaunchStatus> observe,
+    Action<string, string, Exception>? observeFailure = null) : ILaunchService
 {
     public async Task LaunchAsync(LaunchRequest request, IProgress<LaunchStatus> progress, CancellationToken token)
     {
-        request.Validate();
         void Report(LaunchStatus status)
         {
             var safe = LaunchPresentation.Normalize(status);
@@ -21,7 +23,14 @@ public sealed class ObservedLaunchService(ILaunchService inner, Action<string, L
             Report(new("launched", "", true, true));
         }
         catch (OperationCanceledException) { Report(new("cancelled", "", true)); throw; }
-        catch { Report(new("failed", "", true)); throw; }
+        catch (Exception ex)
+        {
+            Report(new("failed", "", true));
+            // The host receives only the exception object in memory and records its type/HResult.
+            // Never persist exception messages, stack traces, paths or launch payloads.
+            try { observeFailure?.Invoke(request.RequestId, request.Game, ex); } catch { }
+            throw;
+        }
     }
     private sealed class ForwardProgress(Action<LaunchStatus> report) : IProgress<LaunchStatus>
     {
