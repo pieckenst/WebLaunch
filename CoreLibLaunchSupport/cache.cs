@@ -94,12 +94,13 @@ namespace CoreLibLaunchSupport
         #region SaveLoad
 
         private readonly FileInfo configFile;
+        private string TemporaryPath => configFile.FullName + ".tmp";
 
         public void Save()
         {
             if (!OperatingSystem.IsWindows()) return; // Session credentials are memory-only on unsupported platforms.
             var plaintext = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(_cache));
-            var temporary = configFile.FullName + ".tmp";
+            var temporary = TemporaryPath;
             try
             {
                 var encrypted = System.Security.Cryptography.ProtectedData.Protect(plaintext, null, System.Security.Cryptography.DataProtectionScope.CurrentUser);
@@ -142,8 +143,10 @@ namespace CoreLibLaunchSupport
         public void Reset()
         {
             _cache.Clear();
-            // A reset must not silently retain persisted session credentials.
-            File.Delete(configFile.FullName);
+            // A reset must not silently retain persisted session credentials, including the encrypted
+            // staging file that an interrupted Save leaves behind.
+            try { File.Delete(TemporaryPath); }
+            finally { File.Delete(configFile.FullName); }
         }
 
         #endregion

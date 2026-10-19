@@ -214,6 +214,40 @@ public sealed class ReviewRegressionTests
         cache.Reset(); // Reset remains safe when the file is already absent.
     }
 
+    [Fact] public void CacheResetRemovesInterruptedSaveStagingFile()
+    {
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var staging = file + ".tmp";
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        if (!OperatingSystem.IsWindows()) File.WriteAllText(file, "old persisted credentials");
+        File.WriteAllBytes(staging, [1, 2, 3]);
+
+        cache.Reset();
+
+        Assert.False(File.Exists(file));
+        Assert.False(File.Exists(staging));
+        cache.Reset();
+    }
+
+    [Fact] public void CacheResetStillRemovesActiveCacheWhenStagingFileCannotBeDeleted()
+    {
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var staging = file + ".tmp";
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        if (!OperatingSystem.IsWindows()) File.WriteAllText(file, "old persisted credentials");
+        Directory.CreateDirectory(staging);
+        File.WriteAllText(Path.Combine(staging, "blocked"), "staging deletion must fail");
+
+        var error = Record.Exception(() => cache.Reset());
+
+        Assert.True(error is IOException or UnauthorizedAccessException);
+        Assert.False(File.Exists(file));
+    }
+
     [Fact] public void WindowsCacheResetReportsFailureToRemovePreviousCredentials()
     {
         if (!OperatingSystem.IsWindows()) return;
