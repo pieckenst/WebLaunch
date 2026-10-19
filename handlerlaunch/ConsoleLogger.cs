@@ -1,3 +1,4 @@
+using System.IO;
 using El_Garnan_Plugin_Loader.Interfaces;
 using XIVLauncher.Common.Support;
 
