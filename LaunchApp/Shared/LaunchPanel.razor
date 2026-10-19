@@ -86,6 +86,7 @@
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
     private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous;
+    private string? launchOutcomeWarning;
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
@@ -235,7 +236,7 @@
                     var delay = RecoveryDelay(failures, previousFailure);
                     var retryMessage = $"The desktop connection is unavailable. Retrying automatically in {delay.TotalSeconds:0} seconds. Select Reconnect now to retry immediately.";
                     message = launchOutcomeAmbiguous
-                        ? "The previous launch outcome is unknown; verify the game state before retrying. " + retryMessage
+                        ? $"{launchOutcomeWarning ?? "The previous launch outcome is unknown."} Retrying the secure desktop connection in {delay.TotalSeconds:0} seconds. Verify the game state before retrying."
                         : retryMessage;
                     hasNotice = true;
                     await RefreshConnectionStateAsync();
@@ -244,9 +245,11 @@
 
                 token.ThrowIfCancellationRequested();
                 connecting = true;
-                message = failures == 0
-                    ? "The secure desktop session was interrupted. Reconnecting automatically…"
-                    : "Retrying the secure desktop connection…";
+                message = launchOutcomeAmbiguous
+                    ? $"{launchOutcomeWarning ?? "The previous launch outcome is unknown."} Re-establishing the secure desktop connection…"
+                    : failures == 0
+                        ? "The secure desktop session was interrupted. Reconnecting automatically…"
+                        : "Retrying the secure desktop connection…";
                 hasNotice = true;
                 await RefreshConnectionStateAsync();
 
@@ -263,9 +266,10 @@
                     {
                         savedPairing = true;
                         message = launchOutcomeAmbiguous
-                            ? "Desktop connection restored. The previous launch outcome is unknown; verify the game state before submitting another launch."
+                            ? $"{launchOutcomeWarning ?? "The previous launch outcome is unknown."} Desktop connection restored. Verify the game state before submitting another launch."
                             : "The desktop connection is restored.";
                         launchOutcomeAmbiguous = false;
+                        launchOutcomeWarning = null;
                         hasNotice = true;
                         return;
                     }
@@ -596,6 +600,8 @@
         cancellation.CancelAfter(TimeSpan.FromHours(2));
         launchCancellation = cancellation;
         launchCancellationConfirmed = false;
+        launchOutcomeAmbiguous = false;
+        launchOutcomeWarning = null;
         launchAttempted = true; busy = true; message = "Submitting launch request…";
         var completed = false;
         var launchRequestSubmitted = false;
@@ -616,18 +622,26 @@
         catch (JSException ex)
         {
             BrowserDiagnostics.Report("bridge", ex);
-            message = launchRequestSubmitted
-                ? "The launch response was interrupted. The game may still be starting; do not submit another launch until you verify its state. Re-establishing the desktop connection…"
-                : UserMessage(ex);
-            launchOutcomeAmbiguous = launchRequestSubmitted;
+            if (launchRequestSubmitted)
+            {
+                launchOutcomeAmbiguous = true;
+                launchOutcomeWarning = "The launch response was interrupted. The game may still be starting; do not submit another launch until you verify its state.";
+                message = launchOutcomeWarning + " Re-establishing the desktop connection…";
+            }
+            else message = UserMessage(ex);
         }
         catch (OperationCanceledException)
         {
             if (!lifetime.IsCancellationRequested && !launchCancellationConfirmed)
-                message = launchRequestSubmitted
-                    ? "Launch monitoring was interrupted. The game may still be starting; do not submit another launch until you verify its state. Re-establishing the desktop connection…"
-                    : "The operation was cancelled before the launch request was submitted.";
-            if (launchRequestSubmitted && !launchCancellationConfirmed) launchOutcomeAmbiguous = true;
+            {
+                if (launchRequestSubmitted)
+                {
+                    launchOutcomeAmbiguous = true;
+                    launchOutcomeWarning = "Launch monitoring timed out. The game may still be starting; do not submit another launch until you verify its state.";
+                    message = launchOutcomeWarning + " Re-establishing the desktop connection…";
+                }
+                else message = "The operation was cancelled before the launch request was submitted.";
+            }
         }
         finally
         {
