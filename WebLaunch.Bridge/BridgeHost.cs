@@ -168,11 +168,7 @@ public sealed class BridgeHost : IAsyncDisposable
         // Expire before cancelling either token. Do not acquire Gate: MessageAsync deliberately
         // holds it while waiting for approval, which is exactly the operation this endpoint must
         // be able to interrupt.
-        session.Expires = DateTimeOffset.MinValue;
-        try { await session.PairingTimeout.CancelAsync(); }
-        catch (ObjectDisposedException) { }
-        try { await session.JobCancellation.CancelAsync(); }
-        catch (ObjectDisposedException) { }
+        session.Revoke();
         context.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
@@ -190,8 +186,7 @@ public sealed class BridgeHost : IAsyncDisposable
             var command = session.Channel.Decrypt<BridgeCommand>(envelope);
             if (command.Action == "disconnect")
             {
-                session.Expires = DateTimeOffset.MinValue;
-                session.JobCancellation.Cancel(); session.PairingTimeout.Cancel();
+                session.Revoke();
                 await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(false,
                     new("disconnected", "Connection closed.", true), desktopMode)), timeout.Token);
                 return;
@@ -233,7 +228,20 @@ public sealed class BridgeHost : IAsyncDisposable
                 }
                 finally { admission.Release(); }
             }
-            session.Expires = DateTimeOffset.UtcNow.AddMinutes(10);
+            // Renewal and revocation share admission. Once ForgetBrowsersAsync has persisted
+            // the trust-store change, no in-flight request can renew this session's expiry.
+            await admission.WaitAsync(timeout.Token);
+            try
+            {
+                if (session.IsExpired)
+                {
+                    context.Response.StatusCode = StatusCodes.Status410Gone;
+                    return;
+                }
+                session.Expires = DateTimeOffset.UtcNow.AddMinutes(10);
+            }
+            finally { admission.Release(); }
+
             string? folderPath = null;
             LaunchStatus? replyStatus = null;
             switch (command.Action)
@@ -256,7 +264,9 @@ public sealed class BridgeHost : IAsyncDisposable
                     if (session.Job is not null) throw new InvalidDataException("Reconnect before selecting another folder.");
                     try
                     {
-                        folderPath = await folderPicker.SelectAsync(timeout.Token);
+                        using var folderCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                            timeout.Token, session.RevocationCancellation.Token);
+                        folderPath = await folderPicker.SelectAsync(folderCancellation.Token);
                         if (folderPath is not null) LaunchRequest.ValidateGamePath(folderPath);
                         replyStatus = new("folder", folderPath is null ? "Folder selection cancelled." : "Installation folder selected.");
                     }
@@ -298,8 +308,10 @@ public sealed class BridgeHost : IAsyncDisposable
         await admission.WaitAsync();
         try
         {
+            // Persist revocation first. If persistence fails, keep the existing trust and sessions
+            // intact rather than reporting success for a revocation that was not saved.
             trust.ForgetAll();
-            foreach (var session in sessions.Values) { session.Expires = DateTimeOffset.MinValue; session.JobCancellation.Cancel(); }
+            foreach (var session in sessions.Values) session.Revoke();
         }
         finally { admission.Release(); }
     }
@@ -316,10 +328,11 @@ public sealed class BridgeHost : IAsyncDisposable
         public readonly string Origin, Fingerprint, Code;
         public readonly SecureChannel Channel;
         public readonly SemaphoreSlim Gate = new(1, 1);
-        public readonly CancellationTokenSource PairingTimeout, JobCancellation;
+        public readonly CancellationTokenSource PairingTimeout, JobCancellation, RevocationCancellation;
         public DateTimeOffset Expires = DateTimeOffset.UtcNow.AddMinutes(10);
         private readonly DateTimeOffset pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
-        public bool IsExpired => DateTimeOffset.UtcNow >= Expires || (!Paired && DateTimeOffset.UtcNow >= pairingExpires);
+        private int revoked;
+        public bool IsExpired => Volatile.Read(ref revoked) != 0 || DateTimeOffset.UtcNow >= Expires || (!Paired && DateTimeOffset.UtcNow >= pairingExpires);
         public bool Paired;
         public Task<bool> Approval = Task.FromResult(false);
         public Task? Job;
@@ -331,14 +344,29 @@ public sealed class BridgeHost : IAsyncDisposable
             PairingTimeout.CancelAfter(TimeSpan.FromMinutes(2));
             JobCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             JobCancellation.CancelAfter(TimeSpan.FromHours(2));
+            RevocationCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+        }
+        public void Revoke()
+        {
+            Interlocked.Exchange(ref revoked, 1);
+            Expires = DateTimeOffset.MinValue;
+            CancelQuietly(RevocationCancellation);
+            CancelQuietly(JobCancellation);
+            CancelQuietly(PairingTimeout);
+        }
+        private static void CancelQuietly(CancellationTokenSource source)
+        {
+            try { source.Cancel(); }
+            catch (ObjectDisposedException) { }
+            catch (AggregateException) { }
         }
         public async ValueTask DisposeAsync()
         {
-            await JobCancellation.CancelAsync(); await PairingTimeout.CancelAsync();
+            Revoke();
             if (Job is not null) await Job;
             await Gate.WaitAsync();
             try { Channel.Dispose(); } finally { Gate.Release(); }
-            JobCancellation.Dispose(); PairingTimeout.Dispose();
+            JobCancellation.Dispose(); PairingTimeout.Dispose(); RevocationCancellation.Dispose();
         }
     }
 }
