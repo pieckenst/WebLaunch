@@ -42,9 +42,11 @@ public sealed class PluginDiagnosticsTests
                      entry.Outcome == "entry-assembly-missing" &&
                      entry.ExceptionType == nameof(FileNotFoundException));
         Assert.NotNull(failure.HResult);
+        Assert.False(string.IsNullOrWhiteSpace(failure.CorrelationId));
         Assert.True(File.Exists(host.DiagnosticLogPath));
 
         var text = File.ReadAllText(host.DiagnosticLogPath);
+        Assert.Contains($"correlation={failure.CorrelationId}", text);
         Assert.Contains("stage=manifest", text);
         Assert.Contains("plugin=ffxiv-launcher", text);
         Assert.Contains("outcome=entry-assembly-missing", text);
