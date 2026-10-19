@@ -308,8 +308,13 @@ export async function playNowRoutesByReadiness(page, base) {
     await expect(page.getByRole('dialog')).not.toBeVisible();
 
     // FFXIV has no stored credentials, so Play now offers the focused sign-in prompt
-    // instead of the full settings dialog.
+    // instead of the full settings dialog. A fresh page has a saved identity but no active
+    // encrypted channel; reconnect explicitly before asserting the frictionless launch path.
     await page.goto(base + 'counter');
+    await openDesktop(page);
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected', { timeout: 15000 });
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Play now', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Play now', exact: true }).click();
     const prompt = page.getByRole('dialog');
