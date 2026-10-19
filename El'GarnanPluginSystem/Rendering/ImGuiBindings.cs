@@ -256,15 +256,24 @@ namespace El_Garnan_Plugin_Loader.Rendering
     {
         if (!autoViewsByTexture.Remove(texture, out var textureView)) return;
 
+        List<Exception>? failures = null;
         if (setsByView.Remove(textureView, out var info))
         {
             viewsById.Remove(info.ImGuiBinding);
             ownedResources.Remove(info.ResourceSet);
-            info.ResourceSet.Dispose();
+            try { info.ResourceSet.Dispose(); }
+            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
         }
 
+        // Remove bookkeeping before disposal, and release the view even if its resource set
+        // throws. TextureWrap owns the texture itself and will attempt to release it separately.
         ownedResources.Remove(textureView);
-        textureView.Dispose();
+        try { textureView.Dispose(); }
+        catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+
+        if (failures is { Count: 1 }) throw failures[0];
+        if (failures is { Count: > 1 })
+            throw new AggregateException("ImGui texture binding cleanup was incomplete.", failures);
     }
 
     /// <summary>
