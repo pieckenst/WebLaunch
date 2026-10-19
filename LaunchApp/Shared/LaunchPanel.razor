@@ -85,7 +85,7 @@
     private IJSObjectReference? module, dialogModule;
     private ElementReference dialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference;
-    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous;
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
@@ -233,7 +233,10 @@
                 if (failures > 0)
                 {
                     var delay = RecoveryDelay(failures, previousFailure);
-                    message = $"The desktop connection is unavailable. Retrying automatically in {delay.TotalSeconds:0} seconds. Select Reconnect now to retry immediately.";
+                    var retryMessage = $"The desktop connection is unavailable. Retrying automatically in {delay.TotalSeconds:0} seconds. Select Reconnect now to retry immediately.";
+                    message = launchOutcomeAmbiguous
+                        ? "The previous launch outcome is unknown; verify the game state before retrying. " + retryMessage
+                        : retryMessage;
                     hasNotice = true;
                     await RefreshConnectionStateAsync();
                     await Task.Delay(delay, token);
@@ -259,7 +262,10 @@
                     if (recovered.Paired)
                     {
                         savedPairing = true;
-                        message = "The desktop connection is restored.";
+                        message = launchOutcomeAmbiguous
+                            ? "Desktop connection restored. The previous launch outcome is unknown; verify the game state before submitting another launch."
+                            : "The desktop connection is restored.";
+                        launchOutcomeAmbiguous = false;
                         hasNotice = true;
                         return;
                     }
@@ -593,6 +599,7 @@
         launchAttempted = true; busy = true; message = "Submitting launch request…";
         var completed = false;
         var launchRequestSubmitted = false;
+        var recoverAfterAmbiguousLaunch = false;
         try
         {
             await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
@@ -610,15 +617,17 @@
         {
             BrowserDiagnostics.Report("bridge", ex);
             message = launchRequestSubmitted
-                ? "The launch response was interrupted. Check the desktop launcher before retrying, then reconnect and compare the pairing code."
+                ? "The launch response was interrupted. The game may still be starting; do not submit another launch until you verify its state. Re-establishing the desktop connection…"
                 : UserMessage(ex);
+            launchOutcomeAmbiguous = launchRequestSubmitted;
         }
         catch (OperationCanceledException)
         {
             if (!lifetime.IsCancellationRequested && !launchCancellationConfirmed)
                 message = launchRequestSubmitted
-                    ? "Launch monitoring timed out. Check the desktop launcher before retrying, then reconnect and compare the pairing code."
+                    ? "Launch monitoring was interrupted. The game may still be starting; do not submit another launch until you verify its state. Re-establishing the desktop connection…"
                     : "The operation was cancelled before the launch request was submitted.";
+            if (launchRequestSubmitted) launchOutcomeAmbiguous = true;
         }
         finally
         {
@@ -635,12 +644,19 @@
                 // so that an ambiguous response cannot accidentally duplicate process creation.
                 if (completed)
                     message += " Reconnect to launch again or browse folders.";
+                else
+                    recoverAfterAmbiguousLaunch = savedPairing && !lifetime.IsCancellationRequested;
                 paired = false;
                 actualMode = "";
                 try { await module.InvokeVoidAsync("disconnect"); }
                 catch (JSException ex) { BrowserDiagnostics.Report("post-launch disconnect", ex); }
             }
         }
+
+        // Re-establish a fresh authenticated session after a lost launch response, but never
+        // resubmit the launch automatically: the desktop may already have started the game.
+        if (recoverAfterAmbiguousLaunch)
+            _ = StartAutomaticRecoveryAsync();
     }
     private async Task Poll(CancellationToken token)
     {
