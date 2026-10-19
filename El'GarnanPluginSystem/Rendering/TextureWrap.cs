@@ -112,25 +112,13 @@ namespace El_Garnan_Plugin_Loader.Rendering
             }
         }
 
-        /// <summary>Releases the ImGui binding and owned GPU texture.</summary>
+        /// <summary>Queues release of the ImGui binding and owned GPU texture after the current frame.</summary>
         public void Dispose()
         {
             if (_disposed) return;
-            // Make repeated disposal idempotent even when a GPU resource's Dispose throws.
+            // The current frame may already contain ImGuiHandle. Keep its texture alive too.
             _disposed = true;
-            List<Exception>? failures = null;
-
-            try { _bindings.RemoveImGuiBinding(_deviceTexture); }
-            catch (Exception ex) { (failures ??= []).Add(ex); }
-
-            // The texture is owned by this wrapper, so always attempt to release it even
-            // when removing the ImGui binding failed.
-            try { _deviceTexture.Dispose(); }
-            catch (Exception ex) { (failures ??= []).Add(ex); }
-
-            if (failures is { Count: 1 }) throw failures[0];
-            if (failures is { Count: > 1 })
-                throw new AggregateException("Texture and ImGui binding cleanup both failed.", failures);
+            _bindings.RemoveImGuiBinding(_deviceTexture, disposeTexture: true);
         }
     }
 }

@@ -275,7 +275,7 @@ public static class FfxivTraceLogger
         var cutoff = DateTime.UtcNow.AddDays(-7);
         try
         {
-            foreach (var path in Directory.EnumerateFiles(logsDir, "ffxiv-trace-*.log").Take(1000))
+            foreach (var path in Directory.EnumerateFiles(logsDir, "ffxiv-trace-*.log"))
             {
                 try
                 {

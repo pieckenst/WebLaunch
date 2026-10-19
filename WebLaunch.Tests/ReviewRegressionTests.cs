@@ -518,4 +518,19 @@ public sealed class ReviewRegressionTests
         FfxivTraceLogger.CleanupTraceFiles(root.Path);
         Assert.False(File.Exists(old)); Assert.True(File.Exists(recent)); Assert.True(File.Exists(unrelated));
     }
+
+    [Fact] public void TraceRetentionChecksEveryMatchingFileInOneRun()
+    {
+        using var root = new TemporaryDirectory();
+        for (var i = 0; i < 1005; i++)
+        {
+            var path = Path.Combine(root.Path, $"ffxiv-trace-{i}.log");
+            File.WriteAllText(path, "synthetic");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-8));
+        }
+
+        FfxivTraceLogger.CleanupTraceFiles(root.Path);
+
+        Assert.Empty(Directory.EnumerateFiles(root.Path, "ffxiv-trace-*.log"));
+    }
 }

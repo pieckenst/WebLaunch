@@ -60,6 +60,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
     private readonly Dictionary<IntPtr, ResourceSetInfo> viewsById = new Dictionary<IntPtr, ResourceSetInfo>();
     private readonly List<IDisposable> ownedResources = new List<IDisposable>();
+    private readonly Dictionary<Texture, bool> pendingBindingRemovals = new();
     private int lastAssignedID = 100;
 
     private const float DefaultFontPxSize = 18f;
@@ -269,8 +270,44 @@ namespace El_Garnan_Plugin_Loader.Rendering
         return GetOrCreateImGuiBinding(factory, textureView);
     }
 
-    /// <summary>Removes a texture's binding and releases its cached view and resource set.</summary>
+    /// <summary>Queues removal until the current frame no longer needs the binding.</summary>
     public void RemoveImGuiBinding(Texture texture)
+        => RemoveImGuiBinding(texture, disposeTexture: false);
+
+    internal void RemoveImGuiBinding(Texture texture, bool disposeTexture)
+    {
+        if (_disposed)
+        {
+            // Shutdown has already discarded every frame and released the cached bindings.
+            if (disposeTexture) texture.Dispose();
+            return;
+        }
+        pendingBindingRemovals.TryGetValue(texture, out var alreadyDisposingTexture);
+        pendingBindingRemovals[texture] = disposeTexture || alreadyDisposingTexture;
+    }
+
+    private void DrainPendingBindingRemovals()
+    {
+        var removals = pendingBindingRemovals.ToArray();
+        pendingBindingRemovals.Clear();
+        List<Exception>? failures = null;
+        foreach (var (texture, disposeTexture) in removals)
+        {
+            try { ReleaseImGuiBinding(texture); }
+            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+            if (disposeTexture)
+            {
+                try { gd.DisposeWhenIdle(texture); }
+                catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+            }
+        }
+
+        if (failures is { Count: 1 }) throw failures[0];
+        if (failures is { Count: > 1 })
+            throw new AggregateException("ImGui texture binding cleanup was incomplete.", failures);
+    }
+
+    private void ReleaseImGuiBinding(Texture texture)
     {
         if (!autoViewsByTexture.Remove(texture, out var textureView)) return;
 
@@ -281,15 +318,14 @@ namespace El_Garnan_Plugin_Loader.Rendering
             if (info.ResourceSet is not null)
             {
                 ownedResources.Remove(info.ResourceSet);
-                try { info.ResourceSet.Dispose(); }
+                try { gd.DisposeWhenIdle(info.ResourceSet); }
                 catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
             }
         }
 
-        // Remove bookkeeping before disposal, and release the view even if its resource set
-        // throws. TextureWrap owns the texture itself and will attempt to release it separately.
+        // Schedule dependants before the resources they reference, and attempt every release.
         ownedResources.Remove(textureView);
-        try { textureView.Dispose(); }
+        try { gd.DisposeWhenIdle(textureView); }
         catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
 
         if (failures is { Count: 1 }) throw failures[0];
@@ -313,10 +349,12 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
     public void ClearCachedImageResources()
     {
+        List<Exception>? failures = null;
+        try { DrainPendingBindingRemovals(); }
+        catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
         // Resource sets depend on their texture views, so release in reverse creation order.
         // Continue through the full collection when one native/GPU disposal fails.
         var resources = new List<IDisposable>(ownedResources);
-        List<Exception>? failures = null;
         for (var index = resources.Count - 1; index >= 0; index--)
         {
             try { resources[index].Dispose(); }
@@ -431,6 +469,9 @@ namespace El_Garnan_Plugin_Loader.Rendering
         {
             ImGui.Render();
         }
+
+        // The previous frame was submitted or discarded; its handles are no longer needed.
+        DrainPendingBindingRemovals();
 
         SetPerFrameImGuiData(deltaSeconds);
         UpdateImGuiInput(snapshot);
@@ -761,6 +802,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
     private void ReleaseDeviceResources(bool preserveImageBindings)
     {
         List<Exception>? failures = null;
+        try { DrainPendingBindingRemovals(); }
+        catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
         void DisposeOne(IDisposable? resource)
         {
             if (resource is null) return;

@@ -267,6 +267,12 @@ for (const state of ['launched', 'failed']) {
     });
 }
 
+for (const state of ['launched', 'cancelled']) {
+    test(`terminal cancel response retains recovery guard when ${state} marker cleanup fails`, async ({ page }) => {
+        await pendingLaunchStatus(page, base, 'cancel', state, true);
+    });
+}
+
 for (const state of ['cancelled', 'launched', 'failed']) {
     test(`nonterminal cancel keeps polling until ${state}`, async ({ page }) => {
         await pendingLaunchStatus(page, base, 'cancel-pending', state);

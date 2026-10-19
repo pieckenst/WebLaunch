@@ -962,16 +962,13 @@
             if (launchCancellationConfirmed)
             {
                 // Cancel() may confirm success if the game started before cancellation arrived.
-                if (terminalStatus?.Success == true)
-                {
-                    successConfirmed = true;
-                    message = "Game process started.";
-                }
-                else if (module is null)
+                successConfirmed = terminalStatus?.Success == true;
+                var confirmedOutcome = successConfirmed ? "success" : "cancellation";
+                if (module is null)
                 {
                     launchOutcomeAmbiguous = true;
                     launchVerificationReady = false;
-                    launchOutcomeWarning = "The desktop confirmed cancellation, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
+                    launchOutcomeWarning = $"The desktop confirmed {confirmedOutcome}, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
                     message = launchOutcomeWarning;
                 }
                 else
@@ -983,14 +980,14 @@
                         launchOutcomeAmbiguous = false;
                         launchVerificationReady = false;
                         launchOutcomeWarning = null;
-                        message = "Launch cancelled.";
+                        message = successConfirmed ? "Game process started." : "Launch cancelled.";
                     }
                     catch (JSException ex)
                     {
                         BrowserDiagnostics.Report("clear confirmed launch state", ex);
                         launchOutcomeAmbiguous = true;
                         launchVerificationReady = false;
-                        launchOutcomeWarning = "The desktop confirmed cancellation, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
+                        launchOutcomeWarning = $"The desktop confirmed {confirmedOutcome}, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
                         message = launchOutcomeWarning;
                     }
                 }

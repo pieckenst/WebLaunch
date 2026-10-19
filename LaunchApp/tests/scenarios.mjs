@@ -417,7 +417,7 @@ export async function browserRecovery(page, base) {
     } finally { page.off('console', observe); }
 }
 
-export async function pendingLaunchStatus(page, base, action, terminalState = 'cancelled') {
+export async function pendingLaunchStatus(page, base, action, terminalState = 'cancelled', markerClearFails = false) {
     await page.route('**/js/bridge.js', async route => {
         const response = await route.fetch();
         let body = await response.text();
@@ -426,6 +426,10 @@ export async function pendingLaunchStatus(page, base, action, terminalState = 'c
         body = body.replace('export function abandon()', 'function original_abandon()');
         body = body.replace('export const status =', 'const original_status =');
         body = body.replace('export const cancel =', 'const original_cancel =');
+        if (markerClearFails) {
+            body = body.replace('export function pendingLaunchId(value) {', `export function pendingLaunchId(value) {
+                if (value === '') throw new Error('Synthetic session storage failure');`);
+        }
         body += `
 export async function connect() { return { paired: true, code: '', desktopMode: 'gui' }; }
 export async function launch() { return { status: { message: 'Synthetic pending launch', completed: false } }; }
@@ -454,11 +458,21 @@ export function abandon() { window.launchDisconnected = true; }
     if (action === 'cancel') {
         await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
         const succeeded = terminalState === 'launched';
-        await expect(page.locator('.launch-status')).toHaveText(succeeded ? 'Game process started.' : 'Launch cancelled.');
+        if (markerClearFails)
+            await expect(page.locator('.launch-status')).toContainText(`The desktop confirmed ${succeeded ? 'success' : 'cancellation'}, but the browser could not clear its recovery marker.`);
+        else
+            await expect(page.locator('.launch-status')).toHaveText(succeeded ? 'Game process started.' : 'Launch cancelled.');
         expect(await page.evaluate(() => window.launchCancelSent)).toBe(true);
         const pendingId = await page.evaluate(() => sessionStorage.getItem('weblaunch.pendingLaunchId'));
-        if (succeeded) expect(pendingId).toMatch(/^[a-f0-9]{32}$/);
+        if (markerClearFails) expect(pendingId).toMatch(/^[a-f0-9]{32}$/);
         else expect(pendingId).toBeNull();
+        if (!markerClearFails) {
+            // Reconnect in the same component to verify its in-memory request ID was cleared too.
+            await page.getByRole('dialog').getByRole('button', { name: 'Desktop connection', exact: true }).click();
+            await page.getByRole('button', { name: 'Connect', exact: true }).click();
+            await expect(page.getByRole('button', { name: 'Play now', exact: true })).toBeEnabled();
+            await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
+        }
         await expect(page.getByLabel('Username', { exact: true })).toHaveValue('synthetic-user');
         await expect(page.getByLabel('Password', { exact: true })).toHaveValue(succeeded ? '' : 'synthetic-password');
         await expect(page.getByLabel('One-time password (optional)', { exact: true })).toHaveValue(succeeded ? '' : '123456');
