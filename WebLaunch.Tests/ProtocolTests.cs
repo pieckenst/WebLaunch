@@ -38,6 +38,28 @@ public sealed class ProtocolTests
         Assert.Throws<ArgumentException>(() => LegacyProtocol.Parse(Link() + new string('a', 8192), Now.AddHours(1), Now));
         Assert.Throws<ArgumentException>(() => LegacyProtocol.Parse("https://example.com/?ffxivhandle=yes", Now.AddHours(1), Now));
     }
+    [Theory]
+    [InlineData(" D:/Games/ ", @"D:\Games")]
+    [InlineData("  \"D:/Games/FFXIV/\"  ", @"D:\Games\FFXIV")]
+    [InlineData(@"D:\Games\FFXIV", @"D:\Games\FFXIV")]
+    public void LaunchRequestNormalizesQuotedAndSlashVariantWindowsPaths(string input, string expected)
+    {
+        var request = new LaunchRequest { Game = "spellborn", GamePath = input };
+        request.Validate();
+        Assert.Equal(expected, request.GamePath);
+    }
+
+    [Theory]
+    [InlineData(@"D:\Games\..\Other")]
+    [InlineData(@"D:\Games\.\Other")]
+    [InlineData(@"\\server\share\game")]
+    [InlineData(@"\\?\D:\Games")]
+    public void LaunchRequestRejectsTraversalAndNonLocalPaths(string input)
+    {
+        var request = new LaunchRequest { Game = "spellborn", GamePath = input };
+        Assert.Throws<ArgumentException>(() => request.Validate());
+    }
+
     [Theory][InlineData("")][InlineData("123456")]
     public void OtpCanBeOptional(string otp) => new LaunchRequest { GamePath = @"C:\Games", Username = "u", Password = "p", Otp = otp }.Validate();
     [Fact] public void CredentialModelDoesNotPrintCredentials()
