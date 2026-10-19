@@ -30,7 +30,7 @@ internal sealed class DesktopRuntime : IAsyncDisposable
         Plugins.PluginLoaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginLoaded, pluginId: e.Plugin.PluginId);
         Plugins.PluginUnloaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginUnloaded, pluginId: e.PluginId);
         Plugins.PluginReloaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginReloaded, pluginId: e.PluginId);
-        Plugins.PluginError += (_, _) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError);
+        Plugins.PluginError += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError, detail: e.Error.GetType().Name);
 
         var notifications = new DesktopNotifications(mode);
         Launcher = new ObservedLaunchService(
@@ -80,9 +80,9 @@ internal sealed class DesktopRuntime : IAsyncDisposable
             Log.Information("[{Component}] Desktop runtime ready.", nameof(DesktopRuntime));
             return runtime;
         }
-        catch
+        catch (Exception ex)
         {
-            DesktopDiagnostics.Write(DiagnosticEvent.HostFailed);
+            DesktopDiagnostics.Write(DiagnosticEvent.HostFailed, detail: ex.GetType().Name);
             await runtime.DisposeAsync();
             throw;
         }

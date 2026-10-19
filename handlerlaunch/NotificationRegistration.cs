@@ -21,17 +21,9 @@ internal static class NotificationRegistration
             shell.SetIconLocation(executable, 0);
             var store = (IPropertyStore)shell;
             SetString(store, 5, AppId);
-            // Protocol activation needs no COM server; the shortcut identity keeps
-            // the notification in Windows Notification Center when the app is closed.
-            var key = new PropertyKey { Format = new("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), Id = 26 };
-            var memory = Marshal.AllocCoTaskMem(16);
-            try
-            {
-                Marshal.StructureToPtr(new Guid("7D15BA58-40BD-419E-ACF0-779A70F68CC1"), memory, false);
-                var value = new PropertyValue { Type = 72, Pointer = memory }; // VT_CLSID
-                store.SetValue(ref key, ref value);
-            }
-            finally { Marshal.FreeCoTaskMem(memory); }
+            // The toast uses activationType="protocol" and the registered HandleWebRequest URI
+            // scheme. Do not advertise a ToastActivatorCLSID without a matching COM
+            // INotificationActivationCallback server; this host has none.
             store.Commit();
             Directory.CreateDirectory(Path.GetDirectoryName(Shortcut)!);
             ((IPersistFile)shell).Save(Shortcut, true);

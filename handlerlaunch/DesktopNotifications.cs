@@ -21,10 +21,10 @@ internal sealed class DesktopNotifications(string mode)
             try
             {
                 if (!File.Exists(NotificationRegistration.Shortcut))
-                { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId); return; }
+                { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId, detail: "start-menu-shortcut-missing"); return; }
                 var notifier = ToastNotificationManager.CreateToastNotifier(NotificationRegistration.AppId);
                 if (notifier.Setting != NotificationSetting.Enabled)
-                { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId); return; }
+                { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId, detail: "notification-setting-" + notifier.Setting); return; }
                 var xml = new XmlDocument();
                 var desktopMode = mode == "gui" ? "gui" : "console";
                 var progress = safe.Completed ? "" : "<progress title='Launch progress' value='indeterminate' status='In progress'/>";
@@ -34,11 +34,11 @@ internal sealed class DesktopNotifications(string mode)
                     Tag = requestId[..16], Group = "launch", SuppressPopup = mode == "quiet" || (!first && !safe.Completed),
                     ExpirationTime = DateTimeOffset.Now.AddMinutes(safe.Completed ? 5 : 30)
                 };
-                toast.Failed += (_, _) => DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId);
+                toast.Failed += (_, _) => DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-failed-event");
                 notifier.Show(toast);
                 DesktopDiagnostics.Write(DiagnosticEvent.NotificationShown, requestId, safe);
             }
-            catch { DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId); }
+            catch (Exception ex) { DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-exception-" + ex.GetType().Name); }
         }
     }
 }
