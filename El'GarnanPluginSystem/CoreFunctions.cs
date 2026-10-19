@@ -330,13 +330,18 @@ namespace El_Garnan_Plugin_Loader
             }
         }
 
+        private const int ShadowCleanupAttempts = 300;
+        private static readonly TimeSpan ShadowCleanupRetryDelay = TimeSpan.FromMilliseconds(100);
+
         private static void ScheduleShadowCleanup(string path)
         {
             // Keep the task independent of plugin/context objects so collectible unload can finish.
+            // Windows may retain a collectible assembly's file handles until a later GC; retry long
+            // enough for unload to complete instead of abandoning a shadow tree after two seconds.
             _ = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
-                await TryDeleteShadowTreeAsync(path, 20).ConfigureAwait(false);
+                await Task.Delay(ShadowCleanupRetryDelay).ConfigureAwait(false);
+                await TryDeleteShadowTreeAsync(path, ShadowCleanupAttempts).ConfigureAwait(false);
             });
         }
 
@@ -344,7 +349,7 @@ namespace El_Garnan_Plugin_Loader
         {
             _ = Task.Run(async () =>
             {
-                for (var attempt = 0; attempt < 100; attempt++)
+                for (var attempt = 0; attempt < ShadowCleanupAttempts; attempt++)
                 {
                     try
                     {
@@ -358,7 +363,7 @@ namespace El_Garnan_Plugin_Loader
                     }
                     catch (IOException) { } // A live manager owns the lock.
                     catch (UnauthorizedAccessException) { }
-                    await Task.Delay(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
+                    await Task.Delay(ShadowCleanupRetryDelay).ConfigureAwait(false);
                 }
             });
         }
@@ -439,7 +444,12 @@ namespace El_Garnan_Plugin_Loader
                 finally
                 {
                     if (!entries.Values.Any(e => ReferenceEquals(e.Context, entry.Context)))
-                    { entry.Context.Unload(); ScheduleShadowCleanup(entry.ShadowDirectory); }
+                    {
+                        entry.Context.Unload();
+                        // Host disposal schedules one manager-root cleanup after all plugin
+                        // contexts have been asked to unload; avoid competing child/root reapers.
+                        if (!disposed) ScheduleShadowCleanup(entry.ShadowDirectory);
+                    }
                 }
                 Notify(PluginUnloaded, new PluginUnloadEventArgs(id), nameof(PluginUnloaded));
             }
