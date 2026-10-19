@@ -191,6 +191,12 @@
                     if (observedConnectionGeneration != Interlocked.Read(ref connectionGeneration))
                         continue;
 
+                    // A launch can begin after the monitor starts its status request. In that
+                    // race, the launch path owns the result and reconnect decision; monitor recovery
+                    // must not install a new channel while launch submission/polling is in flight.
+                    if (busy)
+                        continue;
+
                     // A failed encrypted exchange revokes its JavaScript channel. Never keep
                     // launch/browse enabled while recovering or retry status against that channel.
                     BrowserDiagnostics.Report("connection status", ex);
@@ -222,7 +228,7 @@
     private Task StartAutomaticRecoveryAsync()
     {
         if (recoveryTask is { IsCompleted: false }) return recoveryTask;
-        if (manualConnectPending || !savedPairing || module is null || lifetime.IsCancellationRequested)
+        if (busy || manualConnectPending || !savedPairing || module is null || lifetime.IsCancellationRequested)
             return Task.CompletedTask;
 
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
