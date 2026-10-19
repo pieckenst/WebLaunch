@@ -188,11 +188,16 @@ Theme/storage faults are contained locally; a structural navigation-sync fault i
 recorded in sanitized diagnostics and escalated to the safe render boundary, whose
 recovery screen lets the user reload the launcher or return to the library.
 Owned JavaScript modules and .NET references are released independently with nested
-cleanup paths even if the browser has disconnected. Status checks tolerate transient
-interop failures before showing reconnect instructions; after launch submission,
-ambiguous outcomes require a fresh paired session before another launch to avoid
-duplicating a game process. Neither browser storage nor recovery UI persists sign-in
-details.
+cleanup paths even if the browser has disconnected. After pairing, a failed encrypted
+status exchange revokes the unusable channel, disables launch and browse actions, and
+starts automatic reconnection using the saved non-exportable browser identity. Retries
+use bounded requests and backoff; identity/signature/storage failures stop automatic
+recovery and require explicit user action. If the desktop no longer recognizes the
+browser, a new pairing requires human confirmation in both windows. Manual reconnect
+invalidates stale status callbacks, and disposal cancels and observes recovery tasks.
+After launch submission, an ambiguous outcome permits reconnection but never automatic
+resubmission, preventing a transient response loss from starting a second game process.
+Neither browser storage nor recovery UI persists sign-in details.
 
 ### Desktop progress and diagnostics
 
