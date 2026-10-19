@@ -218,9 +218,20 @@ public sealed class BridgeHost : IAsyncDisposable
                     context.Response.StatusCode = 403; return;
                 }
                 await admission.WaitAsync(timeout.Token);
-                try { trust.Trust(session.Origin, session.Fingerprint); pairingFailures = 0; }
+                try
+                {
+                    // ForgetBrowsersAsync can revoke this session while it waits for admission.
+                    // Approval alone is not authorization to restore trust after that revocation.
+                    if (session.IsExpired || approvalCancellation.IsCancellationRequested)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status410Gone;
+                        return;
+                    }
+                    trust.Trust(session.Origin, session.Fingerprint);
+                    pairingFailures = 0;
+                    session.Paired = true;
+                }
                 finally { admission.Release(); }
-                session.Paired = true;
             }
             session.Expires = DateTimeOffset.UtcNow.AddMinutes(10);
             string? folderPath = null;
