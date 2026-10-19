@@ -166,18 +166,36 @@ Example extension:
 ### Game settings dialogs
 
 The game header keeps Play Now, a settings gear and live pairing state together.
-Both launch controls open the same settings dialog; the pairing summary opens its
-Desktop connection view. Game settings and connection setup share one controller,
-so changing views does not create another bridge session. GUI/console selection,
-pairing confirmation and recovery remain available in Desktop connection.
+The settings gear opens the settings dialog; the pairing summary opens its Desktop
+connection view. Game settings and connection setup share one controller, so changing
+views does not create another bridge session. GUI/console selection, pairing
+confirmation and recovery remain available in Desktop connection.
+
+Play Now is the low-friction path rather than a dialog opener. When the browser is
+paired and the session already holds every value the request needs, it submits the
+launch immediately without opening anything. It diverts only when it genuinely cannot
+proceed: an unsupported browser opens settings, a missing pairing opens Desktop
+connection, and missing sign-in details open a dedicated sign-in dialog limited to the
+absent fields. Games without sign-in fields, such as Spellborn, need only the
+installation folder, so they launch on a single click once that is stored.
+
+Sign-in details are retained in component memory for the lifetime of the page. They
+survive dialog dismissal, a cancelled launch and a failed launch, so a retry costs one
+click instead of a full re-entry, and are cleared only when the desktop reports
+terminal success, when the pairing is forgotten, or when the component is disposed.
+They are still never written to browser storage or a URL and the serialized request
+copy is cleared as soon as it leaves for the wire, so retention does not outlive the
+tab or change what an attacker with local access could read.
 
 The native HTML dialog supplies an inert backdrop, focus containment and focus
 restoration. Escape, Cancel and Close clear password/OTP inputs; closing during a
-launch requests cancellation, and closing a pending pairing disconnects it. Initial
-focus goes to the installation folder or desktop-mode selector. The dialog scrolls
-within the viewport on mobile and at browser zoom. Icons are inline SVGs, avoiding
-an external font dependency. Lumex v2 owns navigation/theme controls; Masa remains
-in use for page content and the application theme.
+launch requests cancellation, and closing a pending pairing disconnects it. The
+sign-in dialog dismisses the same way, discarding only what that dialog typed. Initial
+focus goes to the installation folder, the first missing sign-in field, or the
+desktop-mode selector. The dialog scrolls within the viewport on mobile and at browser
+zoom. Icons are inline SVGs, avoiding an external font dependency. Lumex v2 owns
+navigation/theme controls; Masa remains in use for page content and the application
+theme.
 
 Folder browsing is an optional, authenticated bridge capability. The browser uses
 the desktop's native chooser because browser directory handles do not expose a

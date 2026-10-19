@@ -138,11 +138,14 @@ export async function secureLaunch(page, base) {
     await page.getByLabel('One-time password (optional)').fill('');
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancel launch' })).toBeVisible();
+    // The launch is still in flight, so its credentials must not be readable from the form.
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
     await page.getByRole('button', { name: 'Close settings', exact: true }).click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
     await expect(page.locator('.launch-status')).toHaveText('Game process started. Reconnect to launch again or browse folders.', { timeout: 15000 });
+    // The desktop confirmed the game started, so the retained details are cleared.
     await page.getByRole('button', { name: 'Game settings', exact: true }).click();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
     await expect(page.getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeDisabled();
     await desktopSettings(page);
@@ -157,6 +160,9 @@ export async function secureLaunch(page, base) {
     await page.getByRole('button', { name: 'Launch game', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel launch' }).click();
     await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
+    // A cancelled launch is not a success, so the entered details survive for the retry.
+    await gameSettings(page);
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('synthetic-cancel');
 }
 
 export async function connectionAutoRecovery(page, base) {
@@ -246,22 +252,64 @@ export async function settingsDialogs(page, base) {
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
     await expect(gear).toBeFocused();
-    await page.getByRole('button', { name: 'Play now', exact: true }).click();
-    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
-    await expect(page.getByLabel('One-time password (optional)')).toHaveValue('');
+    // Dismissal keeps what was already entered, so a retry does not re-demand every field.
+    await gear.click();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('synthetic-dismiss-secret');
+    await expect(page.getByLabel('One-time password (optional)')).toHaveValue('123456');
+    await page.keyboard.press('Escape');
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await gear.click();
     expect(await dialog.evaluate(el => el.getBoundingClientRect().width < innerWidth && el.getBoundingClientRect().height < innerHeight)).toBe(true);
     await page.keyboard.press('Escape');
     await page.goto(base + 'spellborn');
-    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await gear.click();
     await expect(dialog).toHaveAccessibleName('Game settings');
     await expect(page.getByLabel('Installation folder')).toBeVisible();
     await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
+    // Unpaired, Play now must route to connection setup instead of a launch attempt.
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(dialog).toHaveAccessibleName('Desktop connection');
+    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 1280, height: 900 });
+}
+
+export async function playNowRoutesByReadiness(page, base) {
+    await prepare(page, base);
+    await page.goto(base + 'spellborn');
+
+    // Spellborn needs no sign-in details, so once a paired session holds the folder,
+    // Play now submits the launch without opening any dialog at all.
+    await openDesktop(page);
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected', { timeout: 15000 });
+    await gameSettings(page);
+    await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(page.locator('.launch-status')).toContainText('Launch request accepted', { timeout: 15000 });
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+
+    // FFXIV has no stored credentials, so Play now offers the focused sign-in prompt
+    // instead of the full settings dialog.
+    await page.goto(base + 'counter');
+    await expect(page.getByRole('button', { name: 'Play now', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    const prompt = page.getByRole('dialog');
+    await expect(prompt).toHaveAccessibleName('Sign in to launch');
+    await expect(page.getByLabel('Installation folder')).toHaveCount(0);
+    // Only the absent fields are asked for; the installation folder already came from settings.
+    await expect(page.getByLabel('Username', { exact: true })).toBeFocused();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('One-time password (optional)')).toBeVisible();
+    // The prompt can hand off to full settings without losing the pairing.
+    await prompt.getByRole('button', { name: 'Game settings', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('Login settings');
+    await page.keyboard.press('Escape');
 }
 
 export async function browserRecovery(page, base) {
@@ -270,7 +318,7 @@ export async function browserRecovery(page, base) {
     page.on('console', observe);
     try {
         await page.goto(base + 'counter');
-        await page.getByRole('button', { name: 'Play now', exact: true }).click();
+        await page.getByRole('button', { name: 'Game settings', exact: true }).click();
         const alignment = await page.locator('.path-control').evaluate(el => {
             const input = el.querySelector('input').getBoundingClientRect();
             const button = el.querySelector('button').getBoundingClientRect();
@@ -289,13 +337,13 @@ export async function browserRecovery(page, base) {
         expect(diagnostics.join('\n')).not.toContain('synthetic-otp-secret');
         await page.route('**/js/dialog.js', route => route.abort());
         await page.reload();
-        await page.getByRole('button', { name: 'Play now', exact: true }).click();
+        await page.getByRole('button', { name: 'Game settings', exact: true }).click();
         await expect(page.locator('.launch-summary')).toContainText('Could not open settings');
         await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
         expect(diagnostics.some(line => line.includes('open-settings failed'))).toBe(true);
         await page.unroute('**/js/dialog.js');
         await page.reload();
-        await page.getByRole('button', { name: 'Play now', exact: true }).click();
+        await page.getByRole('button', { name: 'Game settings', exact: true }).click();
         await expect(page.getByRole('dialog')).toBeVisible();
         await page.keyboard.press('Escape');
         await page.route('**/js/navigation.js', route => route.abort());

@@ -5,7 +5,7 @@
 
 <section id="launch" class="launch-panel" aria-label="Launch controls">
     <div class="play-card">
-        <button class="primary play-button" type="button" @onclick="OpenGame">Play now</button>
+        <button class="primary play-button" type="button" disabled="@(busy || connecting || manualConnectPending)" @onclick="PlayNow">Play now</button>
         <button class="settings-button" type="button" aria-label="Game settings" title="Game settings" @onclick="OpenGame"><NavigationIcon /></button>
     </div>
     <button class="connection-summary" type="button" @onclick="OpenDesktop"><span class="status-dot @(paired ? "connected" : "")"></span>@PairingState</button>
@@ -80,15 +80,146 @@
     <p id="launch-status" tabindex="-1" class="launch-status" role="status" aria-live="polite" aria-atomic="true">@message</p>
 </dialog>
 
+@if (needsCredentials)
+{
+    <dialog @ref="credentialDialog" class="launcher-dialog credential-dialog" aria-labelledby="credential-title" aria-busy="@busy">
+        <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="credential-title">Sign in to launch</h2></div>
+            <button type="button" class="close-dialog" aria-label="Close sign in" @onclick="CloseCredentialPrompt">×</button>
+        </div>
+        <p class="credential-intro">Your sign-in details were cleared after the previous launch. Enter them again to start @Title.</p>
+        <form @onsubmit="SubmitCredentials" @onsubmit:preventDefault>
+            <fieldset disabled="@busy">
+                @if (missingUsername)
+                {
+                    <label for="credential-username">Username</label><input id="credential-username" @bind="username" required maxlength="256" autocomplete="username" />
+                }
+                <label for="credential-password">Password</label><input id="credential-password" type="password" @bind="password" @bind:event="oninput" required maxlength="1024" autocomplete="current-password" />
+                <label for="credential-otp">One-time password (optional)</label><input id="credential-otp" @bind="otp" @bind:event="oninput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
+                <div class="dialog-actions"><button type="button" @onclick="OpenSettingsFromCredentialPrompt">Game settings</button><button type="button" @onclick="CloseCredentialPrompt">Cancel</button><button class="primary launch-submit" type="submit">@if (busy) { <span class="button-spinner" aria-hidden="true"></span> } <span>Launch game</span></button></div>
+            </fieldset>
+        </form>
+    </dialog>
+}
+
 @code {
     [Parameter] public string Game { get; set; } = "ffxiv";
     [Parameter] public string Title { get; set; } = "";
     private IJSObjectReference? module, dialogModule;
     private IDisposable? pageActionRegistration;
-    private ElementReference dialog;
-    private DotNetObjectReference<LaunchPanel>? dialogReference;
+    private ElementReference dialog, credentialDialog;
+    private DotNetObjectReference<LaunchPanel>? dialogReference, credentialDialogReference;
     private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous;
     private string? launchOutcomeWarning;
+    // Remembers why Play now diverted to a credential prompt instead of launching immediately.
+    private bool needsCredentials, missingUsername, successConfirmed;
+    private LaunchStatus? terminalStatus;
+    private Task? credentialPrompt;
+
+    // Play now is the frictionless path: launch immediately whenever the session already holds
+    // everything the request needs. Settings remain the place where missing details are entered.
+    private Task PlayNow()
+    {
+        if (busy || connecting || manualConnectPending) return Task.CompletedTask;
+        if (!supported) return OpenGame();
+        if (!paired) return OpenDesktop();
+        if (CredentialsComplete()) return Launch();
+
+        missingUsername = Game == "ffxiv" && username.Trim().Length == 0;
+        password = "";
+        otp = "";
+        return OpenCredentialPrompt();
+    }
+
+    // In-memory sign-in details satisfy the request until a launch is confirmed successful.
+    // They are never written to browser storage or a URL, so they do not outlive the tab.
+    private bool CredentialsComplete() =>
+        Game != "ffxiv" || (username.Trim().Length > 0 && password.Length > 0);
+
+    private async Task OpenCredentialPrompt()
+    {
+        needsCredentials = true;
+        // The prompt lives in a conditional block, so the <dialog> element does not exist until
+        // this state change renders. Yield first so the ElementReference points at a live node.
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
+            credentialDialogReference ??= DotNetObjectReference.Create(this);
+            await dialogModule.InvokeVoidAsync("open", credentialDialog, credentialDialogReference);
+            focusTarget = missingUsername ? "credential-username" : "credential-password";
+        }
+        catch (JSException ex)
+        {
+            // Without a prompt there is nowhere to type credentials, so fall back to settings.
+            needsCredentials = false;
+            password = otp = "";
+            CloseCredentialPromptReference();
+            Report("open-credential-prompt", ex, "Could not open the sign-in prompt. Enter your details in game settings.");
+            await OpenGame();
+        }
+    }
+
+    [JSInvokable] public async Task CloseCredentialPrompt()
+    {
+        // A dismissed prompt clears the prompt's own inputs, matching the settings dialog's
+        // dismissal behaviour, while the submitted request keeps its in-memory copies until a
+        // launch is confirmed successful.
+        needsCredentials = false;
+        password = otp = "";
+        CloseCredentialPromptReference();
+        if (credentialPrompt is not null) await ObserveDisposalTask(credentialPrompt, "credential prompt");
+        credentialPrompt = null;
+        if (dialogModule is not null)
+        {
+            try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+            catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseCredentialPromptReference()
+    {
+        credentialDialogReference?.Dispose();
+        credentialDialogReference = null;
+    }
+
+    private async Task OpenSettingsFromCredentialPrompt()
+    {
+        needsCredentials = false;
+        password = otp = "";
+        CloseCredentialPromptReference();
+        if (dialogModule is not null)
+        {
+            try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+            catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
+        }
+        await OpenGame();
+    }
+
+    private Task SubmitCredentials() => credentialPrompt = LaunchCredentialsCore();
+    private async Task LaunchCredentialsCore()
+    {
+        try { await Launch(); }
+        finally
+        {
+            // A launch consumes its session, so the prompt must not stay open over the result.
+            // Dismissal keeps the in-memory details when the launch failed or was cancelled;
+            // confirmed success clears them.
+            if (!successConfirmed)
+            {
+                needsCredentials = false;
+                CloseCredentialPromptReference();
+                if (dialogModule is not null)
+                {
+                    try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+                    catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
+                }
+            }
+            credentialPrompt = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private Task OpenGame() => OpenSettings(false);
     private Task OpenDesktop() => OpenSettings(true);
     private async Task OpenSettings(bool desktop)
@@ -96,10 +227,14 @@
         try
         {
         desktopView = desktop;
+        focusTarget = desktop ? "desktop-mode" : "game-path";
+        // Refresh this panel so the navbar's Launch game button - which reaches us through a plain
+        // Func<Task> that only re-renders the layout - actually applies desktopView and the focus
+        // target instead of reopening with whatever view the previous interaction left behind.
+        await InvokeAsync(StateHasChanged);
         dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
         dialogReference ??= DotNetObjectReference.Create(this);
         await dialogModule.InvokeVoidAsync("open", dialog, dialogReference);
-        focusTarget = desktop ? "desktop-mode" : "game-path";
         }
         catch (JSException ex) { Report("open-settings", ex, "Could not open settings. Reload the page and try again."); }
     }
@@ -108,7 +243,8 @@
     [JSInvokable] public async Task CloseSettings()
     {
         if ((connecting || manualConnectPending) && pairingCancellation is null) return;
-        password = otp = "";
+        // Dismissal must not discard sign-in details the user already entered. They are cleared
+        // only once a launch is confirmed successful, when the desktop forgets this session.
         if (pairingCode.Length > 0) await CancelPairing();
         if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException ex) { Report("close-settings", ex, "Could not close settings. Reload the page to reset the launcher."); } }
         await InvokeAsync(StateHasChanged);
@@ -647,13 +783,14 @@
         if (busy || connecting || manualConnectPending || !paired || module is null) return;
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
-        catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); return; }
+        catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); successConfirmed = false; return; }
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         cancellation.CancelAfter(TimeSpan.FromHours(2));
         launchCancellation = cancellation;
         launchCancellationConfirmed = false;
         launchOutcomeAmbiguous = false;
         launchOutcomeWarning = null;
+        successConfirmed = false;
         launchAttempted = true; busy = true; message = "Submitting launch request…";
         var completed = false;
         var launchRequestSubmitted = false;
@@ -661,15 +798,20 @@
         try
         {
             await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
-            password = otp = "";
+            // The request carries its own copy for the wire; the component keeps the session's
+            // copy so a failed or cancelled launch can be retried without re-entering anything.
+            request.ClearCredentials();
             // Once the request call is made, its outcome can be ambiguous if interop fails.
             // The native bridge accepts one launch per session, so reconnect before any retry.
             launchRequestSubmitted = true;
             var reply = await module.InvokeAsync<Reply>("launch", cancellation.Token, request);
             message = reply.Status.Message;
-            password = otp = ""; request.ClearCredentials();
             await Poll(cancellation.Token);
             completed = true;
+            // Only a terminal success reported by the desktop is authoritative. Anything else -
+            // cancellation, failure, or an ambiguous response - keeps the entered details so the
+            // next attempt costs one click rather than a full re-entry.
+            successConfirmed = terminalStatus?.Success == true;
         }
         catch (JSException ex)
         {
@@ -698,8 +840,10 @@
         finally
         {
             launchCancellation = null;
+            // The serialized request is disposable as soon as it is on or off the wire. The
+            // component's copy is retained unless the desktop confirmed the game started.
             request.ClearCredentials();
-            password = otp = "";
+            if (successConfirmed) password = otp = "";
             busy = false;
             focusTarget = "launch-status";
 
@@ -731,12 +875,15 @@
         {
             var reply = await module!.InvokeAsync<Reply>("status", token);
             message = reply.Status.Message; await InvokeAsync(StateHasChanged);
-            if (reply.Status.Completed) return;
+            // The terminal status, not the launch acknowledgement, decides whether the game
+            // actually started. Remember it so credential retention keys off the real outcome.
+            if (reply.Status.Completed) { terminalStatus = reply.Status; return; }
         }
+        terminalStatus = null;
     }
     private async Task Cancel()
     {
-        password = otp = "";
+        // Cancelling is not a sign-in failure, so the entered details stay put for the next attempt.
         var cancellation = launchCancellation;
         using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         requestTimeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -799,6 +946,10 @@
                 {
                     if (dialogModule is not null)
                     {
+                        // Both dialogs share the module; close the credential prompt on whichever
+                        // element it rendered before releasing the shared reference.
+                        try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+                        catch (Exception ex) { ReportDisposalFailure("credential dialog close", ex); }
                         try { await dialogModule.InvokeVoidAsync("close", dialog); }
                         catch (Exception ex) { ReportDisposalFailure("dialog close", ex); }
                         finally
@@ -815,6 +966,8 @@
                     pageActionRegistration = null;
                     dialogReference?.Dispose();
                     dialogReference = null;
+                    CloseCredentialPromptReference();
+                    needsCredentials = false;
                     password = otp = "";
                     lifetime.Dispose();
                 }
