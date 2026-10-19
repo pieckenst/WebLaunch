@@ -121,7 +121,7 @@
     private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
     private string PairingState => manualConnectPending ? (savedPairing ? "Pairing saved · reconnecting" : "Connecting · not paired") : paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
-    private Task? launch, connectionMonitor;
+    private Task? launch, connectionMonitor, connectTask;
     // Invalidates a status failure that belongs to a connection replaced by a manual reconnect.
     private long connectionGeneration;
     private DateTimeOffset pairingExpires;
@@ -419,7 +419,14 @@
         catch (JSException ex) { Report("desktop-mode", ex, "Could not change desktop mode. Reload the page and retry."); }
     }
     private void OpeningDesktop() => message = "Approve opening the desktop launcher in your browser, then choose Connect. If nothing opens, install or repair the desktop launcher.";
-    private async Task Connect()
+    private Task Connect()
+    {
+        if (connectTask is { IsCompleted: false }) return connectTask;
+        connectTask = ConnectCoreAsync();
+        return connectTask;
+    }
+
+    private async Task ConnectCoreAsync()
     {
         if (module is null || busy || connecting || manualConnectPending) return;
 
@@ -755,6 +762,7 @@
             await ObserveDisposalTask(connectionMonitor, "connection monitor");
             await ObserveDisposalTask(launch, "launch task");
             await ObserveDisposalTask(recoveryTask, "connection recovery");
+            await ObserveDisposalTask(connectTask, "manual connection");
         }
         finally
         {
