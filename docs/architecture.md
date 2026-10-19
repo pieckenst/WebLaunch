@@ -40,6 +40,7 @@ preserved, while a nested directory containing another plugin manifest or a top-
 DLL retains its own discovery/shadow-copy boundary unless it is inside one of those
 private trees. Dependencies are resolved in collectible, shadow-copied contexts,
 with contract, rendering and Dalamud/core assemblies shared with the default context.
+With watching enabled, a `plugin.json` appearing above a legacy registration unloads it after active leases finish so manifest validation applies, even if the plugin opted out of hot reload.
 Filesystem watching and reload are disabled for normal desktop startup. Synchronous
 disposal joins one shared async shutdown task; lifecycle awaits are context-independent,
 plugin actions take per-entry leases, and unload waits for active leases before

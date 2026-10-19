@@ -628,6 +628,22 @@ namespace El_Garnan_Plugin_Loader
         }
 
         private void Changed(object sender, FileSystemEventArgs e) => pendingChanges[e.FullPath] = 0;
+        // A legacy registration is only valid while no plugin.json governs its directory or an ancestor inside the plugins root;
+        // discovery treats such a directory as a manifest bundle and never walks below it.
+        private string? FindGoverningManifest(PluginCandidate legacy)
+        {
+            var root = Path.TrimEndingDirectorySeparator(pluginsPath);
+            for (var directory = Path.TrimEndingDirectorySeparator(legacy.BundleRoot); !string.IsNullOrEmpty(directory); directory = Path.GetDirectoryName(directory))
+            {
+                var atRoot = directory.Equals(root, StringComparison.OrdinalIgnoreCase);
+                if (!atRoot && !directory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) break;
+                var manifest = Path.Combine(directory, "plugin.json");
+                if (File.Exists(manifest)) return manifest;
+                if (atRoot) break;
+            }
+            return null;
+        }
+
         private async Task WatchAsync()
         {
             try
@@ -649,16 +665,18 @@ namespace El_Garnan_Plugin_Loader
                         // Track deferred paths separately so a long-running plugin lease does not
                         // make the general discovery pass repeat on every watcher tick.
                         var requeuedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var discoveryNeeded = false;
                         foreach (var group in entries.Values.ToArray().GroupBy(e => e.Candidate))
                         {
+                            var governingManifest = group.Key.ManifestPath is null ? FindGoverningManifest(group.Key) : null;
                             var directory = Path.TrimEndingDirectorySeparator(group.Key.BundleRoot);
                             var groupChanges = changed.Where(p => p.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
                                 p.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToArray();
-                            if (groupChanges.Length == 0) continue;
+                            if (groupChanges.Length == 0 && governingManifest is null) continue;
                             var entryRemoved = !File.Exists(group.Key.AssemblyPath) ||
                                 (group.Key.ManifestPath is not null && !File.Exists(group.Key.ManifestPath));
                             var reloadable = group.All(e => e.Plugin.SupportsHotReload);
-                            if (!reloadable && !entryRemoved) continue;
+                            if (governingManifest is null && !reloadable && !entryRemoved) continue;
                             // Lease acquisition also holds lifecycle, so an idle group stays idle until unloaded.
                             if (group.Any(e => e.HasActiveLeases))
                             {
@@ -667,10 +685,20 @@ namespace El_Garnan_Plugin_Loader
                                     pendingChanges[path] = 0;
                                     requeuedPaths.Add(path);
                                 }
+                                if (governingManifest is not null)
+                                {
+                                    pendingChanges[governingManifest] = 0;
+                                    requeuedPaths.Add(governingManifest);
+                                }
                                 continue;
                             }
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
                             foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
+                            if (governingManifest is not null)
+                            {
+                                discoveryNeeded = true;
+                                continue;
+                            }
                             if (!reloadable) continue;
                             var replacement = Rediscover(group.Key);
                             if (replacement is not null && await LoadAsync(replacement).ConfigureAwait(false))
@@ -679,7 +707,7 @@ namespace El_Garnan_Plugin_Loader
                         // A wholly deferred batch has no new discovery work. Running discovery
                         // here would repeatedly copy invalid/legacy candidates every 400 ms until
                         // the outstanding lease completes.
-                        if (changed.Any(path => !requeuedPaths.Contains(path)))
+                        if (discoveryNeeded || changed.Any(path => !requeuedPaths.Contains(path)))
                             foreach (var candidate in DiscoverPlugins()) await LoadAsync(candidate).ConfigureAwait(false);
                     }
                     catch (Exception ex)

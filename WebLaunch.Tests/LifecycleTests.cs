@@ -240,6 +240,66 @@ public sealed class LifecycleTests
         Assert.Empty(host.GetLoadedPlugins());
     }
 
+    private static async Task<(string Bundle, IGamePlugin Original, IGamePlugin Legacy)> LoadManifestBundleAsLegacy(
+        string root, CoreFunctions host)
+    {
+        var bundle = CreateManifestBundle(root);
+        await host.InitializeAsync();
+        var original = Assert.Single(host.GetLoadedPlugins());
+        File.Delete(Path.Combine(bundle, "plugin.json"));
+        await Eventually(() => host.GetLoadedPlugins().Any(p => !ReferenceEquals(p, original)));
+        var legacy = Assert.Single(host.GetLoadedPlugins());
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(legacy.GetType().Assembly.Location)!, "plugin.json")));
+        return (bundle, original, legacy);
+    }
+
+    [Fact] public async Task RestoredManifestReplacesLegacyRegistrationOfTheSameBundle()
+    {
+        using var root = new TemporaryDirectory();
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        var (bundle, original, legacy) = await LoadManifestBundleAsLegacy(root.Path, host);
+
+        WriteManifest(bundle, "legacy-fixture", "lib/managed/WebLaunch.TestManifestPlugin.dll");
+
+        await Eventually(() => host.GetLoadedPlugins().Any(plugin =>
+            !ReferenceEquals(plugin, original) && !ReferenceEquals(plugin, legacy) &&
+            File.Exists(Path.Combine(Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(plugin.GetType().Assembly.Location)!, "../..")), "plugin.json"))),
+            TimeSpan.FromSeconds(15));
+    }
+
+    [Fact] public async Task RestoredManifestWithWrongIdUnloadsLegacyRegistration()
+    {
+        using var root = new TemporaryDirectory();
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        var (bundle, _, _) = await LoadManifestBundleAsLegacy(root.Path, host);
+        var errors = new ConcurrentBag<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+
+        WriteManifest(bundle, "wrong-id", "lib/managed/WebLaunch.TestManifestPlugin.dll");
+
+        await Eventually(() => !host.GetLoadedPlugins().Any(), TimeSpan.FromSeconds(15));
+        Assert.Contains(errors, error => error.Error is InvalidDataException);
+    }
+
+    [Fact] public async Task RestoredManifestReconcilesFlatLegacyRegistrationEvenWhenPluginOptsOutOfHotReload()
+    {
+        using var root = new TemporaryDirectory();
+        CopyPlugin(root.Path, "one");
+        var bundle = Path.Combine(root.Path, "one");
+        File.WriteAllText(Path.Combine(bundle, "no-hot-reload.marker"), "");
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        await host.InitializeAsync();
+        Assert.NotEmpty(host.GetLoadedPlugins());
+        var errors = new ConcurrentBag<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+
+        WriteManifest(bundle, "wrong-id", "WebLaunch.TestPlugin.dll");
+
+        await Eventually(() => !host.GetLoadedPlugins().Any(), TimeSpan.FromSeconds(15));
+        Assert.Contains(errors, error => error.Error is InvalidDataException);
+    }
+
     [Fact] public async Task HotReloadLoadsTheEntryAssemblyDeclaredByTheUpdatedManifest()
     {
         using var root = new TemporaryDirectory();
