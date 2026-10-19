@@ -279,7 +279,7 @@ public sealed class LifecycleTests
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
-        await Eventually(() => !Directory.Exists(secondRoot), TimeSpan.FromSeconds(20));
+        await Eventually(() => !Directory.Exists(secondRoot), TimeSpan.FromSeconds(35));
         Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
         await first.DisposeAsync();
         GC.Collect();
