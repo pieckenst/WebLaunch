@@ -1,4 +1,5 @@
 using CoreLibLaunchSupport;
+using El_Garnan_Plugin_Loader;
 using El_Garnan_Plugin_Loader.Interfaces;
 using El_Garnan_Plugin_Loader.Models;
 using GamePlugins.FFXIV;
