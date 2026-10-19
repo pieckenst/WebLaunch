@@ -32,7 +32,13 @@ internal sealed class DesktopRuntime : IAsyncDisposable
         Plugins.PluginLoaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginLoaded, pluginId: e.Plugin.PluginId);
         Plugins.PluginUnloaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginUnloaded, pluginId: e.PluginId);
         Plugins.PluginReloaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginReloaded, pluginId: e.PluginId);
-        Plugins.PluginError += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginError, detail: e.Error.GetType().Name);
+        Plugins.PluginError += (_, e) =>
+        {
+            var hresult = unchecked((uint)e.Error.HResult).ToString("X8", System.Globalization.CultureInfo.InvariantCulture);
+            DesktopDiagnostics.Write(
+                DiagnosticEvent.PluginError,
+                detail: $"loader-exception-{e.Error.GetType().Name}-hr-{hresult}");
+        };
 
         var notifications = new DesktopNotifications(mode);
         Launcher = new ObservedLaunchService(
@@ -42,6 +48,21 @@ internal sealed class DesktopRuntime : IAsyncDisposable
                 DesktopDiagnostics.Write(DiagnosticEvent.LaunchState, id, status);
                 report(status);
                 notifications.Report(id, status);
+            },
+            (id, game, exception) =>
+            {
+                var pluginId = game switch
+                {
+                    "ffxiv" => "ffxiv-launcher",
+                    "spellborn" => "spellborn-launcher",
+                    _ => null
+                };
+                var hresult = unchecked((uint)exception.HResult).ToString("X8", System.Globalization.CultureInfo.InvariantCulture);
+                DesktopDiagnostics.Write(
+                    DiagnosticEvent.LaunchFailed,
+                    id,
+                    pluginId: pluginId,
+                    detail: $"exception-{exception.GetType().Name}-hr-{hresult}");
             });
 
         var development = (Environment.GetEnvironmentVariable("WEBLAUNCH_DEVELOPMENT_ORIGINS") ?? "")
@@ -95,7 +116,8 @@ internal sealed class DesktopRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            DesktopDiagnostics.Write(DiagnosticEvent.HostFailed, detail: ex.GetType().Name);
+            var hresult = unchecked((uint)ex.HResult).ToString("X8", System.Globalization.CultureInfo.InvariantCulture);
+            DesktopDiagnostics.Write(DiagnosticEvent.HostFailed, detail: $"exception-{ex.GetType().Name}-hr-{hresult}");
             await runtime.DisposeAsync();
             throw;
         }
