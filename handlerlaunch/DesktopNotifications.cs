@@ -18,13 +18,19 @@ internal sealed class DesktopNotifications(string mode)
             var first = !phases.ContainsKey(requestId);
             phases[requestId] = safe.State;
             if (phases.Count > 64) phases.Remove(phases.Keys.First());
+            var stage = "validate-registration";
             try
             {
                 if (!File.Exists(NotificationRegistration.Shortcut))
                 { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId, detail: "start-menu-shortcut-missing"); return; }
+
+                stage = "create-notifier";
                 var notifier = ToastNotificationManager.CreateToastNotifier(NotificationRegistration.AppId);
+                stage = "read-notification-setting";
                 if (notifier.Setting != NotificationSetting.Enabled)
                 { DesktopDiagnostics.Write(DiagnosticEvent.NotificationUnavailable, requestId, detail: "notification-setting-" + notifier.Setting); return; }
+
+                stage = "build-toast";
                 var xml = new XmlDocument();
                 var desktopMode = mode == "gui" ? "gui" : "console";
                 var progress = safe.Completed ? "" : "<progress title='Launch progress' value='indeterminate' status='In progress'/>";
@@ -36,13 +42,14 @@ internal sealed class DesktopNotifications(string mode)
                     ExpirationTime = DateTimeOffset.Now.AddMinutes(safe.Completed ? 5 : 30)
                 };
                 toast.Failed += (_, _) => DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-failed-event");
+                stage = "show-toast";
                 notifier.Show(toast);
                 DesktopDiagnostics.Write(DiagnosticEvent.NotificationShown, requestId, safe);
             }
             catch (Exception ex)
             {
                 var hresult = unchecked((uint)ex.HResult).ToString("X8", System.Globalization.CultureInfo.InvariantCulture);
-                DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-exception-" + ex.GetType().Name + "-hr-" + hresult);
+                DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-" + stage + "-exception-" + ex.GetType().Name + "-hr-" + hresult);
             }
         }
     }
