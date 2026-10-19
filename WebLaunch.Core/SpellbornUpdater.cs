@@ -25,6 +25,12 @@ public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore v
     }
     public async Task EnsureUpdatedAsync(string root, IProgress<LaunchStatus> progress, CancellationToken token)
     {
+        // Recover before any network request. If recovery itself fails, keep InstallationStarted
+        // true so SpellbornPlugin cannot use the offline-launch fallback on a partial installation.
+        InstallationStarted = true;
+        installer.RecoverPendingTransaction(root, prior => versions.Write(root, prior ?? "false"));
+        InstallationStarted = false;
+
         var version = versions.Read(root);
         var latest = await client.GetFromJsonAsync<Release>(new Uri(BaseUri, "latest.json"), token) ?? throw new InvalidDataException("Missing release metadata.");
         if (version is null || version == "false")
