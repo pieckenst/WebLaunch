@@ -475,6 +475,37 @@ public sealed class ReviewRegressionTests
         Assert.Contains("synthetic trace event", File.ReadAllText(path));
     }
 
+    [Fact] public void ShutdownWritesEndMarkerClosesTraceFileAndIsRepeatable()
+    {
+        using var root = new TemporaryDirectory();
+        var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
+        var logsDir = Path.Combine(root.Path, "logs");
+        try
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", "1");
+            FfxivTraceLogger.ResetForTest();
+            FfxivTraceLogger.TraceDirectoryOverride = logsDir;
+
+            FfxivTraceLogger.Trace("test", "synthetic trace event");
+            var path = Assert.Single(Directory.GetFiles(logsDir, "ffxiv-trace-*.log"));
+
+            FfxivTraceLogger.Shutdown();
+
+            var contents = File.ReadAllText(path);
+            Assert.Contains("trace log started", contents);
+            Assert.Contains("synthetic trace event", contents);
+            Assert.Contains("trace log ended", contents);
+            using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+            FfxivTraceLogger.Shutdown();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", originalTrace);
+            FfxivTraceLogger.Shutdown();
+            FfxivTraceLogger.ResetForTest();
+        }
+    }
+
     [Fact] public void TraceRetentionRemovesOnlyExpiredTraceFiles()
     {
         using var root = new TemporaryDirectory();

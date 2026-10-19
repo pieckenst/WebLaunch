@@ -31,6 +31,8 @@ public static class FfxivTraceLogger
     private static Serilog.ILogger? _traceFileLogger;
     private static string? _traceFilePath;
     private static bool? _traceEnabled;
+    // Tests redirect the trace file location; null in production.
+    internal static string? TraceDirectoryOverride;
 
     /// <summary>True when FFXIV_TRACE=1 is set in the environment.</summary>
     public static bool TraceEnabled =>
@@ -204,7 +206,7 @@ public static class FfxivTraceLogger
             if (!TraceEnabled) return;
             try
             {
-                var logsDir = Path.Combine(
+                var logsDir = TraceDirectoryOverride ?? Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "WebLaunch",
                     "Logs");
@@ -290,9 +292,10 @@ public static class FfxivTraceLogger
     }
 
     /// <summary>
-    /// Flushes and closes the trace file. Safe to call at process shutdown.
+    /// Writes the end marker, flushes and closes the trace file during desktop host shutdown.
+    /// Safe to call when tracing was never started or more than once. A later trace write
+    /// while FFXIV_TRACE=1 starts a new file.
     /// </summary>
-    /// <summary>Flushes and disposes the trace file sink during host shutdown.</summary>
     public static void Shutdown()
     {
         lock (Gate)
@@ -300,10 +303,11 @@ public static class FfxivTraceLogger
             if (_traceFileLogger is null)
                 return;
 
-            _traceFileLogger.Information("=== FFXIV trace log ended ===");
-            (_traceFileLogger as IDisposable)?.Dispose();
+            var logger = _traceFileLogger;
             _traceFileLogger = null;
             _traceFilePath = null;
+            try { logger.Information("=== FFXIV trace log ended ==="); }
+            finally { (logger as IDisposable)?.Dispose(); }
         }
     }
 
@@ -341,5 +345,6 @@ public static class FfxivTraceLogger
     internal static void ResetForTest()
     {
         _traceEnabled = null;
+        TraceDirectoryOverride = null;
     }
 }

@@ -145,8 +145,12 @@ internal sealed class DesktopRuntime : IAsyncDisposable
                 }
                 finally
                 {
-                    Trust.Dispose();
-                    DesktopDiagnostics.Write(DiagnosticEvent.HostStopped);
+                    try { CoreLibLaunchSupport.FfxivTraceLogger.Shutdown(); }
+                    finally
+                    {
+                        Trust.Dispose();
+                        DesktopDiagnostics.Write(DiagnosticEvent.HostStopped);
+                    }
                 }
             }
         }
