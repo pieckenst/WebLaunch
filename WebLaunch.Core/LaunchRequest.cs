@@ -15,6 +15,7 @@ public sealed class LaunchRequest
     {
         if (Version != 2 || !Guid.TryParseExact(RequestId, "N", out _) || Game is not ("ffxiv" or "spellborn"))
             throw new ArgumentException("Unsupported launch request.");
+        GamePath = NormalizeGamePath(GamePath);
         ValidateGamePath(GamePath);
         if (Username is null || Password is null || Otp is null || Username.Length > 256 || Password.Length > 1024 || Otp.Length > 16)
             throw new ArgumentException("Login fields are too long.");
@@ -23,13 +24,31 @@ public sealed class LaunchRequest
         if (Otp.Length != 0 && (Otp.Length != 6 || !Otp.All(char.IsAsciiDigit)))
             throw new ArgumentException("The optional one-time password must contain six digits.");
     }
+    /// <summary>
+    /// Normalizes harmless user-input differences before the path crosses the bridge. This
+    /// intentionally does not resolve links or accept UNC/device paths; the desktop validates
+    /// the local filesystem independently before launching.
+    /// </summary>
+    public static string NormalizeGamePath(string path)
+    {
+        if (path is null) throw new ArgumentException("Choose a valid game installation folder.");
+        path = path.Trim();
+        if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
+            path = path[1..^1].Trim();
+        path = path.Replace('/', '\\');
+        if (path.Length > 3)
+            path = path.TrimEnd('\\');
+        return path;
+    }
+
     public static void ValidateGamePath(string path)
     {
+        path = NormalizeGamePath(path);
         if (string.IsNullOrWhiteSpace(path) || path.Length > 1024 || path.Any(char.IsControl))
             throw new ArgumentException("Choose a valid game installation folder.");
-        if (path.Length < 3 || !char.IsAsciiLetter(path[0]) || path[1] != ':' || path[2] is not ('\\' or '/') ||
+        if (path.Length < 3 || !char.IsAsciiLetter(path[0]) || path[1] != ':' || path[2] != '\\' ||
             path[2..].Any(c => c is ':' or '*' or '?' or '"' or '<' or '>' or '|') ||
-            path[3..].Replace('\\', '/').Split('/').Any(part => part is ".." or "."))
+            path[3..].Split('\\').Any(part => part is ".." or "."))
             throw new ArgumentException("Use an absolute local Windows folder, such as C:\\Games.");
     }
     public void ClearCredentials() => (Username, Password, Otp) = ("", "", "");
