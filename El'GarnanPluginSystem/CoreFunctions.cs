@@ -285,9 +285,17 @@ namespace El_Garnan_Plugin_Loader
             var path = discovery.AssemblyPath;
             var pluginId = GetDiagnosticPluginId(discovery.ManifestPath);
             var stage = "load";
+            var correlationId = Guid.NewGuid().ToString("N");
+            void Record(
+                PluginDiagnosticLevel level,
+                string recordStage,
+                string? recordPluginId,
+                string outcome,
+                Exception? exception = null) =>
+                diagnostics.Record(level, recordStage, recordPluginId, outcome, exception, correlationId);
             if (entries.Values.Any(e => string.Equals(e.Candidate.AssemblyPath, path, StringComparison.OrdinalIgnoreCase)))
             {
-                diagnostics.Record(PluginDiagnosticLevel.Trace, "load", pluginId, "already-registered");
+                Record(PluginDiagnosticLevel.Trace, "load", pluginId, "already-registered");
                 return true;
             }
 
@@ -295,12 +303,12 @@ namespace El_Garnan_Plugin_Loader
             {
                 if (discovery.ManifestPath is null || !File.Exists(discovery.ManifestPath))
                 {
-                    diagnostics.Record(PluginDiagnosticLevel.Trace, "discovery", pluginId, "candidate-disappeared");
+                    Record(PluginDiagnosticLevel.Trace, "discovery", pluginId, "candidate-disappeared");
                     return true;
                 }
 
                 var error = new FileNotFoundException("The entry assembly declared by plugin.json was not found.");
-                diagnostics.Record(PluginDiagnosticLevel.Error, "manifest", pluginId, "entry-assembly-missing", error);
+                Record(PluginDiagnosticLevel.Error, "manifest", pluginId, "entry-assembly-missing", error);
                 logger.Warning($"Plugin manifest entry assembly is missing ({error.GetType().Name}).");
                 Notify(PluginError, new PluginErrorEventArgs(path, error), nameof(PluginError));
                 return false;
@@ -311,7 +319,7 @@ namespace El_Garnan_Plugin_Loader
             string? shadow = null;
             try
             {
-                diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "started");
+                Record(PluginDiagnosticLevel.Trace, stage, pluginId, "started");
                 SafePath.RejectLinks(path);
 
                 string? manifestId = null;
@@ -352,7 +360,7 @@ namespace El_Garnan_Plugin_Loader
                     throw new InvalidDataException("Manifest bundles must identify exactly one plugin.");
                 if (types.Length == 0)
                 {
-                    diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "no-plugin-types");
+                    Record(PluginDiagnosticLevel.Trace, stage, pluginId, "no-plugin-types");
                     return true;
                 }
 
@@ -390,9 +398,9 @@ namespace El_Garnan_Plugin_Loader
                         throw new PluginValidationException("Plugin configuration is invalid.");
 
                     stage = "plugin-initialization";
-                    diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "started");
+                    Record(PluginDiagnosticLevel.Trace, stage, pluginId, "started");
                     await candidate.InitializeAsync().ConfigureAwait(false);
-                    diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "succeeded");
+                    Record(PluginDiagnosticLevel.Trace, stage, pluginId, "succeeded");
                 }
 
                 stage = "registry-registration";
@@ -406,7 +414,7 @@ namespace El_Garnan_Plugin_Loader
 
                 foreach (var candidate in loaded)
                 {
-                    diagnostics.Record(PluginDiagnosticLevel.Information, "load", candidate.PluginId, "loaded");
+                    Record(PluginDiagnosticLevel.Information, "load", candidate.PluginId, "loaded");
                     Notify(PluginLoaded, new PluginLoadEventArgs(candidate), nameof(PluginLoaded));
                 }
                 return true;
@@ -415,12 +423,12 @@ namespace El_Garnan_Plugin_Loader
             {
                 // Native dependencies are expected in some legacy bundles, but only verbose tracing
                 // should record every native DLL candidate skipped by the managed plugin scanner.
-                diagnostics.Record(PluginDiagnosticLevel.Trace, "assembly-load", pluginId, "legacy-native-assembly-skipped", ex);
+                Record(PluginDiagnosticLevel.Trace, "assembly-load", pluginId, "legacy-native-assembly-skipped", ex);
                 return true;
             }
             catch (Exception ex)
             {
-                diagnostics.Record(PluginDiagnosticLevel.Error, stage, pluginId, "failed", ex);
+                Record(PluginDiagnosticLevel.Error, stage, pluginId, "failed", ex);
                 logger.Warning($"Plugin could not load during {stage} ({ex.GetType().Name}).");
                 Notify(PluginError, new PluginErrorEventArgs(path, ex), nameof(PluginError));
                 return false;
@@ -432,18 +440,18 @@ namespace El_Garnan_Plugin_Loader
                     try { await candidate.ShutdownAsync().ConfigureAwait(false); }
                     catch (Exception ex)
                     {
-                        diagnostics.Record(PluginDiagnosticLevel.Warning, "rollback-shutdown", candidate.PluginId, "failed", ex);
+                        Record(PluginDiagnosticLevel.Warning, "rollback-shutdown", candidate.PluginId, "failed", ex);
                     }
 
                     try { if (candidate is IDisposable d) d.Dispose(); }
                     catch (Exception ex)
                     {
-                        diagnostics.Record(PluginDiagnosticLevel.Warning, "rollback-disposal", candidate.PluginId, "failed", ex);
+                        Record(PluginDiagnosticLevel.Warning, "rollback-disposal", candidate.PluginId, "failed", ex);
                     }
                 }
 
                 try { context?.Unload(); }
-                catch (Exception ex) { diagnostics.Record(PluginDiagnosticLevel.Warning, "context-unload", pluginId, "failed", ex); }
+                catch (Exception ex) { Record(PluginDiagnosticLevel.Warning, "context-unload", pluginId, "failed", ex); }
                 if (shadow is not null) ScheduleShadowCleanup(shadow);
             }
         }
