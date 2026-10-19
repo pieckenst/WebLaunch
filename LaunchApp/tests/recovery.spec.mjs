@@ -38,38 +38,41 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
 });
 
 test('manual reconnect wins over a status request from the replaced channel', async ({ page }) => {
-    await prepare(page, base);
-    await page.goto(base + 'counter');
-    await page.locator('.connection-summary').click();
-    await page.getByRole('button', { name: 'Connect', exact: true }).click();
-    await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
-    await page.getByRole('button', { name: 'The codes match', exact: true }).click();
-    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
-
-    let releaseStatus;
-    let statusStarted;
-    const statusRequestStarted = new Promise(resolve => { statusStarted = resolve; });
-    const statusGate = new Promise(resolve => { releaseStatus = resolve; });
+    let releaseStatus = () => {};
+    let statusRouteInstalled = false;
+    let helloRouteInstalled = false;
     let heldStatus = false;
     let reconnectHandshakes = 0;
 
-    await page.route('http://127.0.0.1:47832/v2/session/**', async route => {
-        if (!heldStatus && route.request().method() === 'POST') {
-            heldStatus = true;
-            statusStarted();
-            await statusGate;
-            try { await route.abort(); } catch { /* The replaced JS channel may abort it first. */ }
-            return;
-        }
-        await route.continue();
-    });
-    await page.route('http://127.0.0.1:47832/v2/hello', async route => {
-        if (route.request().method() === 'POST') reconnectHandshakes++;
-        await route.continue();
-    });
-
     try {
-        await statusRequestStarted;
+        await prepare(page, base);
+        await page.goto(base + 'counter');
+        await page.locator('.connection-summary').click();
+        await page.getByRole('button', { name: 'Connect', exact: true }).click();
+        await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
+        await page.getByRole('button', { name: 'The codes match', exact: true }).click();
+        await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+
+        // Hold the next encrypted status exchange so a manual reconnect can replace its channel
+        // while the old request is still in flight.
+        const statusGate = new Promise(resolve => { releaseStatus = resolve; });
+        await page.route('http://127.0.0.1:47832/v2/session/**', async route => {
+            if (!heldStatus && route.request().method() === 'POST') {
+                heldStatus = true;
+                await statusGate;
+                try { await route.abort(); } catch { /* The replaced JS channel may abort it first. */ }
+                return;
+            }
+            await route.continue();
+        });
+        statusRouteInstalled = true;
+        await page.route('http://127.0.0.1:47832/v2/hello', async route => {
+            if (route.request().method() === 'POST') reconnectHandshakes++;
+            await route.continue();
+        });
+        helloRouteInstalled = true;
+
+        await expect.poll(() => heldStatus, { timeout: 15_000 }).toBe(true);
         const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
         const reconnectClick = reconnect.click();
         await expect(reconnect).toBeDisabled();
@@ -83,8 +86,8 @@ test('manual reconnect wins over a status request from the replaced channel', as
         expect(reconnectHandshakes).toBe(1);
     } finally {
         releaseStatus();
-        await page.unroute('http://127.0.0.1:47832/v2/session/**');
-        await page.unroute('http://127.0.0.1:47832/v2/hello');
+        if (statusRouteInstalled) await page.unroute('http://127.0.0.1:47832/v2/session/**');
+        if (helloRouteInstalled) await page.unroute('http://127.0.0.1:47832/v2/hello');
         // If an assertion fails midway, do not leave the synthetic host's single pending
         // pairing slot occupied and cascade failures into unrelated browser tests.
         try {
