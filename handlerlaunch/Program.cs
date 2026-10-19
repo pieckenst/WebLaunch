@@ -27,7 +27,8 @@ internal class Program
         {
             Console.WriteLine("WebLaunch [--console [--quiet]] [--debug] [--install | launch URI]");
             Console.WriteLine("Console mode pairs by typing matching codes. Quiet mode accepts existing pairings only.");
-            Console.WriteLine("--debug records sanitized lifecycle diagnostics in %LOCALAPPDATA%\\WebLaunch\\Logs. Install/repair enables Windows notifications.");
+            Console.WriteLine("--debug enables detailed, secret-free plugin loader traces in %LOCALAPPDATA%\\WebLaunch\\Logs\\plugins.log and desktop lifecycle events in desktop.log.");
+            Console.WriteLine("The loader keeps the latest 256 in-memory events and rotates its log at 1 MiB. --install registers Windows notifications.");
             return;
         }
         var console = args.Contains("--console", StringComparer.Ordinal);
