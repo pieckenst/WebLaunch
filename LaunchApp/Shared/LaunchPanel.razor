@@ -202,7 +202,10 @@
                         : "The desktop connection was interrupted. Connect again before launching.";
                     await RefreshConnectionStateAsync();
 
-                    if (savedPairing)
+                    // State refresh yields to the renderer. Re-check the generation after that
+                    // await so a manual reconnect started during the yield owns the next handshake.
+                    if (savedPairing &&
+                        observedConnectionGeneration == Interlocked.Read(ref connectionGeneration))
                         await StartAutomaticRecoveryAsync();
                 }
             }
