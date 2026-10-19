@@ -259,6 +259,26 @@ public sealed class ReviewRegressionTests
         finally { File.SetAttributes(file, FileAttributes.Normal); }
     }
 
+    [Fact]
+    public async Task ManifestEntryAssemblyMustBeAtBundleRoot()
+    {
+        using var root = new TemporaryDirectory();
+        var logger = new PluginLogger();
+        await using var plugins = new CoreFunctions(root.Path, logger, enableHotReload: false, useStandaloneWindow: false);
+        var failures = new List<El_Garnan_Plugin_Loader.PluginErrorEventArgs>();
+        plugins.PluginError += (_, args) => failures.Add(args);
+
+        File.WriteAllText(Path.Combine(root.Path, "plugin.json"),
+            """{"version":1,"id":"nested-fixture","assembly":"nested/Plugin.dll"}""");
+
+        await plugins.InitializeAsync();
+
+        var failure = Assert.Single(failures);
+        Assert.Contains("plugin.json", failure.PluginPath, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(plugins.GetLoadedPlugins());
+        await plugins.UnloadAllPluginsAsync();
+    }
+
     [Fact] public void ConfiguredAddonEntriesReachTheEnabledLaunchSelection()
     {
         var original = networklogic.AddonEntries.ToArray();
