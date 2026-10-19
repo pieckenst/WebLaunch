@@ -24,6 +24,37 @@ public sealed class BridgeTests
     {
         public Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken) => Task.FromResult(accepted);
     }
+    private sealed class BlockingForgetTrustStore : IBridgeTrustStore, IDisposable
+    {
+        private readonly HashSet<string> keys = [];
+        public ECDsa Identity { get; } = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        public TaskCompletionSource ForgetStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseForget { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int TrustedCount => keys.Count;
+        public bool IsTrusted(string origin, string fingerprint) => keys.Contains(origin + fingerprint);
+        public void Trust(string origin, string fingerprint) => keys.Add(origin + fingerprint);
+        public void ForgetAll()
+        {
+            ForgetStarted.TrySetResult();
+            ReleaseForget.Task.GetAwaiter().GetResult();
+            keys.Clear();
+        }
+        public void Dispose() => Identity.Dispose();
+    }
+    private sealed class PausedApprovalPrompt : IPairingPrompt
+    {
+        public TaskCompletionSource ApprovalRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseApproval { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ApprovalReturned { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken)
+        {
+            ApprovalRequested.TrySetResult();
+            await ReleaseApproval.Task.WaitAsync(cancellationToken);
+            ApprovalReturned.TrySetResult();
+            return true;
+        }
+    }
+
     private sealed class BlockingThenAcceptPrompt : IPairingPrompt
     {
         private int calls;
@@ -217,6 +248,35 @@ public sealed class BridgeTests
         Assert.True(accepted.Paired);
         Assert.Equal(2, prompt.Calls);
         Assert.Equal(0, launcher.Calls);
+    }
+
+    [Fact]
+    public async Task BrowserRevocationWinsAgainstAnAlreadyApprovedPendingPairing()
+    {
+        using var trust = new BlockingForgetTrustStore();
+        var prompt = new PausedApprovalPrompt();
+        await using var host = new BridgeHost(trust, prompt, new Launcher());
+        await host.StartAsync();
+
+        using var client = new Client();
+        await client.ConnectAsync();
+        var confirmation = client.Send(new() { Action = "confirm", Code = client.Code });
+        await prompt.ApprovalRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Revocation owns the admission lock while clearing the trust store. Let the pending
+        // desktop approval return during that window, forcing confirmation to wait for admission.
+        var revocation = Task.Run(host.ForgetBrowsersAsync);
+        await trust.ForgetStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        prompt.ReleaseApproval.TrySetResult();
+        await prompt.ApprovalReturned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        trust.ReleaseForget.TrySetResult();
+        await revocation.WaitAsync(TimeSpan.FromSeconds(5));
+
+        using var response = await confirmation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        Assert.Equal(0, trust.TrustedCount);
+        using var retry = await client.Send(new() { Action = "status" });
+        Assert.Equal(HttpStatusCode.Gone, retry.StatusCode);
     }
 
     [Fact] public async Task WrongPairingCodeIsRejected()
