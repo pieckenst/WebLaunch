@@ -200,7 +200,8 @@ namespace CoreLibLaunchSupport
             LastException = exception;
             if (!FfxivTraceLogger.TraceEnabled)
             {
-                Log.Warning("Detailed FFXIV exception diagnostics suppressed; set FFXIV_TRACE=1 to capture a local trace.");
+                Log.Warning("[FFXIV:{CorrelationId}] Detailed FFXIV exception diagnostics suppressed ({ExceptionType}); set FFXIV_TRACE=1 to capture a local trace.",
+                    FfxivTraceLogger.CorrelationOrNone, exception.GetType().Name);
                 return;
             }
 

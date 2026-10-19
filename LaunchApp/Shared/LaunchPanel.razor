@@ -722,6 +722,7 @@
             await ObserveDisposalTask(confirmation, "pairing confirmation");
             await ObserveDisposalTask(connectionMonitor, "connection monitor");
             await ObserveDisposalTask(launch, "launch task");
+            await ObserveDisposalTask(recoveryTask, "connection recovery");
         }
         finally
         {

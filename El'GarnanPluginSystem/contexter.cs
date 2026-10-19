@@ -35,7 +35,7 @@ namespace El_Garnan_Plugin_Loader
         {
             // Shared contracts and Dalamud services have exactly one identity in the process,
             // even when their first reference comes from a plugin.
-            if (new[] { "Elgarnan", "WebLaunch.Core", "CoreLibLaunchSupport", "LibDalamud", "ImGui.NET", "Veldrid", "Veldrid.SDL2" }.Contains(assemblyName.Name))
+            if (new[] { "Elgarnan", "WebLaunch.Core", "CoreLibLaunchSupport", "LibDalamud", "ImGui.NET", "Veldrid", "Veldrid.SDL2", "Serilog" }.Contains(assemblyName.Name))
                 return AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName);
 
             string assemblyPath = _pluginResolver.ResolveAssemblyToPath(assemblyName) ??
