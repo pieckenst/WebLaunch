@@ -261,22 +261,28 @@ public sealed class ReviewRegressionTests
     }
 
     [Fact]
-    public async Task ManifestEntryAssemblyMustBeAtBundleRoot()
+    public async Task ManifestEntryAssemblyAllowsNestedManagedDirectory()
     {
         using var root = new TemporaryDirectory();
+        var nested = Directory.CreateDirectory(Path.Combine(root.Path, "lib", "managed")).FullName;
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "fixtures", "WebLaunch.TestManifestPlugin.dll"),
+            Path.Combine(nested, "WebLaunch.TestManifestPlugin.dll"));
+        File.WriteAllText(Path.Combine(root.Path, "plugin.json"),
+            """{"version":1,"id":"legacy-fixture","assembly":"lib/managed/WebLaunch.TestManifestPlugin.dll"}""");
+
         var logger = new PluginLogger();
         await using var plugins = new CoreFunctions(root.Path, logger, enableHotReload: false, useStandaloneWindow: false);
         var failures = new List<El_Garnan_Plugin_Loader.PluginErrorEventArgs>();
         plugins.PluginError += (_, args) => failures.Add(args);
 
-        File.WriteAllText(Path.Combine(root.Path, "plugin.json"),
-            """{"version":1,"id":"nested-fixture","assembly":"nested/Plugin.dll"}""");
-
         await plugins.InitializeAsync();
 
-        var failure = Assert.Single(failures);
-        Assert.Contains("plugin.json", failure.PluginPath, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(plugins.GetLoadedPlugins());
+        var plugin = Assert.Single(plugins.GetLoadedPlugins());
+        Assert.Equal("legacy-fixture", plugin.PluginId);
+        Assert.Empty(failures);
+        var loadedPath = plugin.GetType().Assembly.Location;
+        Assert.Contains(Path.Combine("lib", "managed", "WebLaunch.TestManifestPlugin.dll"), loadedPath, StringComparison.OrdinalIgnoreCase);
         await plugins.UnloadAllPluginsAsync();
     }
 
