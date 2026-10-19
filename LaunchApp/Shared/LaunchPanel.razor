@@ -126,6 +126,7 @@
     private bool needsCredentials, missingUsername, successConfirmed;
     private LaunchStatus? terminalStatus;
     private Task? credentialPrompt;
+    private TaskCompletionSource? credentialPromptRendered;
 
     // Play now is the frictionless path: launch immediately whenever the session already holds
     // everything the request needs. Settings remain the place where missing details are entered.
@@ -158,10 +159,14 @@
 
     private async Task OpenCredentialPrompt()
     {
+        if (needsCredentials) return;
+        var rendered = credentialPromptRendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         needsCredentials = true;
         // The prompt lives in a conditional block, so the <dialog> element does not exist until
-        // this state change renders. Yield first so the ElementReference points at a live node.
+        // the render completes. Wait for OnAfterRender before using its ElementReference.
         await InvokeAsync(StateHasChanged);
+        try { await rendered.Task; }
+        catch (OperationCanceledException) { return; }
         try
         {
             dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
@@ -173,6 +178,7 @@
         {
             // Without a prompt there is nowhere to type credentials, so fall back to settings.
             needsCredentials = false;
+            credentialPromptRendered = null;
             password = otp = "";
             CloseCredentialPromptReference();
             Report("open-credential-prompt", ex, "Could not open the sign-in prompt. Enter your details in game settings.");
@@ -301,6 +307,11 @@
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (needsCredentials && credentialPromptRendered is { } promptRendered)
+        {
+            credentialPromptRendered = null;
+            promptRendered.TrySetResult();
+        }
         if (!firstRender)
         {
             if (focusTarget is { } target && module is not null && !manualConnectPending)
@@ -1170,6 +1181,8 @@
                     dialogReference = null;
                     CloseCredentialPromptReference();
                     needsCredentials = false;
+                    credentialPromptRendered?.TrySetCanceled();
+                    credentialPromptRendered = null;
                     password = otp = "";
                     lifetime.Dispose();
                 }
