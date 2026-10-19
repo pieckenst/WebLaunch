@@ -34,13 +34,12 @@ public sealed class PluginDiagnosticsTests
 
         await host.InitializeAsync();
 
-        var failure = Assert.Contains(
-            host.GetDiagnosticSnapshot(256),
+        var failure = Assert.Single(host.GetDiagnosticSnapshot(256).Where(
             entry => entry.Level == PluginDiagnosticLevel.Error &&
                      entry.Stage == "manifest" &&
                      entry.PluginId == "ffxiv-launcher" &&
                      entry.Outcome == "entry-assembly-missing" &&
-                     entry.ExceptionType == nameof(FileNotFoundException));
+                     entry.ExceptionType == nameof(FileNotFoundException)));
         Assert.NotNull(failure.HResult);
         Assert.True(File.Exists(host.DiagnosticLogPath));
 
