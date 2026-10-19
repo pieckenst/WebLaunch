@@ -4,7 +4,7 @@ namespace WebLaunch.Core;
 
 public enum DiagnosticEvent
 {
-    HostStarting, HostReady, HostStopped, HostFailed, LaunchState,
+    HostStarting, HostReady, HostStopped, HostFailed, LaunchState, LaunchFailed,
     PluginLoaded, PluginUnloaded, PluginReloaded, PluginWarning, PluginError, PluginDebug, PluginInformation,
     NotificationShown, NotificationUnavailable, NotificationFailed, RegistrationComplete
 }
