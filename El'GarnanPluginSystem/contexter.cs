@@ -44,6 +44,26 @@ namespace El_Garnan_Plugin_Loader
             this.correlationId = SafeLabel(correlationId, Guid.NewGuid().ToString("N"));
             pluginResolver = new AssemblyDependencyResolver(Path.GetFullPath(pluginPath));
             processResolver = new AssemblyDependencyResolver(typeof(PluginLoadContext).Assembly.Location);
+
+            // This event is reached only when the normal plugin, host and runtime resolution paths
+            // could not provide the assembly. Keep the event diagnostic-only; never probe arbitrary
+            // locations or turn a failed lookup into an implicit load from an untrusted path.
+            Resolving += (_, name) =>
+            {
+                Record(
+                    PluginDiagnosticLevel.Error,
+                    "assembly-resolution",
+                    $"unresolved-{SafeLabel(name.Name, "unknown")}");
+                return null;
+            };
+            ResolvingUnmanagedDll += (_, name) =>
+            {
+                Record(
+                    PluginDiagnosticLevel.Warning,
+                    "native-resolution",
+                    $"unresolved-{SafeLabel(name, "unknown")}");
+                return IntPtr.Zero;
+            };
         }
 
         /// <summary>
