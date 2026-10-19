@@ -43,6 +43,7 @@ public sealed class BridgeHost : IAsyncDisposable
     private readonly HashSet<string> origins;
     private readonly string desktopMode;
     private readonly IGameFolderPicker? folderPicker;
+    private readonly Action<DiagnosticEvent, string?, string?>? diagnosticSink;
     private readonly ConcurrentDictionary<string, Session> sessions = new();
     private readonly ConcurrentDictionary<string, LaunchOperation> launchOperations = new(StringComparer.Ordinal);
     private readonly ReplayRequestIdCache usedRequestIds;
@@ -62,10 +63,11 @@ public sealed class BridgeHost : IAsyncDisposable
         IEnumerable<string>? developmentOrigins = null,
         string desktopMode = "gui",
         IGameFolderPicker? folderPicker = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Action<DiagnosticEvent, string?, string?>? diagnosticSink = null)
     {
         if (desktopMode is not ("gui" or "console" or "quiet")) throw new ArgumentException("Invalid desktop mode.");
-        this.desktopMode = desktopMode; this.folderPicker = folderPicker;
+        this.desktopMode = desktopMode; this.folderPicker = folderPicker; this.diagnosticSink = diagnosticSink;
         this.trust = trust; this.prompt = prompt; this.launcher = launcher;
         usedRequestIds = new ReplayRequestIdCache(timeProvider: timeProvider);
         origins = new(StringComparer.Ordinal) { "https://pieckenst.github.io" };
@@ -93,7 +95,11 @@ public sealed class BridgeHost : IAsyncDisposable
             var origin = context.Request.Headers.Origin.ToString();
             if (context.Request.Host.Value != $"127.0.0.1:{Port}" || !origins.Contains(origin) ||
                 context.Connection.RemoteIpAddress is not { } ip || !IPAddress.IsLoopback(ip))
-            { context.Response.StatusCode = 403; return; }
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeRejected, null, "origin-host-or-peer-rejected");
+                context.Response.StatusCode = 403;
+                return;
+            }
             context.Response.Headers.AccessControlAllowOrigin = origin;
             context.Response.Headers.Vary = "Origin";
             context.Response.Headers.CacheControl = "no-store";
@@ -109,8 +115,15 @@ public sealed class BridgeHost : IAsyncDisposable
             { context.Response.StatusCode = 415; return; }
             try { await next(context); }
             catch (Exception ex) when (ex is JsonException or ArgumentException or FormatException or CryptographicException or InvalidDataException or BadHttpRequestException)
-            { context.Response.StatusCode = 400; }
-            catch (OperationCanceledException) { context.Response.StatusCode = 408; }
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeFailure, null, $"request-invalid-{ex.GetType().Name}-hr-{unchecked((uint)ex.HResult):X8}");
+                context.Response.StatusCode = 400;
+            }
+            catch (OperationCanceledException)
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeFailure, null, "request-cancelled-or-timed-out");
+                context.Response.StatusCode = 408;
+            }
         });
         app.MapPost("/v2/hello", HelloAsync);
         // Cancellation bypasses the encrypted session gate so a pending approval can be expired
@@ -176,10 +189,20 @@ public sealed class BridgeHost : IAsyncDisposable
         context.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
+    private void RecordDiagnostic(DiagnosticEvent code, string? requestId, string? detail)
+    {
+        try { diagnosticSink?.Invoke(code, requestId, detail); }
+        catch { /* Diagnostics must never affect bridge authorization or request handling. */ }
+    }
+
     private async Task MessageAsync(HttpContext context, string id)
     {
         if (!sessions.TryGetValue(id, out var session) || session.Origin != context.Request.Headers.Origin.ToString() || session.IsExpired)
-        { context.Response.StatusCode = 410; return; }
+        {
+            RecordDiagnostic(DiagnosticEvent.BridgeRejected, null, "session-missing-expired-or-origin-mismatch");
+            context.Response.StatusCode = 410;
+            return;
+        }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.Token);
         timeout.CancelAfter(TimeSpan.FromMinutes(2));
         await session.Gate.WaitAsync(timeout.Token);
@@ -188,6 +211,12 @@ public sealed class BridgeHost : IAsyncDisposable
             if (session.IsExpired) { context.Response.StatusCode = 410; return; }
             var envelope = await context.Request.ReadFromJsonAsync<EncryptedMessage>(timeout.Token) ?? throw new InvalidDataException();
             var command = session.Channel.Decrypt<BridgeCommand>(envelope);
+            var diagnosticRequestId = command.Launch?.RequestId ?? command.RequestId;
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, diagnosticRequestId, "decrypted-action-" + (command.Action switch
+            {
+                "confirm" or "launch" or "status" or "browse" or "cancel" or "disconnect" => command.Action,
+                _ => "other"
+            }));
             if (command.Action == "disconnect")
             {
                 // Closing a transport must not cancel a launch that the browser may have submitted
@@ -258,6 +287,7 @@ public sealed class BridgeHost : IAsyncDisposable
                     if (session.Job is not null) throw new InvalidDataException("A launch was already submitted.");
                     var request = command.Launch ?? throw new InvalidDataException();
                     request.Validate();
+                    RecordDiagnostic(DiagnosticEvent.BridgeRequest, request.RequestId, "launch-validated");
                     PruneLaunchOperations();
                     if (!usedRequestIds.TryReserve(request.RequestId))
                     {
@@ -275,6 +305,7 @@ public sealed class BridgeHost : IAsyncDisposable
                     session.Job = RunLaunchAsync(session, request, operation);
                     break;
                 case "browse":
+                    RecordDiagnostic(DiagnosticEvent.BridgeRequest, command.RequestId, "folder-picker-requested");
                     if (folderPicker is null) { replyStatus = new("unavailable", "Update the desktop launcher to choose folders, or enter the full path."); break; }
                     if (session.Job is not null) throw new InvalidDataException("Reconnect before selecting another folder.");
                     try
