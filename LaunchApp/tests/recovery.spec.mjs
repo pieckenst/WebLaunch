@@ -85,6 +85,15 @@ test('manual reconnect wins over a status request from the replaced channel', as
         releaseStatus();
         await page.unroute('http://127.0.0.1:47832/v2/session/**');
         await page.unroute('http://127.0.0.1:47832/v2/hello');
+        // If an assertion fails midway, do not leave the synthetic host's single pending
+        // pairing slot occupied and cascade failures into unrelated browser tests.
+        try {
+            await page.evaluate(async () => {
+                const bridge = await import('./js/bridge.js');
+                try { await bridge.cancelPendingPairing(); }
+                finally { await bridge.forget(); }
+            });
+        } catch { /* The page may already have navigated or disposed. */ }
     }
 });
 
