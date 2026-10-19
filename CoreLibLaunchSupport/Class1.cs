@@ -1112,7 +1112,6 @@ namespace CoreLibLaunchSupport
         }
         static string DalamudRolloutBucket { get; set; }
         private static readonly string UserAgent = GenerateUserAgent();
-        private static readonly LauncherPaths Paths = new();
         private static readonly SharedHttpClientProvider HttpClientProvider = new(TimeSpan.FromSeconds(30));
         private static readonly FfxivHashBuilder HashBuilder = new();
         private static readonly FfxivAuthenticationService AuthService = new(HttpClientProvider.Client, UserAgent);
