@@ -379,7 +379,7 @@ public sealed class BridgeTests
     public async Task RevocationPreventsLateFolderSelectionFromDisclosingPath()
     {
         using var trust = new TrustStore();
-        var picker = new LateFolderPicker(Path.Combine(Path.GetTempPath(), "SecretInstall"));
+        var picker = new LateFolderPicker(@"C:\Games\SecretInstall");
         await using var host = new BridgeHost(trust, new Prompt(true), new Launcher(), folderPicker: picker);
         await host.StartAsync();
         using var client = new Client();
