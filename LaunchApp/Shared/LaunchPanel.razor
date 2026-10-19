@@ -119,7 +119,7 @@
     private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
     private bool manualConnectPending;
     private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
-    private string PairingState => paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
+    private string PairingState => manualConnectPending ? (savedPairing ? "Pairing saved · reconnecting" : "Connecting · not paired") : paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
     private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
     private Task? launch, connectionMonitor;
     // Invalidates a status failure that belongs to a connection replaced by a manual reconnect.
@@ -429,7 +429,7 @@
         Interlocked.Increment(ref connectionGeneration);
         var retrySavedPairing = false;
         manualConnectPending = true;
-        message = "Reconnecting to the desktop launcher…";
+        message = savedPairing ? "Reconnecting to the desktop launcher…" : "Connecting to the desktop launcher…";
         hasNotice = true;
         try
         {
