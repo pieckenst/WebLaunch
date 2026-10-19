@@ -140,6 +140,7 @@ public sealed class BridgeHost : IAsyncDisposable
         var hello = await context.Request.ReadFromJsonAsync<ClientHello>(timeout.Token) ?? throw new InvalidDataException();
         var origin = context.Request.Headers.Origin.ToString();
         BridgeCrypto.ValidateHello(origin, hello);
+        RecordDiagnostic(DiagnosticEvent.BridgeRequest, null, "hello-proof-validated");
         await admission.WaitAsync(timeout.Token);
         try
         {
@@ -148,7 +149,12 @@ public sealed class BridgeHost : IAsyncDisposable
             usedRequestIds.PruneExpired();
             if (sessions.Count >= 16 ||
                 (!known && (DateTimeOffset.UtcNow < pairingRetryAfter || sessions.Values.Any(s => !s.Paired && !s.IsExpired))))
-            { context.Response.StatusCode = 429; return; }
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeRejected, null, "hello-rate-limited");
+                context.Response.StatusCode = 429;
+                return;
+            }
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, null, known ? "hello-known-browser" : "hello-pairing-required");
             using var ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
             using var clientKey = ECDiffieHellman.Create();
             var publicBytes = Convert.FromBase64String(hello.Ephemeral);
@@ -166,6 +172,7 @@ public sealed class BridgeHost : IAsyncDisposable
             session.Paired = known;
             session.Approval = known ? Task.FromResult(true) : prompt.ConfirmAsync(origin, session.Code, session.PairingTimeout.Token);
             sessions[response.SessionId] = session;
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, null, "hello-session-created");
             await context.Response.WriteAsJsonAsync(response, timeout.Token);
         }
         finally { admission.Release(); }
@@ -313,7 +320,13 @@ public sealed class BridgeHost : IAsyncDisposable
                         using var folderCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                             timeout.Token, session.RevocationCancellation.Token);
                         folderPath = await folderPicker.SelectAsync(folderCancellation.Token);
-                        if (folderPath is not null) LaunchRequest.ValidateGamePath(folderPath);
+                        if (folderPath is not null)
+                        {
+                            folderPath = LaunchRequest.NormalizeGamePath(folderPath);
+                            LaunchRequest.ValidateGamePath(folderPath);
+                            RecordDiagnostic(DiagnosticEvent.BridgeRequest, command.RequestId, "folder-selection-completed");
+                        }
+                        else RecordDiagnostic(DiagnosticEvent.BridgeRequest, command.RequestId, "folder-selection-cancelled");
                         replyStatus = new("folder", folderPath is null ? "Folder selection cancelled." : "Installation folder selected.");
                     }
                     catch (OperationCanceledException) { throw; }
