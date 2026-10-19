@@ -70,6 +70,15 @@ namespace LibDalamud.Common.Dalamud
                     psi.EnvironmentVariables.Add(keyValuePair.Key, keyValuePair.Value);
             }
 
+            // In the Dalamud path, this runner owns the actual game arguments and the injector
+            // command line; NativeProcessLauncher is not the process-start path. Keep both in the
+            // opt-in forensic trace so injection failures remain diagnosable.
+            LaunchCancellationContext.WriteTrace(() =>
+                $"FFXIV game arguments:{Environment.NewLine}{gameArgs}{Environment.NewLine}" +
+                $"Dalamud injector executable: {runner.FullName}{Environment.NewLine}" +
+                $"Dalamud injector working directory: {psi.WorkingDirectory}{Environment.NewLine}" +
+                $"Dalamud injector arguments:{Environment.NewLine}{psi.Arguments}");
+
             Process? dalamudProcess = null;
             try
             {
