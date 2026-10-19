@@ -5,11 +5,17 @@
 
 <section id="launch" class="launch-panel" aria-label="Launch controls">
     <div class="play-card">
-        <button class="primary play-button" type="button" disabled="@(busy || connecting || manualConnectPending)" @onclick="PlayNow">Play now</button>
+        <button class="primary play-button" type="button" disabled="@(busy || connecting || manualConnectPending || launchOutcomeAmbiguous)" @onclick="PlayNow">Play now</button>
         <button class="settings-button" type="button" aria-label="Game settings" title="Game settings" @onclick="OpenGame"><NavigationIcon /></button>
     </div>
     <button class="connection-summary" type="button" @onclick="OpenDesktop"><span class="status-dot @(paired ? "connected" : "")"></span>@PairingState</button>
     <p class="launch-summary" role="status">@(launchAttempted || hasNotice ? message : "")</p>
+    @if (launchOutcomeAmbiguous && launchVerificationReady)
+    {
+        <button class="connection-action" type="button" disabled="@(busy || connecting || manualConnectPending)" @onclick="AcknowledgeLaunchState">
+            I've checked the game state — allow another launch
+        </button>
+    }
 </section>
 <dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title" aria-busy="@busy">
     <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
@@ -108,8 +114,9 @@
     private IDisposable? pageActionRegistration;
     private ElementReference dialog, credentialDialog;
     private DotNetObjectReference<LaunchPanel>? dialogReference, credentialDialogReference;
-    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous, launchVerificationReady;
     private string? launchOutcomeWarning;
+    private string pendingLaunchRequestId = "";
     // Remembers why Play now diverted to a credential prompt instead of launching immediately.
     private bool needsCredentials, missingUsername, successConfirmed;
     private LaunchStatus? terminalStatus;
@@ -285,9 +292,19 @@
         path = await module.InvokeAsync<string?>("preference", Game + ".path") ?? "";
         desktopMode = await module.InvokeAsync<string?>("preference", "desktopMode") == "console" ? "console" : "gui";
         bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode);
+        pendingLaunchRequestId = await module.InvokeAsync<string?>("pendingLaunchId") ?? "";
+        if (pendingLaunchRequestId.Length > 0)
+        {
+            launchOutcomeAmbiguous = true;
+            launchOutcomeWarning = "A previous launch response was interrupted. The game may still be starting; verify its state before submitting another launch.";
+            message = launchOutcomeWarning;
+            hasNotice = true;
+        }
         try { savedPairing = await module.InvokeAsync<bool>("pairingSaved"); }
         catch (JSException) { message = "Pairing storage is unavailable. Allow site storage before connecting."; }
         connectionMonitor = MonitorConnection();
+        if (launchOutcomeAmbiguous && savedPairing)
+            _ = StartAutomaticRecoveryAsync();
         }
         catch (JSException ex) { Report("initialize", ex, "Could not initialize the launcher. Reload the page; check that browser storage and scripts are allowed."); }
         StateHasChanged();
@@ -426,12 +443,18 @@
                     if (recovered.Paired)
                     {
                         savedPairing = true;
-                        message = launchOutcomeAmbiguous
-                            ? $"{launchOutcomeWarning ?? "The previous launch outcome is unknown."} Desktop connection restored. Verify the game state before submitting another launch."
-                            : "The desktop connection is restored.";
-                        launchOutcomeAmbiguous = false;
-                        launchOutcomeWarning = null;
-                        hasNotice = true;
+                        if (launchOutcomeAmbiguous)
+                        {
+                            // A new encrypted session is not proof that the previous launch stopped.
+                            // Query the host's request-ID history and keep launching disabled until
+                            // the user has checked the real game state.
+                            await RecoverInterruptedLaunchAsync(token);
+                        }
+                        else
+                        {
+                            message = "The desktop connection is restored.";
+                            hasNotice = true;
+                        }
                         return;
                     }
 
@@ -501,6 +524,61 @@
             recovery.Dispose();
             await RefreshConnectionStateAsync();
         }
+    }
+
+    private async Task RecoverInterruptedLaunchAsync(CancellationToken token)
+    {
+        var requestId = pendingLaunchRequestId;
+        if (module is null || requestId.Length == 0)
+        {
+            launchVerificationReady = true;
+            message = $"{launchOutcomeWarning} The desktop connection is restored, but the original launch identifier is unavailable. Verify the game state before another launch.";
+            hasNotice = true;
+            await RefreshConnectionStateAsync();
+            return;
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        LaunchStatus? lastStatus = null;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        do
+        {
+            token.ThrowIfCancellationRequested();
+            var reply = await module.InvokeAsync<Reply>("status", token, requestId);
+            lastStatus = reply.Status;
+
+            if (string.Equals(lastStatus.State, "unknown", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(lastStatus.State, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                launchVerificationReady = true;
+                message = $"{launchOutcomeWarning} Desktop connection restored, but the handler cannot confirm the original launch status. Verify the game state before submitting another launch.";
+                hasNotice = true;
+                await RefreshConnectionStateAsync();
+                return;
+            }
+
+            if (lastStatus.Completed)
+            {
+                launchVerificationReady = true;
+                message = lastStatus.Success
+                    ? "The desktop confirms that the game process started. Verify its current state before submitting another launch."
+                    : $"The desktop reports a terminal launch state: {lastStatus.Message} Verify the game state before submitting another launch.";
+                hasNotice = true;
+                await RefreshConnectionStateAsync();
+                return;
+            }
+
+            message = $"{lastStatus.Message} The desktop is still tracking the previous launch. Do not submit another launch until you verify its state.";
+            hasNotice = true;
+            await RefreshConnectionStateAsync();
+            if (DateTimeOffset.UtcNow >= deadline) break;
+        }
+        while (await timer.WaitForNextTickAsync(token));
+
+        launchVerificationReady = true;
+        message = $"{lastStatus?.Message ?? launchOutcomeWarning ?? "The previous launch outcome is unknown."} The desktop connection is restored. Verify the game state before submitting another launch.";
+        hasNotice = true;
+        await RefreshConnectionStateAsync();
     }
 
     private static TimeSpan RecoveryDelay(int failureCount, string? previousFailure)
@@ -780,10 +858,13 @@
     private Task Launch() => busy ? Task.CompletedTask : launch = LaunchCore();
     private async Task LaunchCore()
     {
-        if (busy || connecting || manualConnectPending || !paired || module is null) return;
+        if (busy || connecting || manualConnectPending || launchOutcomeAmbiguous || !paired || module is null) return;
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
         catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); successConfirmed = false; return; }
+        var retainedUsername = username;
+        var retainedPassword = password;
+        var retainedOtp = otp;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         cancellation.CancelAfter(TimeSpan.FromHours(2));
         launchCancellation = cancellation;
@@ -797,20 +878,28 @@
         var recoverAfterAmbiguousLaunch = false;
         try
         {
-            await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
-            // The request carries its own copy for the wire; the component keeps the session's
-            // copy so a failed or cancelled launch can be retried without re-entering anything.
-            request.ClearCredentials();
-            // Once the request call is made, its outcome can be ambiguous if interop fails.
-            // The native bridge accepts one launch per session, so reconnect before any retry.
+            await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path");
+            pendingLaunchRequestId = request.RequestId;
+            // Persist only the non-secret correlation ID so a page reload cannot silently discard
+            // the duplicate-launch guard. Never store credentials or launch arguments here.
+            await module.InvokeAsync<string?>("pendingLaunchId", cancellation.Token, pendingLaunchRequestId);
+            // JS interop serializes the request when the call is initiated. Keep the request intact
+            // until it has been serialized; clearing it here used to send empty FFXIV credentials.
             launchRequestSubmitted = true;
-            var reply = await module.InvokeAsync<Reply>("launch", cancellation.Token, request);
+            var submission = module.InvokeAsync<Reply>("launch", cancellation.Token, request);
+            password = otp = "";
+            await InvokeAsync(StateHasChanged);
+            var reply = await submission;
             message = reply.Status.Message;
-            await Poll(cancellation.Token);
+            await Poll(cancellation.Token, request.RequestId);
             completed = true;
-            // Only a terminal success reported by the desktop is authoritative. Anything else -
-            // cancellation, failure, or an ambiguous response - keeps the entered details so the
-            // next attempt costs one click rather than a full re-entry.
+            // Terminal status is authoritative for the host-side operation. Clear the recovery
+            // marker only after the complete status has been received successfully.
+            await module.InvokeVoidAsync("pendingLaunchId", cancellation.Token, "");
+            pendingLaunchRequestId = "";
+            launchOutcomeAmbiguous = false;
+            launchVerificationReady = false;
+            launchOutcomeWarning = null;
             successConfirmed = terminalStatus?.Success == true;
         }
         catch (JSException ex)
@@ -826,15 +915,19 @@
         }
         catch (OperationCanceledException)
         {
-            if (!lifetime.IsCancellationRequested && !launchCancellationConfirmed)
+            if (!launchCancellationConfirmed)
             {
                 if (launchRequestSubmitted)
                 {
                     launchOutcomeAmbiguous = true;
-                    launchOutcomeWarning = "Launch monitoring timed out. The game may still be starting; do not submit another launch until you verify its state.";
+                    launchVerificationReady = false;
+                    launchOutcomeWarning = lifetime.IsCancellationRequested
+                        ? "The launch connection closed before its final state was confirmed. The game may still be starting; verify its state before submitting another launch."
+                        : "Launch monitoring timed out. The game may still be starting; do not submit another launch until you verify its state.";
                     message = launchOutcomeWarning + " Re-establishing the desktop connection…";
                 }
-                else message = "The operation was cancelled before the launch request was submitted.";
+                else if (!lifetime.IsCancellationRequested)
+                    message = "The operation was cancelled before the launch request was submitted.";
             }
         }
         finally
@@ -844,6 +937,14 @@
             // component's copy is retained unless the desktop confirmed the game started.
             request.ClearCredentials();
             if (successConfirmed) password = otp = "";
+            else
+            {
+                // Inputs are cleared during launch submission, then restored only for a
+                // non-success outcome so the user can retry without retyping credentials.
+                username = retainedUsername;
+                password = retainedPassword;
+                otp = retainedOtp;
+            }
             busy = false;
             focusTarget = "launch-status";
 
@@ -858,7 +959,13 @@
                     recoverAfterAmbiguousLaunch = savedPairing && launchOutcomeAmbiguous && !lifetime.IsCancellationRequested;
                 paired = false;
                 actualMode = "";
-                try { await module.InvokeVoidAsync("disconnect"); }
+                try
+                {
+                    if (launchOutcomeAmbiguous)
+                        await module.InvokeVoidAsync("abandon");
+                    else
+                        await module.InvokeVoidAsync("disconnect");
+                }
                 catch (JSException ex) { BrowserDiagnostics.Report("post-launch disconnect", ex); }
             }
         }
@@ -868,12 +975,12 @@
         if (recoverAfterAmbiguousLaunch)
             _ = StartAutomaticRecoveryAsync();
     }
-    private async Task Poll(CancellationToken token)
+    private async Task Poll(CancellationToken token, string requestId)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         while (await timer.WaitForNextTickAsync(token))
         {
-            var reply = await module!.InvokeAsync<Reply>("status", token);
+            var reply = await module!.InvokeAsync<Reply>("status", token, requestId);
             message = reply.Status.Message; await InvokeAsync(StateHasChanged);
             // The terminal status, not the launch acknowledgement, decides whether the game
             // actually started. Remember it so credential retention keys off the real outcome.
@@ -881,6 +988,31 @@
         }
         terminalStatus = null;
     }
+    private async Task AcknowledgeLaunchState()
+    {
+        if (!launchOutcomeAmbiguous || !launchVerificationReady || busy || connecting || manualConnectPending)
+            return;
+
+        try
+        {
+            if (module is not null)
+                await module.InvokeVoidAsync("pendingLaunchId", lifetime.Token, "");
+        }
+        catch (JSException ex)
+        {
+            Report("clear launch recovery state", ex, "Could not clear the pending launch guard. Allow session storage and retry.");
+            return;
+        }
+
+        pendingLaunchRequestId = "";
+        launchOutcomeAmbiguous = false;
+        launchVerificationReady = false;
+        launchOutcomeWarning = null;
+        message = "Launch state checked. Another launch is now allowed.";
+        hasNotice = true;
+        await RefreshConnectionStateAsync();
+    }
+
     private async Task Cancel()
     {
         // Cancelling is not a sign-in failure, so the entered details stay put for the next attempt.

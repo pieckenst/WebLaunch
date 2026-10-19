@@ -106,14 +106,15 @@ async function saveIdentity(identity) {
     } finally { db.close(); }
 }
 async function post(path, body, timeout = 15000, signal) {
-    const deadline = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
-        ? AbortSignal.timeout(timeout) : undefined;
+    // Use an AbortSignal for the deadline. Passing the millisecond count itself to fetch's
+    // signal option causes a TypeError in browsers that enforce the Fetch contract.
+    const deadline = deadlineSignal(timeout);
     let response;
     try {
         response = await fetch(endpoint + path, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body), credentials: 'omit', cache: 'no-store',
-            redirect: 'error', signal: combineSignals(signal, timeout)
+            redirect: 'error', signal: combineSignals(signal, deadline)
         });
     } catch (error) {
         if (asAbort(error) && signal?.aborted) throw new DOMException('Connection attempt cancelled.', 'AbortError');
@@ -199,7 +200,7 @@ export async function connect() {
         const [sendKey, receiveKey] = await Promise.all([derive('client'), derive('desktop')]);
         ensureActive();
         const code = (new DataView(salt.buffer, salt.byteOffset, 4).getUint32(0) % 1000000).toString().padStart(6, '0');
-        channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: sendKey, receive: receiveKey, sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve(), connectGeneration: generation };
+        channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: sendKey, receive: receiveKey, sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve(), coalescedStatus: undefined, coalescedStatusRequestId: undefined, queuedStatusTicket: undefined, connectGeneration: generation };
         if (response.knownBrowser) await confirmPairing();
         ensureActive();
         if (!channel || channel.connectGeneration !== generation)
@@ -247,7 +248,12 @@ async function exchange(current, command, signal = current.abort.signal) {
 function send(command) {
     const current = channel;
     if (!current) return Promise.reject(new Error('Connect to the desktop launcher first.'));
-    if (command.action === 'status' && current.coalescedStatus) return current.coalescedStatus;
+
+    const statusRequestId = command.action === 'status' && typeof command.requestId === 'string'
+        ? command.requestId : '';
+    if (command.action === 'status' && current.coalescedStatus &&
+        current.coalescedStatusRequestId === statusRequestId)
+        return current.coalescedStatus;
 
     const ticket = { skip: false };
     if (command.action === 'status') current.queuedStatusTicket = ticket;
@@ -259,13 +265,23 @@ function send(command) {
         if (ticket.skip) return emptyReply(current);
         return exchange(current, command);
     });
+
     if (command.action === 'status') {
-        current.coalescedStatus = result.finally(() => {
-            if (current.coalescedStatus === result) current.coalescedStatus = undefined;
+        // Compare against the promise we actually publish, not the original promise.
+        // Otherwise coalescedStatus is never cleared and every later poll sees stale data.
+        let tracked;
+        tracked = result.finally(() => {
+            if (current.coalescedStatus === tracked) {
+                current.coalescedStatus = undefined;
+                current.coalescedStatusRequestId = undefined;
+            }
             if (current.queuedStatusTicket === ticket) current.queuedStatusTicket = undefined;
         });
+        current.coalescedStatus = tracked;
+        current.coalescedStatusRequestId = statusRequestId;
     } else {
         current.coalescedStatus = undefined;
+        current.coalescedStatusRequestId = undefined;
         if (current.queuedStatusTicket === ticket) current.queuedStatusTicket = undefined;
     }
     current.pending = result.catch(() => {});
@@ -297,7 +313,7 @@ export async function browseFolder() {
     if (!channel?.paired) throw new Error('Pair the desktop launcher before choosing a folder.');
     return send({ action: 'browse' });
 }
-export const status = () => send({ action: 'status' });
+export const status = (requestId = '') => send({ action: 'status', ...(requestId ? { requestId } : {}) });
 export const cancel = () => channel?.paired ? send({ action: 'cancel' }) : Promise.resolve();
 export async function cancelPendingPairing() {
     const current = channel;
@@ -312,6 +328,40 @@ export async function cancelPendingPairing() {
     try { await current.pending; } catch { /* The in-flight exchange is intentionally aborted. */ }
     try { await post('/v2/session/' + current.id + '/cancel', { reason: 'pairing-cancelled' }, 2000); }
     catch { /* Local cancellation is authoritative; the desktop's two-minute pairing expiry remains a fallback. */ }
+}
+
+// Drop a broken/ambiguous channel without telling the host to cancel an accepted launch.
+// The host keeps the operation alive so an authenticated replacement session can inspect it.
+export function abandon() {
+    const current = channel;
+    if (!current) return;
+    channel = undefined;
+    current.abort.abort();
+}
+
+const pendingLaunchStorageKey = 'weblaunch.pendingLaunchId';
+const requestIdPattern = /^[a-f0-9]{32}$/i;
+export function pendingLaunchId(value) {
+    if (value === undefined) {
+        try {
+            const stored = sessionStorage.getItem(pendingLaunchStorageKey);
+            return stored && requestIdPattern.test(stored) ? stored : null;
+        } catch {
+            // Reading optional recovery state must not prevent the rest of the launcher starting.
+            return null;
+        }
+    }
+
+    const normalized = value == null ? '' : String(value);
+    if (normalized && !requestIdPattern.test(normalized))
+        throw new Error('Invalid launch recovery identifier.');
+    try {
+        if (normalized) sessionStorage.setItem(pendingLaunchStorageKey, normalized);
+        else sessionStorage.removeItem(pendingLaunchStorageKey);
+        return normalized || null;
+    } catch {
+        throw new Error('Could not store launch recovery state. Allow session storage before launching.');
+    }
 }
 
 export async function disconnect() {
