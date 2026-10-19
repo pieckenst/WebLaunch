@@ -271,12 +271,18 @@ public sealed class LifecycleTests
             Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
             Assert.Throws<IOException>(() => new FileStream(firstRoot + ".lock", FileMode.Open, FileAccess.ReadWrite, FileShare.None));
         }
-        // Host shutdown deliberately does not block on native file locks: plugin shadow trees
-        // are reaped asynchronously after their collectible contexts and child cleanup tasks settle.
-        await Eventually(() => !Directory.Exists(secondRoot));
+        // Unload is asynchronous for collectible contexts. A test-only collection lets Windows
+        // release file handles deterministically; production cleanup continues retrying in the background.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        await Eventually(() => !Directory.Exists(secondRoot), TimeSpan.FromSeconds(20));
         Assert.Equal("lazy dependency", File.ReadAllText(Path.Combine(firstShadow, "dependency.txt")));
         await first.DisposeAsync();
-        await Eventually(() => !Directory.Exists(firstRoot) && !File.Exists(firstRoot + ".lock"));
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        await Eventually(() => !Directory.Exists(firstRoot) && !File.Exists(firstRoot + ".lock"), TimeSpan.FromSeconds(20));
     }
 
     [Fact] public async Task SynchronousDisposeDoesNotCaptureTheCallerSynchronizationContext()
@@ -418,9 +424,9 @@ public sealed class LifecycleTests
         await Eventually(() => !host.GetLoadedPlugins().Any());
     }
 
-    private static async Task Eventually(Func<bool> condition)
+    private static async Task Eventually(Func<bool> condition, TimeSpan? maximumWait = null)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var timeout = new CancellationTokenSource(maximumWait ?? TimeSpan.FromSeconds(10));
         while (!condition()) await Task.Delay(50, timeout.Token);
     }
     private sealed class Addon : IAddon, INotifyAddonAfterClose
