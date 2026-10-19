@@ -46,7 +46,7 @@ function deadlineSignal(timeout) {
 function combineSignals(signal, deadline) {
     if (!signal) return { signal: deadline, dispose() {} };
     if (!deadline) return { signal, dispose() {} };
-    if (typeof AbortSignal.any === 'function')
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function')
         return { signal: AbortSignal.any([signal, deadline]), dispose() {} };
 
     // Older browsers need a real fan-in signal instead of silently dropping the deadline.
