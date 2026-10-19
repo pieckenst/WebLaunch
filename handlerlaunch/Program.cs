@@ -200,7 +200,23 @@ internal class Program
             }
         };
         register.Click += (_, _) => { try { RegisterProtocolHandler(); status.Text = "Browser link installed. Choose Connect on the website."; } catch { status.Text = "Registration failed. Extract the complete bundle to a writable folder and retry."; } };
-        forget.Click += async (_, _) => { if (bridge is not null) { await bridge.ForgetBrowsersAsync(); status.Text = "Browsers forgotten. Pair again before launching."; } };
+        forget.Click += async (_, _) =>
+        {
+            if (bridge is null) return;
+            forget.IsEnabled = false;
+            try
+            {
+                await bridge.ForgetBrowsersAsync();
+                status.Text = "Browsers forgotten. Pair again before launching.";
+            }
+            catch (Exception ex)
+            {
+                // This is an async-void WPF event handler. Never let a persistence error escape
+                // the dispatcher and terminate the desktop host; report that revocation failed.
+                status.Text = $"Could not forget paired browsers ({ex.GetType().Name}). No revocation was confirmed; retry after checking file permissions and available disk space.";
+            }
+            finally { forget.IsEnabled = true; }
+        };
         legacy.Click += (_, _) =>
         {
             var enabled = legacy.IsChecked == true;
