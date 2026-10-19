@@ -20,9 +20,17 @@ public sealed class ConsolePairingPrompt : IPairingPrompt
         this.output = output ?? throw new ArgumentNullException(nameof(output));
         this.quiet = quiet;
 
-        // Console.ReadLine cannot be cancelled per pairing request. Keep exactly one reader alive
-        // for the prompt's lifetime and deliver input lines to cancellable per-request readers.
-        _ = Task.Run(ReadLoop);
+        if (quiet)
+        {
+            // Quiet mode must never read or consume stdin.
+            lines.Writer.TryComplete();
+        }
+        else
+        {
+            // Console.ReadLine cannot be cancelled per pairing request. Keep exactly one reader alive
+            // for the prompt's lifetime and deliver input lines to cancellable per-request readers.
+            _ = Task.Run(ReadLoop);
+        }
     }
 
     public async Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken)
