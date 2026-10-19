@@ -273,7 +273,9 @@ public sealed class BridgeTests
         await revocation.WaitAsync(TimeSpan.FromSeconds(5));
 
         using var response = await confirmation.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        // Depending on whether the request observes expiry just before or just after admission,
+        // the closed unpaired session reports Forbidden or Gone. Both must leave trust revoked.
+        Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.Gone });
         Assert.Equal(0, trust.TrustedCount);
         using var retry = await client.Send(new() { Action = "status" });
         Assert.Equal(HttpStatusCode.Gone, retry.StatusCode);
