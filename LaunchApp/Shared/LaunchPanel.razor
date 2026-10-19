@@ -12,7 +12,7 @@
 </section>
 <dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title">
     <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
-        <button type="button" class="close-dialog" aria-label="Close settings" disabled="@(connecting && pairingCancellation is null)" @onclick="CloseSettings">×</button>
+        <button type="button" class="close-dialog" aria-label="Close settings" disabled="@((connecting || manualConnectPending) && pairingCancellation is null)" @onclick="CloseSettings">×</button>
     </div>
     <div class="dialog-tabs" aria-label="Settings views">
         <button type="button" aria-pressed="@(!desktopView)" @onclick="ShowGame">Game settings</button>
@@ -25,7 +25,7 @@
     }
     <div class="desktop-options">
         <label for="desktop-mode">Desktop launcher mode</label>
-        <select id="desktop-mode" @bind="desktopMode" @bind:after="SaveMode" disabled="@(busy || connecting)" aria-describedby="desktop-mode-help">
+        <select id="desktop-mode" @bind="desktopMode" @bind:after="SaveMode" disabled="@(busy || connecting || manualConnectPending)" aria-describedby="desktop-mode-help">
             <option value="gui">GUI — desktop window</option>
             <option value="console">Console — terminal pairing</option>
         </select>
@@ -43,14 +43,14 @@
     }
     <div class="actions">
         <button type="button" @onclick="Connect" disabled="@(busy || connecting || manualConnectPending || !supported)">@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</button>
-        <button type="button" @onclick="Forget" disabled="@(busy || connecting)">Forget this browser pairing</button>
+        <button type="button" @onclick="Forget" disabled="@(busy || connecting || manualConnectPending)">Forget this browser pairing</button>
     </div>
     @if (pairingCode.Length > 0)
     {
         <div class="pairing" role="group" aria-label="Confirm pairing">
             <p>Compare this code with the desktop launcher. Confirm in both windows only if they match.</p>
             <strong class="pairing-code">@pairingCode</strong>
-            <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@connecting">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@(pairingCancellation?.IsCancellationRequested == true)">Cancel pairing</button></div>
+            <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@(connecting || manualConnectPending)">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@(pairingCancellation?.IsCancellationRequested == true)">Cancel pairing</button></div>
         </div>
     }
     </div>
@@ -58,10 +58,10 @@
         @if (!paired)
         { <p class="connection-notice">Connect your desktop launcher before playing. <button type="button" class="inline-action" @onclick="ShowDesktop">Set up connection</button></p> }
     <form @onsubmit="Launch" @onsubmit:preventDefault>
-        <fieldset disabled="@(busy || connecting)">
+        <fieldset disabled="@(busy || connecting || manualConnectPending)">
 
             <label for="game-path">Installation folder</label>
-            <div class="path-control"><input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" /><button type="button" @onclick="BrowseFolder" disabled="@(!paired || !canBrowseFolders || connecting)">Browse on desktop</button></div>
+            <div class="path-control"><input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" /><button type="button" @onclick="BrowseFolder" disabled="@(!paired || !canBrowseFolders || connecting || manualConnectPending)">Browse on desktop</button></div>
             <small>Browsers cannot reveal an absolute Windows folder path. Browse through your paired desktop launcher, or enter the full path.</small>
             <small id="path-help">@(Game == "ffxiv" ? "Choose the folder containing the boot and game directories." : "Choose the folder where Spellborn is installed, or a writable folder for installation.")</small>
             @if (Game == "ffxiv")
@@ -105,7 +105,7 @@
     private void ShowDesktop() { desktopView = true; focusTarget = "desktop-mode"; }
     [JSInvokable] public async Task CloseSettings()
     {
-        if (connecting && pairingCancellation is null) return;
+        if ((connecting || manualConnectPending) && pairingCancellation is null) return;
         password = otp = "";
         if (pairingCode.Length > 0) await CancelPairing();
         if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException ex) { Report("close-settings", ex, "Could not close settings. Reload the page to reset the launcher."); } }
@@ -157,7 +157,7 @@
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
             while (await timer.WaitForNextTickAsync(lifetime.Token))
             {
-                if (connecting || busy || module is null) continue;
+                if (connecting || manualConnectPending || busy || module is null) continue;
 
                 if (pairingCode.Length > 0 && DateTimeOffset.UtcNow >= pairingExpires)
                 {
@@ -497,7 +497,7 @@
     private Task Confirm() => confirmation = ConfirmPairing();
     private async Task ConfirmPairing()
     {
-        if (connecting || module is null) return;
+        if (connecting || manualConnectPending || module is null) return;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         cancellation.CancelAfter(TimeSpan.FromMinutes(2));
         pairingCancellation = cancellation;
@@ -580,7 +580,7 @@
     }
     private async Task BrowseFolder()
     {
-        if (module is null || !paired || connecting || busy || !canBrowseFolders) return;
+        if (module is null || !paired || connecting || manualConnectPending || busy || !canBrowseFolders) return;
         var retryConnection = false;
         connecting = true; message = "Choose a folder in the desktop launcher. Cancel in that window to keep the current path.";
         try
@@ -616,7 +616,7 @@
     }
     private async Task Forget()
     {
-        if (module is null || busy || connecting) return;
+        if (module is null || busy || connecting || manualConnectPending) return;
         await CancelAutomaticRecoveryAsync();
         try { await module.InvokeVoidAsync("forget", lifetime.Token); paired = false; savedPairing = false; actualMode = ""; canBrowseFolders = false; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; hasNotice = true; }
         catch (JSException) { message = "Could not clear pairing. Close this tab and clear WebLaunch site data in browser settings."; }
@@ -624,7 +624,7 @@
     private Task Launch() => busy ? Task.CompletedTask : launch = LaunchCore();
     private async Task LaunchCore()
     {
-        if (busy || connecting || !paired || module is null) return;
+        if (busy || connecting || manualConnectPending || !paired || module is null) return;
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
         catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); return; }
