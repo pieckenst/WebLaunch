@@ -70,7 +70,7 @@ for (const action of ['cancel', 'close', 'timeout']) {
         await page.route('**/js/bridge.js', async route => {
             const response = await route.fetch();
             let body = (await response.text()).replace('export async function confirmPairing() {', 'async function originalConfirmPairing() {');
-            body = body.replace('export async function disconnect() {', 'export async function disconnect() { window.pairingDisconnected = true;');
+            body = body.replace('export async function cancelPendingPairing() {', 'export async function cancelPendingPairing() { window.pairingDisconnected = true;');
             body += '\nexport function confirmPairing() { return new Promise(resolve => { window.finishPairing = resolve; }); }';
             await route.fulfill({ response, body });
         });
