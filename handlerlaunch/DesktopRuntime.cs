@@ -24,8 +24,10 @@ internal sealed class DesktopRuntime : IAsyncDisposable
         Plugins = new CoreFunctions(
             Path.Combine(AppContext.BaseDirectory, "Plugins"),
             new ConsoleLogger(),
-            false,
-            false);
+            enableHotReload: false,
+            useStandaloneWindow: false,
+            diagnosticsDirectory: null,
+            debugDiagnostics: DesktopDiagnostics.DebugEnabled);
 
         Plugins.PluginLoaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginLoaded, pluginId: e.Plugin.PluginId);
         Plugins.PluginUnloaded += (_, e) => DesktopDiagnostics.Write(DiagnosticEvent.PluginUnloaded, pluginId: e.PluginId);
@@ -75,6 +77,17 @@ internal sealed class DesktopRuntime : IAsyncDisposable
         try
         {
             await runtime.Plugins.InitializeAsync();
+
+            // Keep the bridge available so one broken/missing optional plugin cannot disable
+            // the desktop host, but record the exact readiness gap before a launch is requested.
+            var loadedPluginIds = runtime.Plugins.GetLoadedPlugins()
+                .Select(plugin => plugin.PluginId)
+                .ToHashSet(StringComparer.Ordinal);
+            if (!loadedPluginIds.Contains("ffxiv-launcher"))
+                DesktopDiagnostics.Write(DiagnosticEvent.PluginError, pluginId: "ffxiv-launcher", detail: "required-plugin-not-loaded-at-startup");
+            if (!loadedPluginIds.Contains("spellborn-launcher"))
+                DesktopDiagnostics.Write(DiagnosticEvent.PluginWarning, pluginId: "spellborn-launcher", detail: "optional-plugin-not-loaded-at-startup");
+
             await runtime.Bridge.StartAsync(token);
             DesktopDiagnostics.Write(DiagnosticEvent.HostReady);
             Log.Information("[{Component}] Desktop runtime ready.", nameof(DesktopRuntime));
