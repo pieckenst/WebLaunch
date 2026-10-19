@@ -735,7 +735,21 @@ namespace CoreLibLaunchSupport
     public sealed class LauncherPaths
     {
         private const string DalamudPathEnvironmentVariable = "WEBLAUNCH_DALAMUD_PATH";
-        private const string DefaultDalamudPath = @"D:\\HandleGame\\Dalamud";
+        private const string LegacyDefaultDalamudPath = @"D:\HandleGame\Dalamud";
+
+        private static string GetDefaultDalamudPath()
+        {
+            // Preserve the historical install when it exists, but do not make a D: drive a
+            // prerequisite for FFXIV launch. New installations use a per-user writable location.
+            if (Directory.Exists(LegacyDefaultDalamudPath))
+                return LegacyDefaultDalamudPath;
+
+            var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApplicationData))
+                throw new InvalidOperationException("The current user's local application-data directory is unavailable.");
+
+            return Path.Combine(localApplicationData, "WebLaunch", "Dalamud");
+        }
 
         public LauncherPaths(string? dalamudPathOverride = null)
         {
@@ -755,7 +769,7 @@ namespace CoreLibLaunchSupport
 
             if (string.IsNullOrWhiteSpace(configuredPath))
             {
-                configuredPath = DefaultDalamudPath;
+                configuredPath = GetDefaultDalamudPath();
             }
 
             Log.Verbose("[{Component}] Resolving configured Dalamud location", nameof(LauncherPaths));
