@@ -54,7 +54,10 @@ namespace El_Garnan_Plugin_Loader
         private IPluginRenderer? renderer;
         private Thread? renderThread;
         private TaskCompletionSource? renderStopped;
-        private bool standalone, initialized, disposed;
+        private bool standalone, initialized;
+        private volatile bool disposed;
+        private readonly PluginDiagnostics diagnostics;
+
         /// <summary>Raised after a plugin has completed validation and initialization and is registered for use.</summary>
         public event EventHandler<PluginLoadEventArgs>? PluginLoaded;
         /// <summary>Raised after a plugin has been removed from the active registry and its shutdown begins.</summary>
@@ -86,8 +89,16 @@ namespace El_Garnan_Plugin_Loader
         /// <param name="logger">Logger shared with plugin instances and renderer initialization.</param>
         /// <param name="enableHotReload">Whether filesystem changes trigger serialized unload/reload operations.</param>
         /// <param name="useStandaloneWindow">Whether the renderer starts with a standalone window.</param>
-        public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload = false, bool useStandaloneWindow = true)
-            : this(pluginsPath, logger, enableHotReload, useStandaloneWindow, () => new ImGuiPluginRenderer(logger)) { }
+        public CoreFunctions(
+            string pluginsPath,
+            ILogger logger,
+            bool enableHotReload = false,
+            bool useStandaloneWindow = true,
+            string? diagnosticsDirectory = null,
+            bool debugDiagnostics = false)
+            : this(pluginsPath, logger, enableHotReload, useStandaloneWindow,
+                () => new ImGuiPluginRenderer(logger), diagnosticsDirectory, debugDiagnostics) { }
+
         /// <summary>Creates a plugin host with an injected renderer factory for native or embedded rendering.</summary>
         /// <param name="pluginsPath">Directory scanned for plugin assemblies.</param>
         /// <param name="logger">Logger shared with plugin instances.</param>
@@ -95,11 +106,32 @@ namespace El_Garnan_Plugin_Loader
         /// <param name="useStandaloneWindow">Whether standalone rendering is initially enabled.</param>
         /// <param name="rendererFactory">Factory invoked when a renderer is first required.</param>
         public CoreFunctions(string pluginsPath, ILogger logger, bool enableHotReload, bool useStandaloneWindow, Func<IPluginRenderer> rendererFactory)
+            : this(pluginsPath, logger, enableHotReload, useStandaloneWindow, rendererFactory, null, false) { }
+
+        /// <summary>Creates a plugin host with explicit diagnostics and renderer settings.</summary>
+        public CoreFunctions(
+            string pluginsPath,
+            ILogger logger,
+            bool enableHotReload,
+            bool useStandaloneWindow,
+            Func<IPluginRenderer> rendererFactory,
+            string? diagnosticsDirectory,
+            bool debugDiagnostics)
         {
             this.pluginsPath = Path.GetFullPath(pluginsPath);
-            this.logger = logger; hotReload = enableHotReload; standalone = useStandaloneWindow;
+            this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            hotReload = enableHotReload;
+            standalone = useStandaloneWindow;
             this.rendererFactory = rendererFactory ?? throw new ArgumentNullException(nameof(rendererFactory));
+            diagnostics = new PluginDiagnostics(diagnosticsDirectory, debugDiagnostics);
+            diagnostics.Record(PluginDiagnosticLevel.Information, "manager", "host", "created");
         }
+
+        /// <summary>Returns recent safe plugin-loader diagnostics from this host instance.</summary>
+        public IReadOnlyList<PluginDiagnosticEntry> GetDiagnosticSnapshot(int limit = 100) => diagnostics.GetRecent(limit);
+
+        /// <summary>Gets the local rolling plugin diagnostic log path.</summary>
+        public string DiagnosticLogPath => diagnostics.LogPath;
         /// <summary>Discovers plugins, retries dependencies deferred by directory order, and optionally starts hot reload.</summary>
         /// <remarks>Individual plugin failures are reported through <see cref="PluginError"/> and do not abort discovery of other candidates.</remarks>
         public async Task InitializeAsync()
@@ -108,7 +140,13 @@ namespace El_Garnan_Plugin_Loader
             try
             {
                 ObjectDisposedException.ThrowIf(disposed, this);
-                if (initialized) return;
+                if (initialized)
+                {
+                    diagnostics.Record(PluginDiagnosticLevel.Trace, "initialize", "host", "already-initialized");
+                    return;
+                }
+
+                diagnostics.Record(PluginDiagnosticLevel.Information, "initialize", "host", "started");
                 Directory.CreateDirectory(pluginsPath);
                 Directory.CreateDirectory(ShadowRoot);
                 // Lock before publishing the directory so concurrent cleanup cannot claim it.
@@ -129,7 +167,12 @@ namespace El_Garnan_Plugin_Loader
                 }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
+
                 var candidates = DiscoverPlugins().ToList();
+                diagnostics.Record(PluginDiagnosticLevel.Information, "discovery", "host", $"candidate-count-{candidates.Count}");
+                if (candidates.Count == 0)
+                    diagnostics.Record(PluginDiagnosticLevel.Warning, "discovery", "host", "no-plugin-candidates");
+
                 // Dependencies may appear later in directory order. Retry deferred candidates once other plugins load.
                 while (candidates.Count > 0)
                 {
@@ -138,15 +181,39 @@ namespace El_Garnan_Plugin_Loader
                         if (await LoadAsync(candidate).ConfigureAwait(false)) candidates.Remove(candidate);
                     if (entries.Count == before) break;
                 }
+
+                if (candidates.Count > 0)
+                    diagnostics.Record(PluginDiagnosticLevel.Warning, "resolution", "host", $"unresolved-candidates-{candidates.Count}");
+                if (entries.IsEmpty && candidates.Count > 0)
+                    diagnostics.Record(PluginDiagnosticLevel.Warning, "initialize", "host", "no-plugins-loaded");
+
                 initialized = true;
                 if (hotReload)
                 {
-                    watcher = new FileSystemWatcher(pluginsPath) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName };
-                    watcher.Changed += Changed; watcher.Created += Changed; watcher.Deleted += Changed;
-                    watcher.Renamed += (_, e) => { pendingChanges[e.OldFullPath] = 0; pendingChanges[e.FullPath] = 0; };
+                    watcher = new FileSystemWatcher(pluginsPath)
+                    {
+                        IncludeSubdirectories = true,
+                        NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName
+                    };
+                    watcher.Changed += Changed;
+                    watcher.Created += Changed;
+                    watcher.Deleted += Changed;
+                    watcher.Renamed += (_, e) =>
+                    {
+                        pendingChanges[e.OldFullPath] = 0;
+                        pendingChanges[e.FullPath] = 0;
+                    };
                     watcher.EnableRaisingEvents = true;
                     watchTask = WatchAsync();
+                    diagnostics.Record(PluginDiagnosticLevel.Information, "hot-reload", "host", "watcher-started");
                 }
+
+                diagnostics.Record(PluginDiagnosticLevel.Information, "initialize", "host", $"loaded-count-{entries.Count}");
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Record(PluginDiagnosticLevel.Error, "initialize", "host", "failed", ex);
+                throw;
             }
             finally { lifecycle.Release(); }
         }
@@ -193,31 +260,71 @@ namespace El_Garnan_Plugin_Loader
                 }
                 catch (Exception ex)
                 {
+                    diagnostics.Record(PluginDiagnosticLevel.Error, "discovery", "manifest-or-bundle", "candidate-rejected", ex);
                     Notify(PluginError, new PluginErrorEventArgs(affectedPath, ex), nameof(PluginError));
                     continue;
                 }
-                foreach (var assembly in assemblies) yield return assembly;
+                foreach (var assembly in assemblies)
+                {
+                    diagnostics.Record(
+                        PluginDiagnosticLevel.Trace,
+                        "discovery",
+                        GetDiagnosticPluginId(assembly.ManifestPath),
+                        "candidate-found");
+                    yield return assembly;
+                }
             }
         }
         private async Task<bool> LoadAsync(PluginCandidate discovery)
         {
             var path = discovery.AssemblyPath;
-            if (entries.Values.Any(e => string.Equals(e.Candidate.AssemblyPath, path, StringComparison.OrdinalIgnoreCase))) return true;
+            var pluginId = GetDiagnosticPluginId(discovery.ManifestPath);
+            var stage = "load";
+            if (entries.Values.Any(e => string.Equals(e.Candidate.AssemblyPath, path, StringComparison.OrdinalIgnoreCase)))
+            {
+                diagnostics.Record(PluginDiagnosticLevel.Trace, "load", pluginId, "already-registered");
+                return true;
+            }
+
             if (!File.Exists(path))
             {
-                if (discovery.ManifestPath is null || !File.Exists(discovery.ManifestPath)) return true;
+                if (discovery.ManifestPath is null || !File.Exists(discovery.ManifestPath))
+                {
+                    diagnostics.Record(PluginDiagnosticLevel.Trace, "discovery", pluginId, "candidate-disappeared");
+                    return true;
+                }
+
                 var error = new FileNotFoundException("The entry assembly declared by plugin.json was not found.");
+                diagnostics.Record(PluginDiagnosticLevel.Error, "manifest", pluginId, "entry-assembly-missing", error);
                 logger.Warning($"Plugin manifest entry assembly is missing ({error.GetType().Name}).");
                 Notify(PluginError, new PluginErrorEventArgs(path, error), nameof(PluginError));
                 return false;
             }
+
             PluginLoadContext? context = null;
             var candidates = new List<IGamePlugin>();
             string? shadow = null;
             try
             {
+                diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "started");
                 SafePath.RejectLinks(path);
+
+                string? manifestId = null;
+                if (discovery.ManifestPath is not null)
+                {
+                    stage = "manifest-validation";
+                    SafePath.RejectLinks(discovery.ManifestPath);
+                    using var json = JsonDocument.Parse(File.ReadAllText(discovery.ManifestPath));
+                    if (RequireManifestProperty(json.RootElement, "version").GetInt32() != 1)
+                        throw new InvalidDataException("Unsupported plugin manifest version.");
+                    manifestId = RequireManifestProperty(json.RootElement, "id").GetString();
+                    if (string.IsNullOrWhiteSpace(manifestId))
+                        throw new InvalidDataException("Invalid plugin manifest ID.");
+                    pluginId = manifestId;
+                }
+
                 // Shadow copies let Windows replace plugin files while an old context finishes unloading.
+                stage = "shadow-copy";
                 shadow = Path.Combine(managerShadowRoot, Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(shadow);
                 var sourceDirectory = discovery.BundleRoot;
@@ -225,59 +332,91 @@ namespace El_Garnan_Plugin_Loader
                 var relativeAssembly = Path.GetRelativePath(sourceDirectory, path);
                 SafePath.Resolve(sourceDirectory, relativeAssembly);
                 if (manifest is not null)
-                {
                     CopyManifestBundleDirectory(sourceDirectory, sourceDirectory, shadow);
-                }
                 else
-                {
                     CopyLegacyBundleDirectory(sourceDirectory, sourceDirectory, shadow, isRoot: true);
-                }
+
                 var shadowAssembly = SafePath.Resolve(shadow, relativeAssembly);
+                stage = "assembly-load";
                 context = new PluginLoadContext(shadowAssembly);
                 var assembly = context.LoadFromAssemblyPath(shadowAssembly);
+
+                stage = "type-discovery";
                 var types = assembly.GetTypes().Where(t => typeof(IGamePlugin).IsAssignableFrom(t) && !t.IsAbstract).ToArray();
-                string? manifestId = null;
-                if (manifest is not null)
+                if (manifest is not null && types.Length != 1)
+                    throw new InvalidDataException("Manifest bundles must identify exactly one plugin.");
+                if (types.Length == 0)
                 {
-                    SafePath.RejectLinks(manifest);
-                    using var json = JsonDocument.Parse(File.ReadAllText(manifest));
-                    if (RequireManifestProperty(json.RootElement, "version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
-                    manifestId = RequireManifestProperty(json.RootElement, "id").GetString();
-                    if (string.IsNullOrWhiteSpace(manifestId)) throw new InvalidDataException("Invalid plugin manifest ID.");
-                    if (types.Length != 1) throw new InvalidDataException("Manifest bundles must identify one plugin.");
+                    diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "no-plugin-types");
+                    return true;
                 }
-                if (types.Length == 0) return true;
+
+                stage = "plugin-construction";
                 foreach (var type in types)
                 {
-                    var candidate = (IGamePlugin?)Activator.CreateInstance(type, logger) ?? throw new InvalidDataException("Invalid plugin constructor.");
+                    var candidate = (IGamePlugin?)Activator.CreateInstance(type, logger)
+                        ?? throw new InvalidDataException("Invalid plugin constructor.");
                     candidates.Add(candidate);
-                    if (string.IsNullOrWhiteSpace(candidate.PluginId) || entries.ContainsKey(candidate.PluginId) || candidates.Count(p => p.PluginId == candidate.PluginId) != 1)
+                    pluginId = candidate.PluginId;
+                    if (string.IsNullOrWhiteSpace(candidate.PluginId) ||
+                        entries.ContainsKey(candidate.PluginId) ||
+                        candidates.Count(p => p.PluginId == candidate.PluginId) != 1)
                         throw new InvalidDataException("Duplicate or empty plugin ID.");
-                    if (manifestId is not null && manifestId != candidate.PluginId) throw new InvalidDataException("Plugin ID differs from manifest.");
+                    if (manifestId is not null && manifestId != candidate.PluginId)
+                        throw new InvalidDataException("Plugin ID differs from manifest.");
                 }
+
                 foreach (var candidate in candidates)
                 {
+                    pluginId = candidate.PluginId;
+                    stage = "dependency-resolution";
                     foreach (var dependency in candidate.Dependencies)
                     {
                         var pluginDependency = candidates.FirstOrDefault(p => p.PluginId == dependency.Name)
                             ?? (entries.TryGetValue(dependency.Name, out var entry) ? entry.Plugin : null);
-                        var version = pluginDependency?.Version ?? context.LoadFromAssemblyName(new AssemblyName(dependency.Name)).GetName().Version;
-                        if (version < dependency.MinVersion) throw new PluginValidationException("Dependency version is too old.");
+                        var version = pluginDependency?.Version ??
+                            context.LoadFromAssemblyName(new AssemblyName(dependency.Name)).GetName().Version;
+                        if (version < dependency.MinVersion)
+                            throw new PluginValidationException("Dependency version is too old.");
                     }
-                    if (!await candidate.ValidateConfigurationAsync().ConfigureAwait(false)) throw new PluginValidationException("Plugin configuration is invalid.");
+
+                    stage = "configuration-validation";
+                    if (!await candidate.ValidateConfigurationAsync().ConfigureAwait(false))
+                        throw new PluginValidationException("Plugin configuration is invalid.");
+
+                    stage = "plugin-initialization";
+                    diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "started");
                     await candidate.InitializeAsync().ConfigureAwait(false);
+                    diagnostics.Record(PluginDiagnosticLevel.Trace, stage, pluginId, "succeeded");
                 }
+
+                stage = "registry-registration";
                 var loaded = candidates.ToArray();
                 lock (renderLock)
-                    foreach (var candidate in loaded) entries[candidate.PluginId] = new(discovery, shadow, candidate, context);
-                candidates.Clear(); context = null; shadow = null;
-                foreach (var candidate in loaded) Notify(PluginLoaded, new PluginLoadEventArgs(candidate), nameof(PluginLoaded));
+                    foreach (var candidate in loaded)
+                        entries[candidate.PluginId] = new(discovery, shadow, candidate, context);
+                candidates.Clear();
+                context = null;
+                shadow = null;
+
+                foreach (var candidate in loaded)
+                {
+                    diagnostics.Record(PluginDiagnosticLevel.Information, "load", candidate.PluginId, "loaded");
+                    Notify(PluginLoaded, new PluginLoadEventArgs(candidate), nameof(PluginLoaded));
+                }
                 return true;
             }
-            catch (BadImageFormatException) when (discovery.ManifestPath is null) { return true; } // Native dependencies in legacy bundles.
+            catch (BadImageFormatException ex) when (discovery.ManifestPath is null)
+            {
+                // Native dependencies are expected in some legacy bundles, but only verbose tracing
+                // should record every native DLL candidate skipped by the managed plugin scanner.
+                diagnostics.Record(PluginDiagnosticLevel.Trace, "assembly-load", pluginId, "legacy-native-assembly-skipped", ex);
+                return true;
+            }
             catch (Exception ex)
             {
-                logger.Warning($"Plugin could not load ({ex.GetType().Name}).");
+                diagnostics.Record(PluginDiagnosticLevel.Error, stage, pluginId, "failed", ex);
+                logger.Warning($"Plugin could not load during {stage} ({ex.GetType().Name}).");
                 Notify(PluginError, new PluginErrorEventArgs(path, ex), nameof(PluginError));
                 return false;
             }
@@ -285,12 +424,40 @@ namespace El_Garnan_Plugin_Loader
             {
                 foreach (var candidate in candidates)
                 {
-                    try { await candidate.ShutdownAsync().ConfigureAwait(false); } catch { }
-                    try { if (candidate is IDisposable d) d.Dispose(); } catch { }
+                    try { await candidate.ShutdownAsync().ConfigureAwait(false); }
+                    catch (Exception ex)
+                    {
+                        diagnostics.Record(PluginDiagnosticLevel.Warning, "rollback-shutdown", candidate.PluginId, "failed", ex);
+                    }
+
+                    try { if (candidate is IDisposable d) d.Dispose(); }
+                    catch (Exception ex)
+                    {
+                        diagnostics.Record(PluginDiagnosticLevel.Warning, "rollback-disposal", candidate.PluginId, "failed", ex);
+                    }
                 }
-                context?.Unload();
+
+                try { context?.Unload(); }
+                catch (Exception ex) { diagnostics.Record(PluginDiagnosticLevel.Warning, "context-unload", pluginId, "failed", ex); }
                 if (shadow is not null) ScheduleShadowCleanup(shadow);
             }
+        }
+
+        private static string GetDiagnosticPluginId(string? manifestPath)
+        {
+            if (manifestPath is null) return "legacy";
+            try
+            {
+                using var json = JsonDocument.Parse(File.ReadAllText(manifestPath));
+                if (json.RootElement.ValueKind == JsonValueKind.Object &&
+                    json.RootElement.TryGetProperty("id", out var id) &&
+                    id.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(id.GetString()))
+                    return id.GetString()!;
+            }
+            catch { /* The discovery/load event records the structured failure type. */ }
+
+            return "manifest";
         }
         private static void CopyManifestBundleDirectory(string directory, string bundleRoot, string shadowRoot)
         {
@@ -424,8 +591,10 @@ namespace El_Garnan_Plugin_Loader
                 using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(400));
                 while (await timer.WaitForNextTickAsync(lifetime.Token).ConfigureAwait(false))
                 {
+                    if (disposed) break;
                     if (pendingChanges.IsEmpty) continue;
                     var changed = pendingChanges.Keys.ToArray();
+                    diagnostics.Record(PluginDiagnosticLevel.Trace, "hot-reload", "host", $"change-batch-{changed.Length}");
                     foreach (var path in changed) pendingChanges.TryRemove(path, out _);
                     await lifecycle.WaitAsync(lifetime.Token).ConfigureAwait(false);
                     try
@@ -461,7 +630,11 @@ namespace El_Garnan_Plugin_Loader
                         if (changed.Any(path => !requeuedPaths.Contains(path)))
                             foreach (var candidate in DiscoverPlugins()) await LoadAsync(candidate).ConfigureAwait(false);
                     }
-                    catch (Exception ex) { logger.Warning($"Plugin reload failed ({ex.GetType().Name})."); }
+                    catch (Exception ex)
+                    {
+                        diagnostics.Record(PluginDiagnosticLevel.Error, "hot-reload", "host", "batch-failed", ex);
+                        logger.Warning($"Plugin reload failed ({ex.GetType().Name}).");
+                    }
                     finally { lifecycle.Release(); }
                 }
             }
@@ -471,24 +644,40 @@ namespace El_Garnan_Plugin_Loader
         {
             Entry? entry;
             lock (renderLock) entries.TryRemove(id, out entry);
-            if (entry is null) return;
+            if (entry is null)
+            {
+                diagnostics.Record(PluginDiagnosticLevel.Trace, "unload", id, "not-registered");
+                return;
+            }
+
+            diagnostics.Record(PluginDiagnosticLevel.Information, "unload", id, "started");
             await entry.WaitForLeasesAsync().ConfigureAwait(false);
             try { await entry.Plugin.ShutdownAsync().ConfigureAwait(false); }
-            catch (Exception ex) { logger.Warning($"Plugin shutdown failed ({ex.GetType().Name})."); }
+            catch (Exception ex)
+            {
+                diagnostics.Record(PluginDiagnosticLevel.Warning, "plugin-shutdown", id, "failed", ex);
+                logger.Warning($"Plugin shutdown failed ({ex.GetType().Name}).");
+            }
             finally
             {
                 try { if (entry.Plugin is IDisposable d) d.Dispose(); }
-                catch (Exception ex) { logger.Warning($"Plugin disposal failed ({ex.GetType().Name})."); }
+                catch (Exception ex)
+                {
+                    diagnostics.Record(PluginDiagnosticLevel.Warning, "plugin-disposal", id, "failed", ex);
+                    logger.Warning($"Plugin disposal failed ({ex.GetType().Name}).");
+                }
                 finally
                 {
                     if (!entries.Values.Any(e => ReferenceEquals(e.Context, entry.Context)))
                     {
-                        entry.Context.Unload();
+                        try { entry.Context.Unload(); }
+                        catch (Exception ex) { diagnostics.Record(PluginDiagnosticLevel.Warning, "context-unload", id, "failed", ex); }
                         // Host disposal schedules one manager-root cleanup after all plugin
                         // contexts have been asked to unload; avoid competing child/root reapers.
                         if (!disposed) ScheduleShadowCleanup(entry.ShadowDirectory);
                     }
                 }
+                diagnostics.Record(PluginDiagnosticLevel.Information, "unload", id, "completed");
                 Notify(PluginUnloaded, new PluginUnloadEventArgs(id), nameof(PluginUnloaded));
             }
         }
@@ -599,13 +788,30 @@ namespace El_Garnan_Plugin_Loader
 
         private async Task DisposeCoreAsync()
         {
-            if (disposed) return;
-            disposed = true;
-            watcher?.Dispose();
+            // Serialize this state transition with InitializeAsync and watcher batches. In
+            // particular, never inspect/tear down watcher fields while initialization assigns them.
+            await lifecycle.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (disposed) return;
+                disposed = true;
+                watcher?.Dispose();
+                diagnostics.Record(PluginDiagnosticLevel.Information, "dispose", "host", "started");
+            }
+            finally { lifecycle.Release(); }
+
+            // Cancel after releasing lifecycle: cancellation callbacks may themselves finish
+            // plugin work that needs to release a lease and/or leave a lifecycle-protected path.
             await lifetime.CancelAsync().ConfigureAwait(false);
             if (watchTask is not null) await watchTask.ConfigureAwait(false);
             if (renderStopped is not null) await renderStopped.Task.ConfigureAwait(false);
-            try { await UnloadAllPluginsAsync().ConfigureAwait(false); }
+
+            var cleanupCompleted = false;
+            try
+            {
+                await UnloadAllPluginsAsync().ConfigureAwait(false);
+                cleanupCompleted = true;
+            }
             finally
             {
                 await TryDeleteShadowTreeAsync(managerShadowRoot, 1).ConfigureAwait(false);
@@ -618,6 +824,12 @@ namespace El_Garnan_Plugin_Loader
                 }
                 catch (IOException) { ScheduleManagerShadowCleanup(managerShadowRoot); }
                 catch (UnauthorizedAccessException) { ScheduleManagerShadowCleanup(managerShadowRoot); }
+
+                diagnostics.Record(
+                    cleanupCompleted ? PluginDiagnosticLevel.Information : PluginDiagnosticLevel.Warning,
+                    "dispose",
+                    "host",
+                    cleanupCompleted ? "completed" : "cleanup-incomplete");
                 lifetime.Dispose();
             }
         }
