@@ -713,6 +713,8 @@
                 pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
                 focusTarget = paired ? "launch-status" : "pairing-confirm";
                 message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
+                if (paired && launchOutcomeAmbiguous)
+                    await RecoverInterruptedLaunchAsync(cancellation.Token);
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
             catch (OperationCanceledException)
@@ -769,6 +771,8 @@
             pairingCode = "";
             message = "Paired. Enter your game settings.";
             focusTarget = "launch-status";
+            if (paired && launchOutcomeAmbiguous)
+                await RecoverInterruptedLaunchAsync(cancellation.Token);
         }
         catch (OperationCanceledException)
         {
@@ -880,7 +884,13 @@
     private Task Launch() => busy ? Task.CompletedTask : launch = LaunchCore();
     private async Task LaunchCore()
     {
-        if (busy || connecting || manualConnectPending || launchOutcomeAmbiguous || !paired || module is null) return;
+        if (launchOutcomeAmbiguous)
+        {
+            message = launchOutcomeWarning ?? "A previous launch outcome is unknown. Verify the game state before submitting another launch.";
+            hasNotice = true;
+            return;
+        }
+        if (busy || connecting || manualConnectPending || !paired || module is null) return;
         var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
         try { request.Validate(); }
         catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); successConfirmed = false; return; }
@@ -937,7 +947,39 @@
         }
         catch (OperationCanceledException)
         {
-            if (!launchCancellationConfirmed)
+            if (launchCancellationConfirmed)
+            {
+                // Cancel() has already received an authoritative terminal status. Clear the
+                // persisted duplicate-launch guard even though Poll exits via cancellation.
+                if (module is null)
+                {
+                    launchOutcomeAmbiguous = true;
+                    launchVerificationReady = false;
+                    launchOutcomeWarning = "The desktop confirmed cancellation, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
+                    message = launchOutcomeWarning;
+                }
+                else
+                {
+                    try
+                    {
+                        await module.InvokeVoidAsync("pendingLaunchId", "");
+                        pendingLaunchRequestId = "";
+                        launchOutcomeAmbiguous = false;
+                        launchVerificationReady = false;
+                        launchOutcomeWarning = null;
+                        message = "Launch cancelled.";
+                    }
+                    catch (JSException ex)
+                    {
+                        BrowserDiagnostics.Report("clear confirmed launch state", ex);
+                        launchOutcomeAmbiguous = true;
+                        launchVerificationReady = false;
+                        launchOutcomeWarning = "The desktop confirmed cancellation, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
+                        message = launchOutcomeWarning;
+                    }
+                }
+            }
+            else
             {
                 if (launchRequestSubmitted)
                 {

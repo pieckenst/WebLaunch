@@ -42,7 +42,7 @@ else
             </Menu>
         </SectionTabBar>
     }
-    <main id="main" tabindex="-1"><div @key="GameNavigation.Route" class="route-transition">@Body</div></main>
+    <main id="main" tabindex="-1"><div @key="CurrentPageKey" class="route-transition">@Body</div></main>
     <footer>WebLaunch requires the Windows desktop launcher to start games. <a href="https://github.com/pieckenst/WebLaunch/releases/">Downloads</a></footer>
 </MApp>
 }
@@ -52,6 +52,8 @@ else
     private bool navigationFailed;
     private DotNetObjectReference<MainLayout>? reference;
     private bool syncNavigation = true;
+    // Derive the subtree key from the URL immediately; GameNavigation.Route is populated by the page after render.
+    private string CurrentPageKey => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Split('/')[0];
     private IJSObjectReference? navigationModule;
     private IJSObjectReference? module;
     protected override void OnInitialized()

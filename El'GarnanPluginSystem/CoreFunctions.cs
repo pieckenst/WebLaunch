@@ -195,7 +195,15 @@ namespace El_Garnan_Plugin_Loader
         private async Task<bool> LoadAsync(PluginCandidate discovery)
         {
             var path = discovery.AssemblyPath;
-            if (!File.Exists(path) || entries.Values.Any(e => string.Equals(e.Candidate.AssemblyPath, path, StringComparison.OrdinalIgnoreCase))) return true;
+            if (entries.Values.Any(e => string.Equals(e.Candidate.AssemblyPath, path, StringComparison.OrdinalIgnoreCase))) return true;
+            if (!File.Exists(path))
+            {
+                if (discovery.ManifestPath is null || !File.Exists(discovery.ManifestPath)) return true;
+                var error = new FileNotFoundException("The entry assembly declared by plugin.json was not found.");
+                logger.Warning($"Plugin manifest entry assembly is missing ({error.GetType().Name}).");
+                Notify(PluginError, new PluginErrorEventArgs(path, error), nameof(PluginError));
+                return false;
+            }
             PluginLoadContext? context = null;
             var candidates = new List<IGamePlugin>();
             string? shadow = null;

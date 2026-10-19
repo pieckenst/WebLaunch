@@ -162,6 +162,7 @@ export async function secureLaunch(page, base) {
     await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel launch' }).click();
     await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
+    expect(await page.evaluate(() => sessionStorage.getItem('weblaunch.pendingLaunchId'))).toBeNull();
     // A cancelled launch is not a success, so the entered details survive for the retry.
     await gameSettings(page);
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('synthetic-cancel');

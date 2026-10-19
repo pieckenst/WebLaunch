@@ -3,6 +3,23 @@ import { prepare, pendingLaunchStatus } from './scenarios.mjs';
 
 const base = process.env.WEBLAUNCH_TEST_URL || 'http://localhost:5148/WebLaunch/';
 
+test('manual pairing recovers an interrupted launch marker without requiring a reload', async ({ page }) => {
+    await prepare(page, base);
+    await page.evaluate(() => sessionStorage.setItem('weblaunch.pendingLaunchId', '0123456789abcdef0123456789abcdef'));
+    await page.goto(base + 'counter');
+    await page.locator('.connection-summary').click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
+    await page.getByRole('button', { name: 'The codes match', exact: true }).click();
+
+    // A newly paired channel must inspect the old request ID and show the explicit
+    // acknowledge-before-relaunch guard instead of leaving the UI permanently disabled.
+    await expect(page.getByRole('button', { name: "I've checked the game state — allow another launch", exact: true }))
+        .toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.launch-status')).toContainText(/previous launch|verify|unknown/i);
+    await expect(page.getByRole('button', { name: 'Play now', exact: true })).toBeDisabled();
+});
+
 test('bridge request deadlines remain enforced without AbortSignal helpers', async ({ page }) => {
     await page.addInitScript(() => {
         try { Object.defineProperty(AbortSignal, 'timeout', { configurable: true, writable: true, value: undefined }); }
