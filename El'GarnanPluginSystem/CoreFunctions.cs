@@ -256,16 +256,7 @@ namespace El_Garnan_Plugin_Loader
                     if (File.Exists(manifest))
                     {
                         affectedPath = manifest;
-                        SafePath.RejectLinks(manifest);
-                        using var json = JsonDocument.Parse(File.ReadAllText(manifest));
-                        if (RequireManifestProperty(json.RootElement, "version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
-                        var assembly = RequireManifestProperty(json.RootElement, "assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
-                        // Keep the bundle root distinct from the entry assembly path. A manifest
-                        // may place its entry assembly in a nested managed directory; the complete
-                        // bundle is shadow-copied with relative paths preserved and SafePath ensures
-                        // the manifest path cannot escape that bundle.
-                        var resolvedAssembly = SafePath.Resolve(directory, assembly);
-                        assemblies = [new(resolvedAssembly, directory, manifest)];
+                        assemblies = [ReadManifestCandidate(directory, manifest)];
                     }
                     else
                     {
@@ -295,6 +286,31 @@ namespace El_Garnan_Plugin_Loader
                 }
             }
         }
+        private static PluginCandidate ReadManifestCandidate(string directory, string manifest)
+        {
+            SafePath.RejectLinks(manifest);
+            using var json = JsonDocument.Parse(File.ReadAllText(manifest));
+            if (RequireManifestProperty(json.RootElement, "version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
+            var assembly = RequireManifestProperty(json.RootElement, "assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
+            // Keep the bundle root distinct from the entry assembly path. A manifest
+            // may place its entry assembly in a nested managed directory; the complete
+            // bundle is shadow-copied with relative paths preserved and SafePath ensures
+            // the manifest path cannot escape that bundle.
+            return new PluginCandidate(SafePath.Resolve(directory, assembly), directory, manifest);
+        }
+
+        private PluginCandidate? Rediscover(PluginCandidate previous)
+        {
+            if (previous.ManifestPath is null || !File.Exists(previous.ManifestPath)) return previous;
+            try { return ReadManifestCandidate(previous.BundleRoot, previous.ManifestPath); }
+            catch (Exception ex)
+            {
+                diagnostics.Record(PluginDiagnosticLevel.Error, "discovery", GetDiagnosticPluginId(previous.ManifestPath), "candidate-rejected", ex);
+                Notify(PluginError, new PluginErrorEventArgs(previous.ManifestPath, ex), nameof(PluginError));
+                return null;
+            }
+        }
+
         private async Task<bool> LoadAsync(PluginCandidate discovery)
         {
             var path = discovery.AssemblyPath;
@@ -434,10 +450,10 @@ namespace El_Garnan_Plugin_Loader
                 }
                 return true;
             }
-            catch (BadImageFormatException ex) when (discovery.ManifestPath is null)
+            catch (BadImageFormatException ex) when (discovery.ManifestPath is null && stage == "assembly-load")
             {
-                // Native dependencies are expected in some legacy bundles, but only verbose tracing
-                // should record every native DLL candidate skipped by the managed plugin scanner.
+                // Native dependencies are expected during assembly loading in legacy bundles.
+                // Only verbose tracing records these skipped candidates; failures in later stages are errors.
                 Record(PluginDiagnosticLevel.Trace, "assembly-load", pluginId, "legacy-native-assembly-skipped", ex);
                 return true;
             }
@@ -639,7 +655,10 @@ namespace El_Garnan_Plugin_Loader
                             var groupChanges = changed.Where(p => p.Equals(directory, StringComparison.OrdinalIgnoreCase) ||
                                 p.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToArray();
                             if (groupChanges.Length == 0) continue;
-                            if (group.Any(e => !e.Plugin.SupportsHotReload)) continue;
+                            var entryRemoved = !File.Exists(group.Key.AssemblyPath) ||
+                                (group.Key.ManifestPath is not null && !File.Exists(group.Key.ManifestPath));
+                            var reloadable = group.All(e => e.Plugin.SupportsHotReload);
+                            if (!reloadable && !entryRemoved) continue;
                             // Lease acquisition also holds lifecycle, so an idle group stays idle until unloaded.
                             if (group.Any(e => e.HasActiveLeases))
                             {
@@ -652,7 +671,9 @@ namespace El_Garnan_Plugin_Loader
                             }
                             var ids = group.Select(e => e.Plugin.PluginId).ToArray();
                             foreach (var id in ids) await UnloadAsync(id).ConfigureAwait(false);
-                            if (await LoadAsync(group.Key).ConfigureAwait(false))
+                            if (!reloadable) continue;
+                            var replacement = Rediscover(group.Key);
+                            if (replacement is not null && await LoadAsync(replacement).ConfigureAwait(false))
                                 foreach (var id in ids.Where(entries.ContainsKey)) Notify(PluginReloaded, new PluginReloadEventArgs(id), nameof(PluginReloaded));
                         }
                         // A wholly deferred batch has no new discovery work. Running discovery

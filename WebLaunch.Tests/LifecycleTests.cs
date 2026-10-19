@@ -240,6 +240,74 @@ public sealed class LifecycleTests
         Assert.Empty(host.GetLoadedPlugins());
     }
 
+    [Fact] public async Task HotReloadLoadsTheEntryAssemblyDeclaredByTheUpdatedManifest()
+    {
+        using var root = new TemporaryDirectory();
+        var bundle = CreateManifestBundle(root.Path);
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        await host.InitializeAsync();
+        var original = Assert.Single(host.GetLoadedPlugins());
+        var errors = new ConcurrentBag<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+        var reloaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.PluginReloaded += (_, _) => reloaded.TrySetResult();
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var action = host.UsePluginAsync("legacy-fixture", _ => release.Task);
+        try
+        {
+            var assembly = Path.Combine(bundle, "lib", "managed", "WebLaunch.TestManifestPlugin.dll");
+            File.Copy(assembly, Path.Combine(bundle, "lib", "managed", "Renamed.dll"));
+            File.Delete(assembly);
+            WriteManifest(bundle, "legacy-fixture", "lib/managed/Renamed.dll");
+            await Task.Delay(1200);
+        }
+        finally { release.TrySetResult(true); await action; }
+
+        await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var replacement = Assert.Single(host.GetLoadedPlugins());
+        Assert.EndsWith("Renamed.dll", replacement.GetType().Assembly.Location);
+        Assert.NotSame(original, replacement);
+        Assert.Empty(errors);
+    }
+
+    [Fact] public async Task DeletingTheEntryAssemblyUnloadsAPluginThatOptsOutOfHotReload()
+    {
+        using var root = new TemporaryDirectory();
+        CopyPlugin(root.Path, "one");
+        File.WriteAllText(Path.Combine(root.Path, "one", "no-hot-reload.marker"), "");
+        await using var host = new CoreFunctions(root.Path, new Logger(), true, false);
+        await host.InitializeAsync();
+        var original = host.GetPlugin("legacy-fixture");
+        var reloaded = new ConcurrentBag<string>();
+        host.PluginReloaded += (_, e) => reloaded.Add(e.PluginId);
+        var asset = Path.Combine(root.Path, "one", "asset.txt");
+        File.WriteAllText(asset, "original");
+        File.WriteAllText(asset, "updated");
+        await Task.Delay(1200);
+        Assert.Same(original, host.GetPlugin("legacy-fixture"));
+        Assert.Empty(reloaded);
+
+        File.Delete(Path.Combine(root.Path, "one", "WebLaunch.TestPlugin.dll"));
+        await Eventually(() => !host.GetLoadedPlugins().Any());
+    }
+
+    [Fact] public async Task BadImageFormatFromLegacyPluginInitializationIsReportedNotSkipped()
+    {
+        using var root = new TemporaryDirectory();
+        CopyPlugin(root.Path, "one");
+        File.WriteAllText(Path.Combine(root.Path, "one", "bad-image-on-init.marker"), "");
+        var logger = new Logger();
+        await using var host = new CoreFunctions(root.Path, logger, false, false);
+        var errors = new List<PluginErrorEventArgs>();
+        host.PluginError += (_, error) => errors.Add(error);
+
+        await host.InitializeAsync();
+
+        Assert.Empty(host.GetLoadedPlugins());
+        Assert.IsType<BadImageFormatException>(Assert.Single(errors).Error);
+        Assert.Contains(logger.Messages, message => message.Contains("BadImageFormatException"));
+    }
+
     [Fact] public async Task InitializationRemovesStaleShadowDirectoriesBeforeLoading()
     {
         var stale = Path.Combine(Path.GetTempPath(), "WebLaunch-plugins", Guid.NewGuid().ToString("N"));

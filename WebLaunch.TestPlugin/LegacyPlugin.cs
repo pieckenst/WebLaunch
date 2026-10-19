@@ -10,9 +10,15 @@ public class LegacyPlugin(ILogger logger) : GamePluginBase(logger)
     public override string Description => "Compatibility fixture";
     public override string TargetApplication => "test";
     public override Version Version => new(1, 0);
-    public override bool SupportsHotReload => true;
+    public override bool SupportsHotReload => !File.Exists(Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location)!, "no-hot-reload.marker"));
     public override IReadOnlyCollection<PluginDependency> Dependencies => [];
-    protected override Task InitializeInternalAsync() { Logger.Information("fixture-initialize"); return Task.CompletedTask; }
+    protected override Task InitializeInternalAsync()
+    {
+        if (File.Exists(Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location)!, "bad-image-on-init.marker")))
+            throw new BadImageFormatException("Synthetic initialization failure");
+        Logger.Information("fixture-initialize");
+        return Task.CompletedTask;
+    }
     protected override Task ShutdownInternalAsync() { Logger.Information("fixture-shutdown"); return Task.CompletedTask; }
     protected override Task<bool> LaunchGameInternalAsync(GameLaunchParameters parameters)
     {
