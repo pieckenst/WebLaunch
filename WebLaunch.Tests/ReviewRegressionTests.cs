@@ -65,7 +65,7 @@ public sealed class ReviewRegressionTests
         if (validCredentials)
         {
             Assert.IsType<DirectoryNotFoundException>(error);
-            Assert.Equal("Select the FFXIV installation folder containing boot and game.", error.Message);
+            Assert.Equal("The selected folder is not a complete FFXIV installation. Choose the folder containing the boot and game directories, including game/ffxiv_dx11.exe and game/ffxivgame.ver.", error.Message);
         }
         else
         {
@@ -90,8 +90,11 @@ public sealed class ReviewRegressionTests
     public async Task FfxivLaunchClassifiesCancellationUsingTheCallerToken(bool cancelCaller)
     {
         using var root = new TemporaryDirectory();
+        var boot = Directory.CreateDirectory(Path.Combine(root.Path, "boot")).FullName;
         var game = Directory.CreateDirectory(Path.Combine(root.Path, "game")).FullName;
+        File.WriteAllText(Path.Combine(boot, "ffxivboot.exe"), "synthetic boot executable");
         File.WriteAllText(Path.Combine(game, "ffxiv_dx11.exe"), "synthetic executable");
+        File.WriteAllText(Path.Combine(game, "ffxivgame.ver"), "synthetic version");
         var logger = new PluginLogger();
         var plugin = new FFXIVGamePlugin(logger);
         using var caller = new CancellationTokenSource();
