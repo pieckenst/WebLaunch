@@ -142,6 +142,20 @@ public sealed class BridgeTests
             return null;
         }
     }
+
+    private sealed class LateFolderPicker(string selectedPath) : IGameFolderPicker
+    {
+        public TaskCompletionSource SelectionStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseSelection { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<string?> SelectAsync(CancellationToken token)
+        {
+            SelectionStarted.TrySetResult();
+            // Model a native dialog implementation that cannot be forcibly dismissed by token.
+            await ReleaseSelection.Task;
+            return selectedPath;
+        }
+    }
     [Theory]
     [InlineData(@"C:\Games\日本語")]
     [InlineData(null)]
@@ -361,6 +375,27 @@ public sealed class BridgeTests
         Assert.Equal(HttpStatusCode.Gone, stale.StatusCode);
     }
 
+    [Fact]
+    public async Task RevocationPreventsLateFolderSelectionFromDisclosingPath()
+    {
+        using var trust = new TrustStore();
+        var picker = new LateFolderPicker(@"C:\Games\SecretInstall");
+        await using var host = new BridgeHost(trust, new Prompt(true), new Launcher(), folderPicker: picker);
+        await host.StartAsync();
+        using var client = new Client();
+        await client.ConnectAsync();
+        await client.Exchange(new() { Action = "confirm", Code = client.Code });
+
+        var pendingBrowse = client.Send(new() { Action = "browse" });
+        await picker.SelectionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await host.ForgetBrowsersAsync();
+        picker.ReleaseSelection.TrySetResult();
+
+        using var response = await pendingBrowse.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        using var stale = await client.Send(new() { Action = "status" });
+        Assert.Equal(HttpStatusCode.Gone, stale.StatusCode);
+    }
     [Fact] public async Task ProductionJavaScriptInteroperatesWithDotNetAndRemembersPairing()
     {
         using var trust = new TrustStore(); var launcher = new Launcher();
