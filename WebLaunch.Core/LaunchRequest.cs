@@ -31,7 +31,8 @@ public sealed class LaunchRequest
     /// </summary>
     public static string NormalizeGamePath(string path)
     {
-        if (path is null) throw new ArgumentException("Choose a valid game installation folder.");
+        if (path is null || path.Length > 1024 || path.Any(char.IsControl))
+            throw new ArgumentException("Choose a valid game installation folder.");
         path = path.Trim();
         if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
             path = path[1..^1].Trim();
