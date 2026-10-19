@@ -832,16 +832,42 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
     private void RebuildImageResourceSets(ResourceFactory factory)
     {
-        foreach (var view in setsByView.Keys.ToArray())
+        // Publish only after every set is created, so a failed attempt leaves bindings suspended
+        // and a retry can rebuild all of them against its new texture layout.
+        var rebuiltSets = new Dictionary<TextureView, ResourceSetInfo>();
+        try
         {
-            var info = setsByView[view];
-            if (info.ResourceSet is not null) continue;
+            foreach (var view in setsByView.Keys)
+            {
+                var info = setsByView[view];
+                if (info.ResourceSet is not null) continue;
 
-            var resourceSet = factory.CreateResourceSet(new ResourceSetDescription(textureLayout, view));
-            var rebuilt = new ResourceSetInfo(info.ImGuiBinding, resourceSet);
+                var resourceSet = factory.CreateResourceSet(new ResourceSetDescription(textureLayout, view));
+                rebuiltSets.Add(view, new ResourceSetInfo(info.ImGuiBinding, resourceSet));
+            }
+        }
+        catch (Exception creationFailure)
+        {
+            List<Exception>? failures = null;
+            foreach (var info in rebuiltSets.Values)
+            {
+                try { info.ResourceSet!.Dispose(); }
+                catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+            }
+
+            if (failures is not null)
+            {
+                failures.Insert(0, creationFailure);
+                throw new AggregateException("Cached ImGui image resource set rebuild and cleanup failed.", failures);
+            }
+            throw;
+        }
+
+        foreach (var (view, rebuilt) in rebuiltSets)
+        {
             setsByView[view] = rebuilt;
-            viewsById[info.ImGuiBinding] = rebuilt;
-            ownedResources.Add(resourceSet);
+            viewsById[rebuilt.ImGuiBinding] = rebuilt;
+            ownedResources.Add(rebuilt.ResourceSet!);
         }
     }
 
