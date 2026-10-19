@@ -128,6 +128,20 @@ public sealed class BridgeTests
         public int Calls;
         public Task<string?> SelectAsync(CancellationToken token) { Calls++; return Task.FromResult(path); }
     }
+
+    private sealed class BlockingFolderPicker : IGameFolderPicker
+    {
+        public int Calls;
+        public TaskCompletionSource SelectionStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<string?> SelectAsync(CancellationToken token)
+        {
+            Interlocked.Increment(ref Calls);
+            SelectionStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return null;
+        }
+    }
     [Theory]
     [InlineData(@"C:\Games\日本語")]
     [InlineData(null)]
@@ -324,6 +338,29 @@ public sealed class BridgeTests
         await host.ForgetBrowsersAsync();
         using var response = await client.Send(new() { Action = "status" }); Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
     }
+    [Fact]
+    public async Task ForgetRevokesAnActiveFolderChooserAndCannotRenewTheSession()
+    {
+        using var trust = new TrustStore();
+        var picker = new BlockingFolderPicker();
+        await using var host = new BridgeHost(trust, new Prompt(true), new Launcher(), folderPicker: picker);
+        await host.StartAsync();
+        using var client = new Client();
+        await client.ConnectAsync();
+        await client.Exchange(new() { Action = "confirm", Code = client.Code });
+
+        var pendingBrowse = client.Send(new() { Action = "browse" });
+        await picker.SelectionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await host.ForgetBrowsersAsync();
+
+        using var interrupted = await pendingBrowse.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(HttpStatusCode.RequestTimeout, interrupted.StatusCode);
+        Assert.Equal(1, picker.Calls);
+
+        using var stale = await client.Send(new() { Action = "status" });
+        Assert.Equal(HttpStatusCode.Gone, stale.StatusCode);
+    }
+
     [Fact] public async Task ProductionJavaScriptInteroperatesWithDotNetAndRemembersPairing()
     {
         using var trust = new TrustStore(); var launcher = new Launcher();
