@@ -178,12 +178,13 @@ public sealed class ArchiveInstaller
     {
         root = Path.GetFullPath(root);
         SafePath.RejectLinks(root);
-        Directory.CreateDirectory(root);
+        var transaction = SafePath.Resolve(root, TransactionName);
+        // A normal offline launch must not need write access to an installation with no journal.
+        // If a transaction exists, serialize recovery with installs and check again under the lock.
+        if (!TransactionDirectoryExists(transaction)) return false;
         using var installLock = new FileStream(
             SafePath.Resolve(root, ".weblaunch-install.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-
-        var transaction = SafePath.Resolve(root, TransactionName);
         if (!TransactionDirectoryExists(transaction)) return false;
         SafePath.RejectLinks(transaction);
         Recover(root, restoreVersion);
