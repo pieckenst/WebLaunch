@@ -27,6 +27,26 @@ public sealed class ReviewRegressionTests
         public void Error(string message) => Errors.Add((message, null));
         public void Error(string message, Exception exception) => Errors.Add((message, exception));
     }
+    [Fact]
+    public async Task MissingManifestAssemblyRaisesPluginErrorInsteadOfSilentlySkipping()
+    {
+        using var root = new TemporaryDirectory();
+        var bundle = Directory.CreateDirectory(Path.Combine(root.Path, "broken-plugin")).FullName;
+        File.WriteAllText(Path.Combine(bundle, "plugin.json"),
+            "{\"version\":1,\"id\":\"broken-plugin\",\"assembly\":\"missing.dll\"}");
+
+        var logger = new PluginLogger();
+        await using var host = new CoreFunctions(root.Path, logger, false, false);
+        PluginErrorEventArgs? observed = null;
+        host.PluginError += (_, args) => observed = args;
+
+        await host.InitializeAsync();
+
+        Assert.NotNull(observed);
+        Assert.IsType<FileNotFoundException>(observed!.Error);
+        Assert.Equal(Path.Combine(bundle, "missing.dll"), observed.PluginPath);
+    }
+
     [Theory][InlineData(false)][InlineData(true)]
     public async Task ValidationFailuresStillClearCredentials(bool validCredentials)
     {

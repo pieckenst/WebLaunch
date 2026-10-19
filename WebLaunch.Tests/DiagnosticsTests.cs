@@ -1,4 +1,5 @@
 using WebLaunch.Core;
+using XIVLauncher.Common.Support;
 using Xunit;
 
 namespace WebLaunch.Tests;
@@ -40,6 +41,27 @@ public sealed class DiagnosticsTests
         var service = new ObservedLaunchService(new SyntheticLauncher("launched"), (_, _) => throw new IOException());
         await service.LaunchAsync(new() { Game = "spellborn", GamePath = @"C:\Games" }, new Progress(_ => { }), default);
     }
+    [Fact]
+    public void CoreLogSanitizerKeepsOperationalContextWithoutLeakingCredentialsOrPayloads()
+    {
+        var raw = "Plugin login failed username=synthetic-user password=synthetic-secret " +
+            "GamePath=\"E:\\moredownloads\\october2026\\WebLaunch\" " +
+            "endpoint=https://example.invalid/auth?sid=synthetic-token " +
+            "request body: {\"access_token\":\"synthetic-payload\"}";
+        var safe = LogInit.SanitizeDiagnosticText(raw);
+
+        Assert.Contains("Plugin login failed", safe);
+        Assert.Contains("password=[redacted]", safe);
+        Assert.Contains("[path-redacted]", safe);
+        Assert.Contains("https://example.invalid/[path-redacted]", safe);
+        Assert.Contains("request body: [details-redacted]", safe);
+        Assert.DoesNotContain("synthetic-user", safe);
+        Assert.DoesNotContain("synthetic-secret", safe);
+        Assert.DoesNotContain("synthetic-token", safe);
+        Assert.DoesNotContain("synthetic-payload", safe);
+        Assert.DoesNotContain("E:\\moredownloads", safe);
+    }
+
     [Theory][InlineData(false)][InlineData(true)]
     public void DebugLogsUseOnlyControlledFieldsAndRotate(bool debug)
     {
@@ -47,12 +69,14 @@ public sealed class DiagnosticsTests
         var log = new SafeDiagnosticLog(temp.Path, debug);
         log.Write(DiagnosticEvent.PluginDebug, "synthetic-secret", new("synthetic-secret", "synthetic-password"), "synthetic-secret");
         log.Write(DiagnosticEvent.LaunchState, "synthetic-secret", new("authenticating", "synthetic-password"), "synthetic-secret");
+        log.Write(DiagnosticEvent.NotificationFailed, detail: "toast-exception-WinRTException");
         var file = Path.Combine(temp.Path, "desktop.log");
         var text = File.ReadAllText(file);
         Assert.DoesNotContain("synthetic", text);
         Assert.Equal(debug, text.Contains("PluginDebug"));
         Assert.Contains("state=authenticating", text);
         Assert.Contains("plugin=external", text);
+        Assert.Equal(debug, text.Contains("detail=toast-exception-WinRTException"));
         File.WriteAllText(file, new string('x', 1_048_576));
         log.Write(DiagnosticEvent.HostReady);
         Assert.True(File.Exists(file + ".1"));
