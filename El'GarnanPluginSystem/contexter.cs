@@ -77,7 +77,12 @@ namespace El_Garnan_Plugin_Loader
             if (SharedAssemblies.Contains(name))
             {
                 Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"shared-default-context-{name}");
-                return AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName);
+                try { return AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "assembly-resolution", $"shared-default-context-failed-{name}", ex);
+                    throw;
+                }
             }
 
             string? path = null;
@@ -93,7 +98,12 @@ namespace El_Garnan_Plugin_Loader
             if (path is not null)
             {
                 Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"plugin-bundle-resolved-{name}");
-                return LoadFromAssemblyPath(path);
+                try { return LoadFromAssemblyPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "assembly-resolution", $"plugin-bundle-load-failed-{name}", ex);
+                    throw;
+                }
             }
 
             try
@@ -108,7 +118,12 @@ namespace El_Garnan_Plugin_Loader
             if (path is not null)
             {
                 Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"host-fallback-resolved-{name}");
-                return LoadFromAssemblyPath(path);
+                try { return LoadFromAssemblyPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "assembly-resolution", $"host-fallback-load-failed-{name}", ex);
+                    throw;
+                }
             }
 
             Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"no-explicit-resolver-path-{name}");
@@ -132,7 +147,12 @@ namespace El_Garnan_Plugin_Loader
             if (path is not null)
             {
                 Record(PluginDiagnosticLevel.Trace, "native-resolution", $"plugin-bundle-resolved-{name}");
-                return LoadUnmanagedDllFromPath(path);
+                try { return LoadUnmanagedDllFromPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "native-resolution", $"plugin-bundle-load-failed-{name}", ex);
+                    throw;
+                }
             }
 
             try
@@ -147,7 +167,12 @@ namespace El_Garnan_Plugin_Loader
             if (path is not null)
             {
                 Record(PluginDiagnosticLevel.Trace, "native-resolution", $"host-fallback-resolved-{name}");
-                return LoadUnmanagedDllFromPath(path);
+                try { return LoadUnmanagedDllFromPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "native-resolution", $"host-fallback-load-failed-{name}", ex);
+                    throw;
+                }
             }
 
             Record(PluginDiagnosticLevel.Trace, "native-resolution", $"no-explicit-resolver-path-{name}");
