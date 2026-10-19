@@ -61,7 +61,9 @@ public sealed class UpdaterTests
         using var client = new HttpClient(new Provider(Archive(), new string('0', 32)));
         var updater = new SpellbornUpdater(client, version, new ArchiveInstaller());
         await Assert.ThrowsAsync<InvalidDataException>(() => updater.EnsureUpdatedAsync(root.Path, new Progress<LaunchStatus>(), default));
-        Assert.Null(version.Version); Assert.Empty(Directory.GetFiles(root.Path));
+        Assert.Null(version.Version);
+        Assert.False(File.Exists(Path.Combine(root.Path, "bin", "client", "game.txt")));
+        Assert.False(Directory.Exists(Path.Combine(root.Path, ".weblaunch-transaction")));
     }
     [Fact] public async Task VerifiedDownloadInstallsAndUpdatesVersion()
     {
