@@ -93,10 +93,18 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
         using var correlationScope = FfxivTraceLogger.BeginCorrelation();
         var correlationId = correlationScope.Id;
 
+        // Keep traces useful without persisting a user's local folder path. The marker-file
+        // booleans distinguish a path-transfer problem from selecting the wrong installation root.
+        var gameRoot = parameters.GamePath ?? "";
+        var bootDirectory = Path.Combine(gameRoot, "boot");
+        var gameDirectory = Path.Combine(gameRoot, "game");
+        var gameExecutable = Path.Combine(gameDirectory, "ffxiv_dx11.exe");
+        var bootExecutable = Path.Combine(bootDirectory, "ffxivboot.exe");
+        var gameVersion = Path.Combine(gameDirectory, "ffxivgame.ver");
         FfxivTraceLogger.StageLazy(
             correlationId,
             "Plugin launch requested",
-            () => $"GamePath={parameters.GamePath}; Steam={parameters.IsSteam}; DX11={parameters.DirectX11}; Region={parameters.Region}");
+            () => $"GamePathLength={gameRoot.Length}; RootExists={Directory.Exists(gameRoot)}; BootDirectoryExists={Directory.Exists(bootDirectory)}; GameDirectoryExists={Directory.Exists(gameDirectory)}; BootExecutableExists={File.Exists(bootExecutable)}; GameExecutableExists={File.Exists(gameExecutable)}; GameVersionExists={File.Exists(gameVersion)}; Steam={parameters.IsSteam}; DX11={parameters.DirectX11}; Region={parameters.Region}");
 
         var credentials = parameters.Credentials ?? new GameCredentials
         {
@@ -114,8 +122,10 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
             if (!credentials.IsValid)
                 throw new ArgumentException("Username and password are required.");
 
-            if (!File.Exists(Path.Combine(parameters.GamePath, "game", "ffxiv_dx11.exe")))
-                throw new DirectoryNotFoundException("Select the FFXIV installation folder containing boot and game.");
+            if (!Directory.Exists(gameRoot) || !Directory.Exists(bootDirectory) ||
+                !Directory.Exists(gameDirectory) || !File.Exists(gameExecutable) || !File.Exists(gameVersion))
+                throw new DirectoryNotFoundException(
+                    "The selected folder is not a complete FFXIV installation. Choose the folder containing the boot and game directories, including game/ffxiv_dx11.exe and game/ffxivgame.ver.");
 
             FfxivTraceLogger.Stage(correlationId, "Authentication stage starting");
             progress?.Report(new("authenticating", "Signing in to Final Fantasy XIV…"));
