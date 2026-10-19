@@ -672,6 +672,21 @@ public sealed class LifecycleTests
         finally { fail.Set(); game.Kill(true); await game.WaitForExitAsync(); }
     }
 
+    [Fact] public async Task AddonFailureDuringShutdownAfterGameExitFailsTheSession()
+    {
+        using var game = LongRunningGame();
+        var worker = new WorkerAddon(token => { token.WaitHandle.WaitOne(); throw new IOException("synthetic shutdown failure"); });
+        var other = new ControlledAddon();
+        try
+        {
+            var session = DalamudGameSession.Start(game, [worker, other]);
+            game.Kill(true);
+            await Assert.ThrowsAsync<IOException>(() => session.Completion.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(1, worker.Closed); Assert.True(other.Closed);
+        }
+        finally { if (!game.HasExited) game.Kill(true); await game.WaitForExitAsync(); }
+    }
+
     [Fact] public async Task StopWaitsForWorkerAndContinuesAfterCancellationCallbackFailure()
     {
         using var game = LongRunningGame();

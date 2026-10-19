@@ -87,6 +87,9 @@ public sealed class DalamudGameSession
         catch (Exception ex) { failure = failure is null ? ex : new AggregateException(failure, ex); }
         finally
         {
+            // WhenAny can report process exit even when a persistent worker also failed, and a worker can fail
+            // while StopAddons cancels and joins it. Completion must not report success after either.
+            failure = WithAddonFailure(failure);
             process.Dispose();
             lock (stopLock) { stopped = true; stopping.Dispose(); }
             if (failure is null) completion.TrySetResult();
@@ -98,6 +101,20 @@ public sealed class DalamudGameSession
             }
             Active.TryRemove(pid, out _);
         }
+    }
+    private Exception? WithAddonFailure(Exception? failure)
+    {
+        if (!addons.Failure.IsCompletedSuccessfully) return failure;
+        var addonFailure = addons.Failure.Result;
+        if (failure is null) return addonFailure;
+        return Represents(failure, addonFailure) ? failure : new AggregateException(failure, addonFailure);
+    }
+    private static bool Represents(Exception? exception, Exception candidate)
+    {
+        if (exception is null) return false;
+        if (ReferenceEquals(exception, candidate)) return true;
+        if (exception is AggregateException aggregate && aggregate.InnerExceptions.Any(inner => Represents(inner, candidate))) return true;
+        return Represents(exception.InnerException, candidate);
     }
     public async Task StopAsync()
     {
