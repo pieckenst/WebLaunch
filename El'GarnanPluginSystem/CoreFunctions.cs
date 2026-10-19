@@ -358,8 +358,10 @@ namespace El_Garnan_Plugin_Loader
                 {
                     try
                     {
+                        // One deletion attempt per outer iteration gives the documented
+                        // 300 x 100ms retry window instead of multiplying nested retry delays.
                         using (LockShadowRoot(path))
-                            await TryDeleteShadowTreeAsync(path, 3).ConfigureAwait(false);
+                            await TryDeleteShadowTreeAsync(path, 1).ConfigureAwait(false);
                         if (!Directory.Exists(path))
                         {
                             try { File.Delete(path + ".lock"); } catch (IOException) { } catch (UnauthorizedAccessException) { }
