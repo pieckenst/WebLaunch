@@ -355,6 +355,7 @@ public sealed class BridgeHost : IAsyncDisposable
     }
     private async Task RunLaunchAsync(Session session, LaunchRequest request, LaunchOperation operation)
     {
+        RecordDiagnostic(DiagnosticEvent.BridgeRequest, request.RequestId, "launch-execution-started");
         try
         {
             await launcher.LaunchAsync(request, new InlineProgress<LaunchStatus>(status =>
@@ -363,9 +364,19 @@ public sealed class BridgeHost : IAsyncDisposable
                 operation.Publish(status);
             }), session.JobCancellation.Token);
             session.Status = new("launched", "Game process started.", true, true);
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, request.RequestId, "launch-execution-completed");
         }
-        catch (OperationCanceledException) { session.Status = new("cancelled", "Launch cancelled.", true); }
-        catch { session.Status = new("failed", "Launch failed. Check the installation, sign-in details, and desktop launcher status, then retry.", true); }
+        catch (OperationCanceledException)
+        {
+            session.Status = new("cancelled", "Launch cancelled.", true);
+            RecordDiagnostic(DiagnosticEvent.BridgeFailure, request.RequestId, "launch-cancelled");
+        }
+        catch (Exception ex)
+        {
+            session.Status = new("failed", "Launch failed. Check the installation, sign-in details, and desktop launcher status, then retry.", true);
+            RecordDiagnostic(DiagnosticEvent.BridgeFailure, request.RequestId,
+                $"launch-exception-{ex.GetType().Name}-hr-{unchecked((uint)ex.HResult):X8}");
+        }
         finally
         {
             operation.Complete(session.Status);
