@@ -102,7 +102,7 @@ public sealed class PluginDiagnosticsTests
         for (var i = 0; i < 300; i++)
             diagnostics.Record(PluginDiagnosticLevel.Information, "load", "spellborn-launcher", $"loaded-{i}");
 
-        var history = diagnostics.GetRecent();
+        var history = diagnostics.GetRecent(256);
         Assert.Equal(256, history.Count);
         Assert.Equal("loaded-299", history[0].Outcome);
 
