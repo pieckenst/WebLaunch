@@ -42,7 +42,7 @@ test('manual reconnect wins over a status request from the replaced channel', as
     await page.goto(base + 'counter');
     await page.locator('.connection-summary').click();
     await page.getByRole('button', { name: 'Connect', exact: true }).click();
-    await expect(page.locator('.pairing-code')).toHaveText(/^\\d{6}$/);
+    await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
     await page.getByRole('button', { name: 'The codes match', exact: true }).click();
     await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
 
