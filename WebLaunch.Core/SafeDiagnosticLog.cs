@@ -6,7 +6,8 @@ public enum DiagnosticEvent
 {
     HostStarting, HostReady, HostStopped, HostFailed, LaunchState, LaunchFailed,
     PluginLoaded, PluginUnloaded, PluginReloaded, PluginWarning, PluginError, PluginDebug, PluginInformation,
-    NotificationShown, NotificationUnavailable, NotificationFailed, RegistrationComplete
+    NotificationShown, NotificationUnavailable, NotificationFailed, RegistrationComplete,
+    BridgeRequest, BridgeRejected, BridgeFailure
 }
 
 /// <summary>Bounded diagnostic files containing only controlled event fields.</summary>
@@ -22,7 +23,8 @@ public sealed class SafeDiagnosticLog(string directory, bool debug)
         string? pluginId = null,
         string? detail = null)
     {
-        if (!DebugEnabled && code is DiagnosticEvent.PluginDebug or DiagnosticEvent.PluginInformation or DiagnosticEvent.NotificationShown) return;
+        if (!DebugEnabled && code is DiagnosticEvent.PluginDebug or DiagnosticEvent.PluginInformation or DiagnosticEvent.NotificationShown
+            or DiagnosticEvent.BridgeRequest or DiagnosticEvent.BridgeRejected or DiagnosticEvent.BridgeFailure) return;
 
         var id = Guid.TryParseExact(requestId, "N", out _) ? requestId : "-";
         var phase = status is null ? "-" : LaunchPresentation.Normalize(status).State;
