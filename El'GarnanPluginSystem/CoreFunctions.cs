@@ -351,7 +351,7 @@ namespace El_Garnan_Plugin_Loader
 
                 var shadowAssembly = SafePath.Resolve(shadow, relativeAssembly);
                 stage = "assembly-load";
-                context = new PluginLoadContext(shadowAssembly);
+                context = new PluginLoadContext(shadowAssembly, diagnostics, pluginId, correlationId);
                 var assembly = context.LoadFromAssemblyPath(shadowAssembly);
 
                 stage = "type-discovery";
