@@ -277,6 +277,9 @@ namespace El_Garnan_Plugin_Loader
             SafePath.RejectLinks(directory);
             foreach (var file in Directory.EnumerateFiles(directory))
             {
+                // Reject links on files as well as directories before resolving/copying: File.Copy
+                // follows a file symlink, which could otherwise smuggle content from outside the bundle.
+                SafePath.RejectLinks(file);
                 var relative = Path.GetRelativePath(bundleRoot, file);
                 var source = SafePath.Resolve(bundleRoot, relative);
                 var target = SafePath.Resolve(shadowRoot, relative);
