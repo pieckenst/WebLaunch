@@ -42,11 +42,19 @@ public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore v
         // Retain the provider's existing incremental update wire format.
         await using var updateStream = await client.GetStreamAsync(new Uri(BaseUri, "updates.json"), token);
         using var json = await JsonDocument.ParseAsync(updateStream, cancellationToken: token);
+        if (json.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Invalid incremental update metadata: an array is required.");
+
         var visited = new HashSet<string>(StringComparer.Ordinal) { version };
         for (var i = 0; i < 100; i++)
         {
-            var next = json.RootElement.EnumerateArray().Select(e => e.GetProperty("update").Deserialize<Release>())
-                .FirstOrDefault(r => r is not null && r.AppliesTo == version && r.Enabled == "true");
+            var next = json.RootElement.EnumerateArray().Select(element =>
+            {
+                if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("update", out var update))
+                    throw new InvalidDataException("Invalid incremental update metadata: an update object is required.");
+                return update.Deserialize<Release>()
+                    ?? throw new InvalidDataException("Invalid incremental update metadata: an update record is empty.");
+            }).FirstOrDefault(release => release.AppliesTo == version && release.Enabled == "true");
             if (next is null) return;
             if (string.IsNullOrWhiteSpace(next.Version) || !visited.Add(next.Version)) throw new InvalidDataException("Invalid update sequence.");
             var previousVersion = version;

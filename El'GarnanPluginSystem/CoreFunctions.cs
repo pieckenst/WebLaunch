@@ -150,6 +150,13 @@ namespace El_Garnan_Plugin_Loader
             }
             finally { lifecycle.Release(); }
         }
+        private static JsonElement RequireManifestProperty(JsonElement root, string name)
+        {
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(name, out var property))
+                throw new InvalidDataException($"Plugin manifest is missing required field '{name}'.");
+            return property;
+        }
+
         private IEnumerable<PluginCandidate> DiscoverPlugins()
         {
             var directories = new Stack<string>();
@@ -167,8 +174,8 @@ namespace El_Garnan_Plugin_Loader
                         affectedPath = manifest;
                         SafePath.RejectLinks(manifest);
                         using var json = JsonDocument.Parse(File.ReadAllText(manifest));
-                        if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
-                        var assembly = json.RootElement.GetProperty("assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
+                        if (RequireManifestProperty(json.RootElement, "version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
+                        var assembly = RequireManifestProperty(json.RootElement, "assembly").GetString() ?? throw new InvalidDataException("Invalid plugin manifest.");
                         // Keep the bundle root distinct from the entry assembly path. A manifest
                         // may place its entry assembly in a nested managed directory; the complete
                         // bundle is shadow-copied with relative paths preserved and SafePath ensures
@@ -234,8 +241,8 @@ namespace El_Garnan_Plugin_Loader
                 {
                     SafePath.RejectLinks(manifest);
                     using var json = JsonDocument.Parse(File.ReadAllText(manifest));
-                    if (json.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
-                    manifestId = json.RootElement.GetProperty("id").GetString();
+                    if (RequireManifestProperty(json.RootElement, "version").GetInt32() != 1) throw new InvalidDataException("Unsupported plugin manifest version.");
+                    manifestId = RequireManifestProperty(json.RootElement, "id").GetString();
                     if (string.IsNullOrWhiteSpace(manifestId)) throw new InvalidDataException("Invalid plugin manifest ID.");
                     if (types.Length != 1) throw new InvalidDataException("Manifest bundles must identify one plugin.");
                 }

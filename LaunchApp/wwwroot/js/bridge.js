@@ -82,17 +82,30 @@ function emptyReply(current) {
 
 function validateReply(reply) {
     if (!reply || typeof reply !== 'object' || Array.isArray(reply) ||
-        typeof reply.paired !== 'boolean' ||
+        (reply.paired !== undefined && typeof reply.paired !== 'boolean') ||
         !reply.status || typeof reply.status !== 'object' || Array.isArray(reply.status) ||
         typeof reply.status.state !== 'string' || reply.status.state.length < 1 || reply.status.state.length > 64 ||
         typeof reply.status.message !== 'string' || reply.status.message.length > 4096 ||
-        typeof reply.status.completed !== 'boolean' || typeof reply.status.success !== 'boolean' ||
-        typeof reply.desktopMode !== 'string' || reply.desktopMode.length > 32 ||
-        typeof reply.canBrowseFolders !== 'boolean' ||
-        !(reply.folderPath == null || (typeof reply.folderPath === 'string' && reply.folderPath.length <= 32768))) {
+        (reply.status.completed !== undefined && typeof reply.status.completed !== 'boolean') ||
+        (reply.status.success !== undefined && typeof reply.status.success !== 'boolean') ||
+        (reply.desktopMode !== undefined && (typeof reply.desktopMode !== 'string' || reply.desktopMode.length > 32)) ||
+        (reply.canBrowseFolders !== undefined && typeof reply.canBrowseFolders !== 'boolean') ||
+        !(reply.folderPath === undefined || reply.folderPath === null ||
+          (typeof reply.folderPath === 'string' && reply.folderPath.length <= 32768))) {
         throw new Error('The desktop returned an invalid response. Reconnect and retry.');
     }
-    return reply;
+    return {
+        ...reply,
+        paired: reply.paired === true,
+        status: {
+            ...reply.status,
+            completed: reply.status.completed === true,
+            success: reply.status.success === true
+        },
+        desktopMode: typeof reply.desktopMode === 'string' ? reply.desktopMode : '',
+        canBrowseFolders: reply.canBrowseFolders === true,
+        folderPath: reply.folderPath ?? null
+    };
 }
 
 // This cancels browser-side work too; cancelling a .NET JS interop wait alone is insufficient.

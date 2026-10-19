@@ -22,7 +22,16 @@ public sealed class DesktopLaunchService(CoreFunctions plugins, Action<LaunchSta
         };
         try
         {
-            var ok = await plugins.UsePluginAsync(request.Game + "-launcher", async (plugin, token) =>
+            var pluginId = request.Game + "-launcher";
+            if (!plugins.GetLoadedPlugins().Any(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.Ordinal)))
+            {
+                Serilog.Log.Error("Required game launcher plugin {PluginId} is not loaded.", pluginId);
+                DesktopDiagnostics.Write(DiagnosticEvent.PluginError, pluginId: pluginId, detail: "required-plugin-not-loaded");
+                throw new InvalidOperationException(
+                    "The selected game launcher plugin is not installed or could not be loaded. Check the desktop logs and restart the launcher.");
+            }
+
+            var ok = await plugins.UsePluginAsync(pluginId, async (plugin, token) =>
             {
                 if (plugin is ICancellableGamePlugin modern)
                     return await modern.LaunchAsync(parameters, new WebLaunch.Bridge.InlineProgress<LaunchStatus>(s => { progress.Report(s); desktopStatus(s); }), token);

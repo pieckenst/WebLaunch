@@ -28,7 +28,8 @@ internal sealed class DesktopNotifications(string mode)
                 var xml = new XmlDocument();
                 var desktopMode = mode == "gui" ? "gui" : "console";
                 var progress = safe.Completed ? "" : "<progress title='Launch progress' value='indeterminate' status='In progress'/>";
-                xml.LoadXml($"<toast activationType='protocol' launch='HandleWebRequest:connect?v=2&amp;mode={desktopMode}'><visual><binding template='ToastGeneric'><text>WebLaunch</text><text>{safe.Message}</text>{progress}</binding></visual><audio silent='true'/></toast>");
+                var safeMessage = System.Security.SecurityElement.Escape(safe.Message) ?? "";
+                xml.LoadXml($"<toast activationType='protocol' launch='HandleWebRequest:connect?v=2&amp;mode={desktopMode}'><visual><binding template='ToastGeneric'><text>WebLaunch</text><text>{safeMessage}</text>{progress}</binding></visual><audio silent='true'/></toast>");
                 var toast = new ToastNotification(xml)
                 {
                     Tag = requestId[..16], Group = "launch", SuppressPopup = mode == "quiet" || (!first && !safe.Completed),
@@ -38,7 +39,11 @@ internal sealed class DesktopNotifications(string mode)
                 notifier.Show(toast);
                 DesktopDiagnostics.Write(DiagnosticEvent.NotificationShown, requestId, safe);
             }
-            catch (Exception ex) { DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-exception-" + ex.GetType().Name); }
+            catch (Exception ex)
+            {
+                var hresult = unchecked((uint)ex.HResult).ToString("X8", System.Globalization.CultureInfo.InvariantCulture);
+                DesktopDiagnostics.Write(DiagnosticEvent.NotificationFailed, requestId, detail: "toast-exception-" + ex.GetType().Name + "-hr-" + hresult);
+            }
         }
     }
 }
