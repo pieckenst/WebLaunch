@@ -123,7 +123,8 @@ public class FFXIVGamePlugin : GamePluginBase, ICancellableGamePlugin
                 throw new ArgumentException("Username and password are required.");
 
             if (!Directory.Exists(gameRoot) || !Directory.Exists(bootDirectory) ||
-                !Directory.Exists(gameDirectory) || !File.Exists(gameExecutable) || !File.Exists(gameVersion))
+                !Directory.Exists(gameDirectory) || !File.Exists(bootExecutable) ||
+                !File.Exists(gameExecutable) || !File.Exists(gameVersion))
                 throw new DirectoryNotFoundException(
                     "The selected folder is not a complete FFXIV installation. Choose the folder containing the boot and game directories, including game/ffxiv_dx11.exe and game/ffxivgame.ver.");
 
