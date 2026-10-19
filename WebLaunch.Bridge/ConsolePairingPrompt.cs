@@ -34,9 +34,9 @@ public sealed class ConsolePairingPrompt : IPairingPrompt
 
         try
         {
-            var promptStarted = Stopwatch.GetTimestamp();
             output.WriteLine($"Pair {origin}? Browser and desktop code: {code}");
             output.WriteLine("Compare the browser code, then type the matching six digits here to approve (anything else declines):");
+            var promptStarted = Stopwatch.GetTimestamp();
 
             while (true)
             {
