@@ -37,6 +37,57 @@ test('status transport failure re-establishes a fresh authenticated desktop sess
     await page.unroute('http://127.0.0.1:47832/v2/session/**');
 });
 
+test('manual reconnect wins over a status request from the replaced channel', async ({ page }) => {
+    await prepare(page, base);
+    await page.goto(base + 'counter');
+    await page.locator('.connection-summary').click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.pairing-code')).toHaveText(/^\\d{6}$/);
+    await page.getByRole('button', { name: 'The codes match', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+
+    let releaseStatus;
+    let statusStarted;
+    const statusRequestStarted = new Promise(resolve => { statusStarted = resolve; });
+    const statusGate = new Promise(resolve => { releaseStatus = resolve; });
+    let heldStatus = false;
+    let reconnectHandshakes = 0;
+
+    await page.route('http://127.0.0.1:47832/v2/session/**', async route => {
+        if (!heldStatus && route.request().method() === 'POST') {
+            heldStatus = true;
+            statusStarted();
+            await statusGate;
+            try { await route.abort(); } catch { /* The replaced JS channel may abort it first. */ }
+            return;
+        }
+        await route.continue();
+    });
+    await page.route('http://127.0.0.1:47832/v2/hello', async route => {
+        if (route.request().method() === 'POST') reconnectHandshakes++;
+        await route.continue();
+    });
+
+    try {
+        await statusRequestStarted;
+        const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+        const reconnectClick = reconnect.click();
+        await expect(reconnect).toBeDisabled();
+        releaseStatus();
+        await reconnectClick;
+
+        await expect(page.locator('.launch-status')).toHaveText('Connected. Enter your game settings.');
+        await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+        // One fresh handshake is expected for the manual action. A competing automatic
+        // recovery would issue another /v2/hello and could cancel the successful session.
+        expect(reconnectHandshakes).toBe(1);
+    } finally {
+        releaseStatus();
+        await page.unroute('http://127.0.0.1:47832/v2/session/**');
+        await page.unroute('http://127.0.0.1:47832/v2/hello');
+    }
+});
+
 test('a failing navigation module can reload and return to the library', async ({ page }) => {
     await prepare(page, base);
     let failedModuleLoads = 0;
