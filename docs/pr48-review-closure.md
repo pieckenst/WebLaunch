@@ -139,7 +139,7 @@ This pass checked current source rather than trusting resolved/outdated labels. 
 
 ## Current review sweep — 2026-10-19
 
-The current PR history retrieval returned **236 timeline artifacts**, **73 inline review threads**, and **58 submitted reviews**. The original register below covered the first 155 artifacts and 49 threads; the subsequent 81 artifacts and 24 added threads are indexed in section D. Every review thread was rechecked for current/outdated state, and the high-impact code paths were re-read rather than assuming that a resolved label proved the implementation correct.
+The current PR history retrieval returned **238 timeline artifacts**, **73 inline review threads**, and **58 submitted reviews**. The original register below covered the first 155 artifacts and 49 threads; the subsequent 83 artifacts and 24 added threads are indexed in section D. Every review thread was rechecked for current/outdated state, and the high-impact code paths were re-read rather than assuming that a resolved label proved the implementation correct.
 
 ### Source re-check and follow-up corrections
 
@@ -430,7 +430,7 @@ Appendices A–C preserve the 155-artifact baseline at the original ledger snaps
 | Inline thread | coderabbitai | CoreLibLaunchSupport/FfxivTraceLogger.cs : 88 | Resolved by GitHub | [4308305123](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4308305123) | 🔒 Security & Privacy / 🛡️ Detected with Advanced Tier / 🟡 Minor |
 | Inline thread | coderabbitai | El'GarnanPluginSystem/CoreFunctions.cs : 447 | Resolved by GitHub | [4308452144](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4308452144) | 🩺 Stability & Availability / 🟡 Minor / ⚡ Quick win |
 
-### D. Follow-up review activity (81 records; 2026-10-18 through 2026-10-19)
+### D. Follow-up review activity (83 records; 2026-10-18 through 2026-10-19)
 
 | Record | Kind | Author | Timestamp | Source path | Original GitHub item | Extracted title/snippet; follow link for full text |
 |---:|---|---|---|---|---|---|
@@ -514,5 +514,7 @@ Appendices A–C preserve the 155-artifact baseline at the original ledger snaps
 | 233 | Review submission | greptile-apps[bot] | 2026-10-19T11:47:59Z | — | [pullrequestreview-5571064803](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5571064803) |  |
 | 234 | Review submission | greptile-apps[bot] | 2026-10-19T12:13:24Z | — | [pullrequestreview-5571359120](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5571359120) | Your organization has used all 50 credits included in the free plan this billing period. To keep receiving reviews, [upgrade your plan](https://app.greptile.com/review/gi |
 
-| 235 | Inline comment/reply | pieckenst | 2026-10-19T12:39:33Z | LaunchApp/Shared/LaunchPanel.razor | [discussion_r4313904219](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4313904219) | Fixed in the current implementation. Manual reconnect now publishes 'manualConnectPending' before awaiting cancellation, increments a connection generation, blocks compet |
-| 236 | Review artifact | pieckenst | 2026-10-19T12:39:33Z | — | [pullrequestreview-5571654165](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5571654165) |  |
+| 235 | Inline comment/reply | pieckenst | 2026-10-19T12:39:29Z | LaunchApp/Shared/LaunchPanel.razor | [discussion_r4313903365](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4313903365) | Fixed in the current implementation. A failed status exchange invalidates the old JS channel and starts a fresh authenticated 'connect' attempt with bounded backoff; recovery never resubmits a launch. The production-path Playwright scenario 'status transport failure re-establishes a fresh authenticated desktop session' passed in workflow run https://github.com/pieckenst/WebLaunch/actions/runs/39253042248. The current branch also includes a manual-reconnect race regression. |
+| 236 | Review artifact | pieckenst | 2026-10-19T12:39:29Z | — | [pullrequestreview-5571653251](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5571653251) |  |
+| 237 | Inline comment/reply | pieckenst | 2026-10-19T12:39:33Z | LaunchApp/Shared/LaunchPanel.razor | [discussion_r4313904219](https://github.com/pieckenst/WebLaunch/pull/48#discussion_r4313904219) | Fixed in the current implementation. Manual reconnect now publishes 'manualConnectPending' before awaiting cancellation, increments a connection generation, blocks competing actions/recovery, and ignores stale status failures both before and after the awaited UI refresh. The active manual connection task is tracked and awaited during disposal. The production-path Playwright suite passed in workflow run https://github.com/pieckenst/WebLaunch/actions/runs/39253042248; the race test holds a status request, reconnects manually, and verifies only one fresh '/v2/hello' handshake. |
+| 238 | Review artifact | pieckenst | 2026-10-19T12:39:33Z | — | [pullrequestreview-5571654165](https://github.com/pieckenst/WebLaunch/pull/48#pullrequestreview-5571654165) |  |
