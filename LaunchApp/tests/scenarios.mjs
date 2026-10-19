@@ -301,7 +301,7 @@ export async function browserRecovery(page, base) {
         await page.route('**/js/navigation.js', route => route.abort());
         await page.reload();
         await expect(page.getByRole('heading', { name: 'Let’s reload the launcher' })).toBeVisible();
-        expect(diagnostics.some(line => line.includes('render failed'))).toBe(true);
+        expect(diagnostics.some(line => line.includes('navigation module initialization failed'))).toBe(true);
         await page.unroute('**/js/navigation.js');
         await page.getByRole('button', { name: 'Reload launcher', exact: true }).click();
         await expect(page.getByRole('heading', { name: 'Final Fantasy XIV', exact: true })).toBeVisible();
