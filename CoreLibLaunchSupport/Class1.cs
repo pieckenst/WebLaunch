@@ -373,7 +373,7 @@ namespace CoreLibLaunchSupport
 
             Log.Debug("[{Component}] Preparing native game process", nameof(NativeProcessLauncher));
             FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone,
-                () => $"Native process: executable={options.ExecutablePath}; workingDirectory={options.WorkingDirectory}; arguments={options.Arguments}");
+                () => $"Native process: executable={options.ExecutablePath}; workingDirectory={options.WorkingDirectory}; argumentLength={options.Arguments?.Length ?? 0}");
 
             var pExplicitAccess = new PInvoke.EXPLICIT_ACCESS();
             PInvoke.BuildExplicitAccessWithName(
@@ -1213,6 +1213,12 @@ namespace CoreLibLaunchSupport
         IGameRunner runner;
         runner = new WindowsGameRunner(dalamudLauncher, dalamudOk, DalamudUpdater.Runtime);
         Log.Information("[{Component}] Launching game executable", nameof(networklogic));
+        // Snapshot and validate addon projection before creating the game process. If addon
+        // configuration is malformed or changes concurrently, fail before a process can escape
+        // without a session observer to own its cleanup.
+        var enabledAddons = AddonEntries.Where(x => x.IsEnabled).Select(x =>
+            x.Addon as IAddon ?? throw new InvalidDataException("An enabled addon has no valid implementation.")).ToArray();
+
         cancellationToken.ThrowIfCancellationRequested();
         using var launchCancellation = NativeProcessLauncher.UseCancellationToken(cancellationToken);
         Process ffxivgame = launcher.LaunchGame(runner, realsid,
@@ -1220,7 +1226,6 @@ namespace CoreLibLaunchSupport
             DpiAwareness.Unaware);
 
         if (ffxivgame is null) throw new GameExitedException();
-        var enabledAddons = AddonEntries.Where(x => x.IsEnabled).Select(x => (IAddon)x.Addon).ToArray();
         StartGameSession(ffxivgame, enabledAddons);
         Log.Information("[{Component}] Started addon session with {Count} addons", nameof(networklogic), enabledAddons.Length);
         return ffxivgame;
