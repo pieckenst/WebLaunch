@@ -76,7 +76,9 @@ internal sealed class DesktopRuntime : IAsyncDisposable
                 Launcher,
                 development,
                 mode,
-                new WindowsGameFolderPicker());
+                new WindowsGameFolderPicker(),
+                diagnosticSink: (code, requestId, detail) =>
+                    DesktopDiagnostics.Write(code, requestId, detail: detail));
         }
         catch
         {
