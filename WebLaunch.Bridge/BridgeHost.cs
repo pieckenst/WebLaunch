@@ -277,7 +277,22 @@ public sealed class BridgeHost : IAsyncDisposable
                 case "cancel": session.JobCancellation.Cancel(); break;
                 default: throw new InvalidDataException("Unsupported command.");
             }
-            await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(session.Paired, replyStatus ?? session.Status, desktopMode, folderPicker is not null, folderPath)), timeout.Token);
+            // Serialize the final authorization check and response with ForgetBrowsersAsync.
+            // If revocation wins admission, even a folder picker that returns late cannot disclose
+            // its selected path; if this response wins, it is sent before revocation completes.
+            await admission.WaitAsync(timeout.Token);
+            try
+            {
+                if (session.IsExpired)
+                {
+                    context.Response.StatusCode = StatusCodes.Status410Gone;
+                    return;
+                }
+                await context.Response.WriteAsJsonAsync(
+                    session.Channel.Encrypt(new BridgeReply(session.Paired, replyStatus ?? session.Status, desktopMode, folderPicker is not null, folderPath)),
+                    timeout.Token);
+            }
+            finally { admission.Release(); }
         }
         finally { session.Gate.Release(); }
     }
