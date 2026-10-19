@@ -14,7 +14,7 @@ Four dispositions are used throughout:
 
 ## Refreshed review snapshot and Oct 18 delta
 
-The current live GitHub snapshot returns **238 timeline artifacts**, **58 submitted reviews**, and **73 inline review threads**; all 73 threads are now resolved. Appendices A–C preserve the original 155-artifact/49-thread baseline, and section D indexes all 83 later artifacts without overwriting the historical records. The production-path Playwright suite passed all 15 scenarios on app-code head `6e7f62c`; the latest head adds test-cleanup and ledger changes and has a matching workflow run in progress. Native Windows GUI/DPAPI/real-game acceptance remains separate.
+The current live GitHub snapshot returns **238 timeline artifacts**, **60 submitted reviews**, and **73 inline review threads**; all 73 threads are now resolved. Appendices A–C preserve the original 155-artifact/49-thread baseline, and section D indexes all 83 later artifacts without overwriting the historical records. The production-path Playwright suite passed all 15 scenarios on app-code head `6e7f62c`; the latest head adds test-cleanup and ledger changes and has a matching workflow run in progress. Native Windows GUI/DPAPI/real-game acceptance remains separate.
 
 | New review point | Evidence / disposition |
 |---|---|
@@ -139,7 +139,7 @@ This pass checked current source rather than trusting resolved/outdated labels. 
 
 ## Current review sweep — 2026-10-19
 
-The current PR history retrieval returned **238 timeline artifacts**, **73 inline review threads**, and **58 submitted reviews**. The original register below covered the first 155 artifacts and 49 threads; the subsequent 83 artifacts and 24 added threads are indexed in section D. Every review thread was rechecked for current/outdated state, and the high-impact code paths were re-read rather than assuming that a resolved label proved the implementation correct.
+The current PR history retrieval returned **238 timeline artifacts**, **73 inline review threads**, and **60 submitted reviews**. The original register below covered the first 155 artifacts and 49 threads; the subsequent 83 artifacts and 24 added threads are indexed in section D. Every review thread was rechecked for current/outdated state, and the high-impact code paths were re-read rather than assuming that a resolved label proved the implementation correct.
 
 ### Source re-check and follow-up corrections
 
