@@ -43,6 +43,7 @@ namespace El_Garnan_Plugin_Loader
         private readonly bool hotReload;
         private readonly Func<IPluginRenderer> rendererFactory;
         private readonly ConcurrentDictionary<string, Entry> entries = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, byte> renderFailures = new(StringComparer.Ordinal);
         private readonly SemaphoreSlim lifecycle = new(1, 1);
         private readonly object renderLock = new();
         private readonly object disposeGate = new();
@@ -79,6 +80,7 @@ namespace El_Garnan_Plugin_Loader
                     // Observers are diagnostics/UI integrations, not part of plugin ownership.
                     // One failing subscriber must not abort discovery, roll back registered plugins,
                     // or prevent remaining unload/cleanup notifications from running.
+                    diagnostics.Record(PluginDiagnosticLevel.Warning, "event-observer", "host", $"failed-{eventName}", ex);
                     try { logger.Warning($"Plugin lifecycle observer failed for {eventName} ({ex.GetType().Name})."); }
                     catch { /* Logging must not turn an observer failure into a host failure. */ }
                 }
@@ -265,7 +267,10 @@ namespace El_Garnan_Plugin_Loader
                 }
                 catch (Exception ex)
                 {
-                    diagnostics.Record(PluginDiagnosticLevel.Error, "discovery", "manifest-or-bundle", "candidate-rejected", ex);
+                    var failedPluginId = affectedPath.EndsWith("plugin.json", StringComparison.OrdinalIgnoreCase)
+                        ? GetDiagnosticPluginId(affectedPath)
+                        : "legacy";
+                    diagnostics.Record(PluginDiagnosticLevel.Error, "discovery", failedPluginId, "candidate-rejected", ex);
                     Notify(PluginError, new PluginErrorEventArgs(affectedPath, ex), nameof(PluginError));
                     continue;
                 }
@@ -660,6 +665,7 @@ namespace El_Garnan_Plugin_Loader
         {
             Entry? entry;
             lock (renderLock) entries.TryRemove(id, out entry);
+            renderFailures.TryRemove(id, out _);
             if (entry is null)
             {
                 diagnostics.Record(PluginDiagnosticLevel.Trace, "unload", id, "not-registered");
@@ -737,10 +743,28 @@ namespace El_Garnan_Plugin_Loader
             finally { lifecycle.Release(); }
             using (cancellation)
             {
+                var correlationId = Guid.NewGuid().ToString("N");
+                void RecordExecution(PluginDiagnosticLevel level, string outcome, Exception? exception = null) =>
+                    diagnostics.Record(level, "plugin-execution", id, outcome, exception, correlationId);
+
                 try
                 {
+                    RecordExecution(PluginDiagnosticLevel.Trace, "started");
                     cancellation.Token.ThrowIfCancellationRequested();
-                    return await action(entry.Plugin, cancellation.Token).ConfigureAwait(false);
+                    var result = await action(entry.Plugin, cancellation.Token).ConfigureAwait(false);
+                    RecordExecution(PluginDiagnosticLevel.Trace, "succeeded");
+                    return result;
+                }
+                catch (OperationCanceledException)
+                {
+                    RecordExecution(PluginDiagnosticLevel.Trace, "cancelled");
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    RecordExecution(PluginDiagnosticLevel.Error, "failed", ex);
+                    try { logger.Warning($"Plugin operation failed ({ex.GetType().Name})."); } catch { }
+                    throw;
                 }
                 finally { entry.ReleaseLease(); }
             }
@@ -756,7 +780,27 @@ namespace El_Garnan_Plugin_Loader
         public void RenderPluginInterfaces()
         {
             lock (renderLock)
-                foreach (var plugin in GetLoadedPlugins().Where(p => p.SupportsImGui)) plugin.RenderImGui();
+            {
+                foreach (var plugin in GetLoadedPlugins().Where(p => p.SupportsImGui))
+                {
+                    var id = plugin.PluginId;
+                    try { plugin.RenderImGui(); }
+                    catch (Exception ex)
+                    {
+                        var firstFailure = renderFailures.TryAdd(id, 0);
+                        diagnostics.Record(
+                            firstFailure ? PluginDiagnosticLevel.Error : PluginDiagnosticLevel.Trace,
+                            "plugin-render",
+                            id,
+                            "failed",
+                            ex);
+                        if (firstFailure)
+                        {
+                            try { logger.Warning($"Plugin renderer failed ({ex.GetType().Name})."); } catch { }
+                        }
+                    }
+                }
+            }
         }
         /// <summary>Enables the renderer's standalone-window mode for the next render lifecycle.</summary>
         public void EnableStandaloneRenderer() => standalone = true;
@@ -780,11 +824,19 @@ namespace El_Garnan_Plugin_Loader
                             Thread.Sleep(16);
                         }
                     }
-                    catch (Exception ex) { logger.Warning($"Renderer stopped ({ex.GetType().Name})."); }
+                    catch (Exception ex)
+                    {
+                        diagnostics.Record(PluginDiagnosticLevel.Error, "renderer", "host", "failed", ex);
+                        try { logger.Warning($"Renderer stopped ({ex.GetType().Name})."); } catch { }
+                    }
                     finally
                     {
                         try { renderer?.Dispose(); }
-                        catch (Exception ex) { logger.Warning($"Renderer disposal failed ({ex.GetType().Name})."); }
+                        catch (Exception ex)
+                        {
+                            diagnostics.Record(PluginDiagnosticLevel.Warning, "renderer-disposal", "host", "failed", ex);
+                            try { logger.Warning($"Renderer disposal failed ({ex.GetType().Name})."); } catch { }
+                        }
                         finally { renderer = null; renderStopped.TrySetResult(); }
                     }
                 }) { IsBackground = true, Name = "WebLaunch renderer" };
