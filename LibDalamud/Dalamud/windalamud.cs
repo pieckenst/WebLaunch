@@ -144,6 +144,13 @@ namespace LibDalamud.Common.Dalamud
                     throw new DalamudRunnerException("Dalamud returned an invalid process ownership response.", ex);
                 }
             }
+            catch (OperationCanceledException) when (LaunchCancellationContext.CurrentCancellationToken.IsCancellationRequested)
+            {
+                // Preserve caller cancellation as cancellation rather than reporting a failed launch.
+                if (dalamudProcess is not null)
+                    TerminateInjector(dalamudProcess);
+                throw;
+            }
             catch (Exception ex)
             {
                 // Only terminate the injector itself. Killing the entire process tree here could
