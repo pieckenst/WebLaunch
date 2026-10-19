@@ -106,6 +106,26 @@ export async function sectionHistoryAndModeControls(page, base) {
     await expect(selected('Launch settings')).toHaveAttribute('aria-current', 'location');
     await page.setViewportSize({ width: 1280, height: 900 });
 }
+export async function unmatchedNestedGameRouteHidesGameNavigation(page, base) {
+    await page.goto(base + 'counter');
+    const sections = page.getByRole('navigation', { name: 'Game sections', exact: true });
+    await expect(sections).toBeVisible();
+    await expect(page.locator('.nav-launch')).toBeVisible();
+    await page.evaluate(() => { window.unmatchedRouteMarker = true; });
+    await page.evaluate(() => {
+        // Intercepted unmatched links trigger a full reload; use the client-side router directly.
+        Blazor.navigateTo('counter/foo/bar');
+    });
+    await expect(page).toHaveURL(base + 'counter/foo/bar');
+    await expect(page.getByRole('alert').filter({ hasText: 'nothing at this address' })).toBeVisible();
+    await expect(sections).toHaveCount(0);
+    await expect(page.locator('.nav-launch')).toHaveCount(0);
+    expect(await page.evaluate(() => window.unmatchedRouteMarker)).toBe(true);
+    await page.goBack();
+    await expect(page).toHaveURL(base + 'counter');
+    await expect(sections).toBeVisible();
+    await expect(page.locator('.nav-launch')).toBeVisible();
+}
 async function pair(page) {
     await page.getByRole('button', { name: 'Forget this browser pairing' }).click();
     await page.getByRole('button', { name: 'Connect', exact: true }).click();

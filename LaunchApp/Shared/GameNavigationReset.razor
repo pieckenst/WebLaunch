@@ -1,0 +1,4 @@
+@inject LaunchApp.Services.GameNavigation GameNavigation
+@code {
+    protected override void OnInitialized() => GameNavigation.Set(null);
+}
