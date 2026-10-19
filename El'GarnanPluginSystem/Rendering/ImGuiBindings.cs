@@ -23,6 +23,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
     {
     private GraphicsDevice gd;
     private bool frameBegun;
+    private bool _disposed;
 
     // Veldrid objects
     private DeviceBuffer vertexBuffer;
@@ -291,9 +292,14 @@ namespace El_Garnan_Plugin_Loader.Rendering
 
     public void ClearCachedImageResources()
     {
-        foreach (IDisposable resource in ownedResources)
+        // Resource sets depend on their texture views, so release in reverse creation order.
+        // Continue through the full collection when one native/GPU disposal fails.
+        var resources = new List<IDisposable>(ownedResources);
+        List<Exception>? failures = null;
+        for (var index = resources.Count - 1; index >= 0; index--)
         {
-            resource.Dispose();
+            try { resources[index].Dispose(); }
+            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
         }
 
         ownedResources.Clear();
@@ -301,6 +307,10 @@ namespace El_Garnan_Plugin_Loader.Rendering
         viewsById.Clear();
         autoViewsByTexture.Clear();
         lastAssignedID = 100;
+
+        if (failures is { Count: 1 }) throw failures[0];
+        if (failures is { Count: > 1 })
+            throw new AggregateException("One or more cached ImGui image resources could not be released.", failures);
     }
 
     private byte[] LoadEmbeddedShaderCode(ResourceFactory factory, string name, ShaderStages stage)
@@ -719,18 +729,37 @@ namespace El_Garnan_Plugin_Loader.Rendering
     /// </summary>
     public void Dispose()
     {
-        vertexBuffer.Dispose();
-        indexBuffer.Dispose();
-        projMatrixBuffer.Dispose();
-        fontTexture.Dispose();
-        fontTextureView.Dispose();
-        vertexShader.Dispose();
-        fragmentShader.Dispose();
-        layout.Dispose();
-        textureLayout.Dispose();
-        pipeline.Dispose();
-        mainResourceSet.Dispose();
-        ClearCachedImageResources();
+        if (_disposed) return;
+        _disposed = true;
+
+        List<Exception>? failures = null;
+        void DisposeOne(IDisposable? resource)
+        {
+            if (resource is null) return;
+            try { resource.Dispose(); }
+            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+        }
+
+        // Dispose dependants before the resources they reference, and attempt every cleanup
+        // even if a native graphics resource throws during disposal.
+        try { ClearCachedImageResources(); }
+        catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
+        DisposeOne(fontTextureResourceSet);
+        DisposeOne(mainResourceSet);
+        DisposeOne(pipeline);
+        DisposeOne(textureLayout);
+        DisposeOne(layout);
+        DisposeOne(fragmentShader);
+        DisposeOne(vertexShader);
+        DisposeOne(projMatrixBuffer);
+        DisposeOne(fontTextureView);
+        DisposeOne(fontTexture);
+        DisposeOne(indexBuffer);
+        DisposeOne(vertexBuffer);
+
+        if (failures is { Count: 1 }) throw failures[0];
+        if (failures is { Count: > 1 })
+            throw new AggregateException("One or more ImGui renderer resources could not be released.", failures);
     }
 
     private struct ResourceSetInfo
