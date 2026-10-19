@@ -422,8 +422,9 @@
     private Task Connect()
     {
         if (connectTask is { IsCompleted: false }) return connectTask;
-        connectTask = ConnectCoreAsync();
-        return connectTask;
+        var task = ConnectCoreAsync();
+        connectTask = task;
+        return task;
     }
 
     private async Task ConnectCoreAsync()
