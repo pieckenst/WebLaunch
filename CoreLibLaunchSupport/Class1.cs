@@ -1261,8 +1261,8 @@ namespace CoreLibLaunchSupport
 
         public static async Task<string> GetSidAsync(string username, string password, string otp, bool isSteam, CancellationToken token = default)
         {
-            var stored = await AuthService.FetchStoredValueAsync(isSteam, token);
-            return await AuthService.RequestSessionIdAsync(new FfxivSidRequest(username, password, otp, isSteam), stored, token);
+            var stored = await AuthService.FetchStoredValueAsync(isSteam, token).ConfigureAwait(false);
+            return await AuthService.RequestSessionIdAsync(new FfxivSidRequest(username, password, otp, isSteam), stored, token).ConfigureAwait(false);
         }
 
         public static string GetRealSid(string gamePath, string username, string password, string otp, bool isSteam)
