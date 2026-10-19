@@ -170,10 +170,44 @@ public sealed class ArchiveInstaller
         { JsonSerializer.Serialize(stream, journal); stream.Flush(true); }
         File.Move(file + ".tmp", file, true);
     }
+    /// <summary>Recovers a prior interrupted install before callers decide whether offline launch is safe.</summary>
+    /// <param name="root">Installation root that owns the transaction journal.</param>
+    /// <param name="restoreVersion">Restores version metadata recorded by an interrupted transaction.</param>
+    /// <returns>True when a pending transaction was recovered; false when no transaction existed.</returns>
+    public bool RecoverPendingTransaction(string root, Action<string?>? restoreVersion = null)
+    {
+        root = Path.GetFullPath(root);
+        SafePath.RejectLinks(root);
+        Directory.CreateDirectory(root);
+        using var installLock = new FileStream(
+            SafePath.Resolve(root, ".weblaunch-install.lock"),
+            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+        var transaction = SafePath.Resolve(root, TransactionName);
+        if (!TransactionDirectoryExists(transaction)) return false;
+        SafePath.RejectLinks(transaction);
+        Recover(root, restoreVersion);
+        return true;
+    }
+
+    private static bool TransactionDirectoryExists(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.Directory) == 0)
+                throw new IOException("Update transaction path is not a directory.");
+            return true;
+        }
+        catch (FileNotFoundException) { return false; }
+        catch (DirectoryNotFoundException) { return false; }
+    }
+
     private static void Recover(string root, Action<string?>? restoreVersion)
     {
         var transaction = SafePath.Resolve(root, TransactionName);
-        if (!Directory.Exists(transaction)) return;
+        if (!TransactionDirectoryExists(transaction)) return;
+        SafePath.RejectLinks(transaction);
         var file = SafePath.Resolve(transaction, "journal.json");
         if (!File.Exists(file)) throw new IOException("Incomplete update staging requires inspection before retrying.");
         var journal = JsonSerializer.Deserialize<Journal>(File.ReadAllText(file)) ?? throw new InvalidDataException("Invalid recovery journal.");
