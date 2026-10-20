@@ -24,6 +24,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
     private GraphicsDevice gd;
     private bool frameBegun;
     private bool _disposed;
+    private bool deferredDisposalsPending;
 
     // Veldrid objects
     private DeviceBuffer vertexBuffer;
@@ -300,9 +301,23 @@ namespace El_Garnan_Plugin_Loader.Rendering
             catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
             if (disposeTexture)
             {
-                try { gd.DisposeWhenIdle(texture); }
+                try
+                {
+                    gd.DisposeWhenIdle(texture);
+                    deferredDisposalsPending = true;
+                }
                 catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
             }
+        }
+
+        if (deferredDisposalsPending)
+        {
+            // On D3D11/Vulkan/Metal nothing in the frame loop flushes the deferred disposal list
+            // (OpenGL happens to flush in SwapBuffers). Drain runs after the previous frame was
+            // submitted, so one wait here is the frame-completion point.
+            deferredDisposalsPending = false;
+            try { gd.WaitForIdle(); }
+            catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
         }
 
         if (failures is { Count: 1 }) throw failures[0];
@@ -321,14 +336,22 @@ namespace El_Garnan_Plugin_Loader.Rendering
             if (info.ResourceSet is not null)
             {
                 ownedResources.Remove(info.ResourceSet);
-                try { gd.DisposeWhenIdle(info.ResourceSet); }
+                try
+                {
+                    gd.DisposeWhenIdle(info.ResourceSet);
+                    deferredDisposalsPending = true;
+                }
                 catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
             }
         }
 
         // Schedule dependants before the resources they reference, and attempt every release.
         ownedResources.Remove(textureView);
-        try { gd.DisposeWhenIdle(textureView); }
+        try
+        {
+            gd.DisposeWhenIdle(textureView);
+            deferredDisposalsPending = true;
+        }
         catch (Exception ex) { (failures ??= new List<Exception>()).Add(ex); }
 
         if (failures is { Count: 1 }) throw failures[0];
@@ -694,6 +717,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
         if (totalVbSize > vertexBuffer.SizeInBytes)
         {
             gd.DisposeWhenIdle(vertexBuffer);
+            deferredDisposalsPending = true;
             vertexBuffer = gd.ResourceFactory.CreateBuffer(new BufferDescription((uint)(totalVbSize * 1.5f), BufferUsage.VertexBuffer | BufferUsage.Dynamic));
         }
 
@@ -702,6 +726,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
         if (totalIbSize > indexBuffer.SizeInBytes)
         {
             gd.DisposeWhenIdle(indexBuffer);
+            deferredDisposalsPending = true;
             indexBuffer = gd.ResourceFactory.CreateBuffer(new BufferDescription((uint)(totalIbSize * 1.5f), BufferUsage.IndexBuffer | BufferUsage.Dynamic));
         }
 
