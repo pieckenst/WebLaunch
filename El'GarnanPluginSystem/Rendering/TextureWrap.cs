@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Collections.Generic;
 using System.Numerics;
 using StbImageSharp;
 using Veldrid;
@@ -94,18 +93,15 @@ namespace El_Garnan_Plugin_Loader.Rendering
             }
             catch (Exception loadError)
             {
-                // Attempt both cleanup steps even if releasing the ImGui resource set/view fails.
+                // Release the binding and the texture through one deferred request. The binding's view and
+                // resource set depend on the texture, so disposing the texture here while the binding's
+                // removal is still queued would release the dependants after the resource they reference.
                 // Preserve the original creation/upload exception when cleanup itself succeeds.
-                List<Exception>? cleanupErrors = null;
-                try { bindings.RemoveImGuiBinding(texture); }
-                catch (Exception ex) { (cleanupErrors ??= []).Add(ex); }
-                try { texture.Dispose(); }
-                catch (Exception ex) { (cleanupErrors ??= []).Add(ex); }
-
-                if (cleanupErrors is { Count: > 0 })
+                try { bindings.RemoveImGuiBinding(texture, disposeTexture: true); }
+                catch (Exception cleanupError)
                 {
-                    cleanupErrors.Insert(0, loadError);
-                    throw new AggregateException("Texture initialization failed and resource cleanup was incomplete.", cleanupErrors);
+                    throw new AggregateException(
+                        "Texture initialization failed and resource cleanup was incomplete.", loadError, cleanupError);
                 }
 
                 throw;

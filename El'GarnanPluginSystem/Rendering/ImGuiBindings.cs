@@ -233,6 +233,7 @@ namespace El_Garnan_Plugin_Loader.Rendering
     /// </summary>
     public IntPtr GetOrCreateImGuiBinding(ResourceFactory factory, TextureView textureView)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (!setsByView.TryGetValue(textureView, out ResourceSetInfo rsi))
         {
             if (textureLayout is null)
@@ -260,6 +261,8 @@ namespace El_Garnan_Plugin_Loader.Rendering
     /// </summary>
     public IntPtr GetOrCreateImGuiBinding(ResourceFactory factory, Texture texture)
     {
+        // Check before creating the view: after disposal nothing would ever release a new registration.
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (!autoViewsByTexture.TryGetValue(texture, out var textureView))
         {
             textureView = factory.CreateTextureView(texture);
