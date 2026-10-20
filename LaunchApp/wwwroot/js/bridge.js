@@ -1,0 +1,477 @@
+const endpoint = 'http://127.0.0.1:47832';
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+const chunk = 0x8000;
+const b64 = bytes => {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    let binary = '';
+    for (let offset = 0; offset < view.length; offset += chunk)
+        binary += String.fromCharCode(...view.subarray(offset, offset + chunk));
+    return btoa(binary);
+};
+const unb64 = text => {
+    try { return Uint8Array.from(atob(text), c => c.charCodeAt(0)); }
+    catch { throw new Error('Invalid desktop response.'); }
+};
+const digest = text => crypto.subtle.digest('SHA-256', encoder.encode(text));
+let channel;
+let connectGeneration = 0;
+let connectController;
+
+function assertConnectActive(generation, controller) {
+    if (controller.signal.aborted || generation !== connectGeneration)
+        throw new DOMException('Connection attempt cancelled.', 'AbortError');
+}
+
+function asAbort(error) {
+    return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function timeoutFor(action) {
+    if (action === 'confirm' || action === 'browse') return 120000;
+    if (action === 'launch') return 60000;
+    if (action === 'disconnect') return 2000;
+    return 15000;
+}
+
+function deadlineSignal(timeout) {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
+        return { signal: AbortSignal.timeout(timeout), dispose() {} };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    return { signal: controller.signal, dispose() { clearTimeout(timer); } };
+}
+
+function combineSignals(signal, deadline) {
+    if (!signal) return { signal: deadline, dispose() {} };
+    if (!deadline) return { signal, dispose() {} };
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function')
+        return { signal: AbortSignal.any([signal, deadline]), dispose() {} };
+
+    // Older browsers need a real fan-in signal instead of silently dropping the deadline.
+    const controller = new AbortController();
+    const forwardAbort = source => {
+        if (!controller.signal.aborted) controller.abort(source.reason);
+    };
+    const abortFromCaller = () => forwardAbort(signal);
+    const abortFromDeadline = () => forwardAbort(deadline);
+    if (signal.aborted) abortFromCaller();
+    else signal.addEventListener('abort', abortFromCaller, { once: true });
+    if (deadline.aborted) abortFromDeadline();
+    else deadline.addEventListener('abort', abortFromDeadline, { once: true });
+
+    return {
+        signal: controller.signal,
+        dispose() {
+            signal.removeEventListener('abort', abortFromCaller);
+            deadline.removeEventListener('abort', abortFromDeadline);
+        }
+    };
+}
+
+function emptyReply(current) {
+    return current.lastReply ?? {
+        paired: !!current.paired,
+        status: { state: 'ready', message: 'Connected to the desktop launcher.', completed: false, success: false },
+        desktopMode: current.desktopMode || '',
+        canBrowseFolders: !!current.canBrowseFolders,
+        folderPath: null
+    };
+}
+
+function validateReply(reply) {
+    if (!reply || typeof reply !== 'object' || Array.isArray(reply) ||
+        (reply.paired !== undefined && typeof reply.paired !== 'boolean') ||
+        !reply.status || typeof reply.status !== 'object' || Array.isArray(reply.status) ||
+        typeof reply.status.state !== 'string' || reply.status.state.length < 1 || reply.status.state.length > 64 ||
+        typeof reply.status.message !== 'string' || reply.status.message.length > 4096 ||
+        (reply.status.completed !== undefined && typeof reply.status.completed !== 'boolean') ||
+        (reply.status.success !== undefined && typeof reply.status.success !== 'boolean') ||
+        (reply.desktopMode !== undefined && (typeof reply.desktopMode !== 'string' || reply.desktopMode.length > 32)) ||
+        (reply.canBrowseFolders !== undefined && typeof reply.canBrowseFolders !== 'boolean') ||
+        !(reply.folderPath === undefined || reply.folderPath === null ||
+          (typeof reply.folderPath === 'string' && reply.folderPath.length <= 32768))) {
+        throw new Error('The desktop returned an invalid response. Reconnect and retry.');
+    }
+    return {
+        ...reply,
+        paired: reply.paired === true,
+        status: {
+            ...reply.status,
+            completed: reply.status.completed === true,
+            success: reply.status.success === true
+        },
+        desktopMode: typeof reply.desktopMode === 'string' ? reply.desktopMode : '',
+        canBrowseFolders: reply.canBrowseFolders === true,
+        folderPath: reply.folderPath ?? null
+    };
+}
+
+// This cancels browser-side work too; cancelling a .NET JS interop wait alone is insufficient.
+export function cancelConnect() {
+    const controller = connectController;
+    connectController = undefined;
+    connectGeneration++;
+    controller?.abort();
+
+    const current = channel;
+    // Keep a settled paired channel available for disconnect() during component disposal.
+    // In-flight handshakes and unpaired sessions must be invalidated immediately.
+    if (current && (controller !== undefined || !current.paired)) {
+        channel = undefined;
+        current.abort.abort();
+    }
+}
+
+async function database() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open('weblaunch.pairing.v2', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('identity');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(new Error('Browser pairing storage is unavailable.'));
+    });
+}
+async function readIdentity() {
+    const db = await database();
+    try {
+        return await new Promise((resolve, reject) => {
+            const request = db.transaction('identity').objectStore('identity').get('current');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(new Error('Unable to read browser pairing.'));
+        });
+    } finally { db.close(); }
+}
+async function saveIdentity(identity) {
+    const db = await database();
+    try {
+        await new Promise((resolve, reject) => {
+            const transaction = db.transaction('identity', 'readwrite');
+            transaction.objectStore('identity').put(identity, 'current');
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(new Error('Unable to save browser pairing.'));
+            transaction.onabort = () => reject(new Error('Unable to save browser pairing.'));
+        });
+    } finally { db.close(); }
+}
+async function post(path, body, timeout = 15000, signal) {
+    const deadline = deadlineSignal(timeout);
+    const combined = combineSignals(signal, deadline.signal);
+    try {
+        let response;
+        try {
+            response = await fetch(endpoint + path, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body), credentials: 'omit', cache: 'no-store',
+                redirect: 'error', signal: combined.signal
+            });
+        } catch (error) {
+            if (asAbort(error) && signal?.aborted)
+                throw new DOMException('Connection attempt cancelled.', 'AbortError');
+            if (asAbort(error) || error?.name === 'TimeoutError' || deadline.signal.aborted)
+                throw new Error('The desktop launcher timed out. Check that it is still running, then retry.');
+            throw new Error('Cannot connect to WebLaunch. Open or update the desktop launcher, allow local network access, then retry.');
+        }
+
+        if (!response.ok) {
+            if (response.status === 410) throw new Error('Connection expired. Connect again.');
+            if (response.status === 429) throw new Error('Pairing is busy or temporarily locked. Close other pairing requests and retry in five minutes.');
+            if (response.status === 403) throw new Error('Pairing was declined or expired. Connect again and compare both codes.');
+            throw new Error('The desktop launcher rejected this request. Update the launcher and reconnect.');
+        }
+        if (response.status === 204) return null;
+        try {
+            return await response.json();
+        } catch (error) {
+            if (signal?.aborted)
+                throw new DOMException('Connection attempt cancelled.', 'AbortError');
+            if (deadline.signal.aborted || asAbort(error) || error?.name === 'TimeoutError')
+                throw new Error('The desktop launcher timed out. Check that it is still running, then retry.');
+            throw new Error('Invalid desktop response.');
+        }
+    } finally {
+        combined.dispose();
+        deadline.dispose();
+    }
+}
+export async function connect() {
+    // Cancel any previous handshake and invalidate unpaired sessions. Keep an established,
+    // paired channel until the replacement attempt is registered so disposal can cancel the
+    // whole operation, including its old-channel disconnect step.
+    if (connectController) cancelConnect();
+    cancelConnect();
+
+    const generation = connectGeneration;
+    const controller = new AbortController();
+    connectController = controller;
+    const ensureActive = () => assertConnectActive(generation, controller);
+
+    try {
+        ensureActive();
+        if (channel) {
+            // The current channel is invalidated locally by disconnect() before its bounded
+            // best-effort notification. The controller already exists, so component disposal
+            // can abort this attempt and the check below prevents a stale handshake from starting.
+            try { await disconnect(); } catch { /* A failed remote disconnect must not strand reconnect. */ }
+            ensureActive();
+        }
+        if (!crypto.subtle || !globalThis.indexedDB) throw new Error('Secure browser storage and HTTPS are required.');
+        let identity = await readIdentity();
+        ensureActive();
+        if (!identity) {
+            const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+            ensureActive();
+            identity = { privateKey: keys.privateKey, publicKey: keys.publicKey, desktop: null };
+            await saveIdentity(identity);
+            ensureActive();
+        }
+        const ephemeral = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+        ensureActive();
+        const hello = {
+            version: 2,
+            identity: b64(await crypto.subtle.exportKey('spki', identity.publicKey)),
+            ephemeral: b64(await crypto.subtle.exportKey('spki', ephemeral.publicKey)),
+            nonce: b64(crypto.getRandomValues(new Uint8Array(32)))
+        };
+        ensureActive();
+        const clientTranscript = `weblaunch-v2\n${location.origin}\n${hello.identity}\n${hello.ephemeral}\n${hello.nonce}`;
+        hello.signature = b64(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, identity.privateKey, encoder.encode(clientTranscript)));
+        ensureActive();
+        const response = await post('/v2/hello', hello, 15000, controller.signal);
+        ensureActive();
+        if (!response || !/^[a-f0-9]{32}$/.test(response.sessionId) || typeof response.identity !== 'string' || response.identity.length > 256 ||
+            typeof response.ephemeral !== 'string' || response.ephemeral.length > 256 || unb64(response.nonce).length !== 32)
+            throw new Error('Invalid desktop handshake.');
+        if (identity.desktop && identity.desktop !== response.identity)
+            throw new Error('The desktop identity changed. Verify your installation, then forget this browser pairing and pair again.');
+        if (response.knownBrowser && !identity.desktop)
+            throw new Error('Pairing state changed. Forget this browser pairing and pair again.');
+        const transcript = `${clientTranscript}\n${response.identity}\n${response.ephemeral}\n${response.nonce}\n${response.sessionId}`;
+        const desktopKey = await crypto.subtle.importKey('spki', unb64(response.identity), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+        ensureActive();
+        if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, desktopKey, unb64(response.signature), encoder.encode(transcript)))
+            throw new Error('Desktop signature verification failed.');
+        ensureActive();
+        const peer = await crypto.subtle.importKey('spki', unb64(response.ephemeral), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+        const secret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: peer }, ephemeral.privateKey, 256));
+        ensureActive();
+        const salt = new Uint8Array(await digest(transcript));
+        const hkdf = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveKey']);
+        secret.fill(0);
+        const derive = direction => crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode('weblaunch-v2/' + direction) }, hkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        const [sendKey, receiveKey] = await Promise.all([derive('client'), derive('desktop')]);
+        ensureActive();
+        const code = (new DataView(salt.buffer, salt.byteOffset, 4).getUint32(0) % 1000000).toString().padStart(6, '0');
+        channel = { id: response.sessionId, identity, desktop: response.identity, code, hash: b64(salt), send: sendKey, receive: receiveKey, sent: 0, received: 0, paired: false, abort: new AbortController(), pending: Promise.resolve(), coalescedStatus: undefined, coalescedStatusRequestId: undefined, queuedStatusTicket: undefined, connectGeneration: generation };
+        if (response.knownBrowser) await confirmPairing();
+        ensureActive();
+        if (!channel || channel.connectGeneration !== generation)
+            throw new DOMException('Connection attempt cancelled.', 'AbortError');
+        return { paired: channel.paired, code: channel.paired ? '' : code, desktopMode: channel.desktopMode || '', canBrowseFolders: !!channel.canBrowseFolders };
+    } finally {
+        if (connectController === controller) connectController = undefined;
+    }
+}
+function nonce(sequence) {
+    const bytes = new Uint8Array(12);
+    new DataView(bytes.buffer).setBigUint64(4, BigInt(sequence));
+    return bytes;
+}
+async function exchange(current, command, signal = current.abort.signal) {
+    signal.throwIfAborted();
+    const sequence = ++current.sent;
+    const plaintext = encoder.encode(JSON.stringify(command));
+    let encrypted;
+    try {
+        encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce(sequence), additionalData: encoder.encode(`${current.hash}\nclient\n${sequence}`), tagLength: 128 }, current.send, plaintext);
+    } finally { plaintext.fill(0); }
+    try {
+        signal.throwIfAborted();
+        const response = await post('/v2/session/' + current.id, { sequence, ciphertext: b64(encrypted) }, timeoutFor(command.action), signal);
+        if (!response || response.sequence !== current.received + 1 || typeof response.ciphertext !== 'string' || response.ciphertext.length > 60000)
+            throw new Error('Invalid desktop response.');
+        const bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce(response.sequence), additionalData: encoder.encode(`${current.hash}\ndesktop\n${response.sequence}`), tagLength: 128 }, current.receive, unb64(response.ciphertext)));
+        try {
+            current.received = response.sequence;
+            const parsed = validateReply(JSON.parse(decoder.decode(bytes)));
+            current.lastReply = parsed;
+            return parsed;
+        }
+        finally { bytes.fill(0); }
+    } catch (error) {
+        if (channel === current) channel = undefined;
+        // A failed exchange makes the sequence state untrustworthy. Abort the old channel
+        // so commands already queued behind this request cannot run against a dead session.
+        current.abort.abort();
+        throw error;
+    }
+}
+function send(command) {
+    const current = channel;
+    if (!current) return Promise.reject(new Error('Connect to the desktop launcher first.'));
+
+    const statusRequestId = command.action === 'status' && typeof command.requestId === 'string'
+        ? command.requestId : '';
+    if (command.action === 'status' && current.coalescedStatus &&
+        current.coalescedStatusRequestId === statusRequestId)
+        return current.coalescedStatus;
+
+    const ticket = { skip: false };
+    if (command.action === 'status') current.queuedStatusTicket = ticket;
+    else if (current.queuedStatusTicket) current.queuedStatusTicket.skip = true;
+
+    const result = current.pending.then(() => {
+        current.abort.signal.throwIfAborted();
+        if (channel !== current) throw new DOMException('Desktop session was replaced.', 'AbortError');
+        if (ticket.skip) return emptyReply(current);
+        return exchange(current, command);
+    });
+
+    if (command.action === 'status') {
+        // Compare against the promise we actually publish, not the original promise.
+        // Otherwise coalescedStatus is never cleared and every later poll sees stale data.
+        let tracked;
+        tracked = result.finally(() => {
+            if (current.coalescedStatus === tracked) {
+                current.coalescedStatus = undefined;
+                current.coalescedStatusRequestId = undefined;
+            }
+            if (current.queuedStatusTicket === ticket) current.queuedStatusTicket = undefined;
+        });
+        current.coalescedStatus = tracked;
+        current.coalescedStatusRequestId = statusRequestId;
+    } else {
+        current.coalescedStatus = undefined;
+        current.coalescedStatusRequestId = undefined;
+        if (current.queuedStatusTicket === ticket) current.queuedStatusTicket = undefined;
+    }
+    current.pending = result.catch(() => {});
+    return result;
+}
+export async function confirmPairing() {
+    const current = channel;
+    if (!current) throw new Error('Connect again to pair.');
+    const reply = await send({ action: 'confirm', code: current.code });
+    current.abort.signal.throwIfAborted();
+    if (!reply.paired) throw new Error('Pairing was not confirmed.');
+    current.identity.desktop = current.desktop;
+    await saveIdentity(current.identity);
+    current.paired = true;
+    current.desktopMode = reply.desktopMode || 'unknown';
+    current.canBrowseFolders = !!reply.canBrowseFolders;
+    return reply;
+}
+export async function launch(request) {
+    if (!channel?.paired) throw new Error('Complete pairing before signing in.');
+    const payload = request && typeof request === 'object' ? { ...request } : {};
+    try { return await send({ action: 'launch', launch: payload }); }
+    finally {
+        payload.password = '';
+        payload.otp = '';
+    }
+}
+export async function browseFolder() {
+    if (!channel?.paired) throw new Error('Pair the desktop launcher before choosing a folder.');
+    return send({ action: 'browse' });
+}
+export const status = (requestId = '') => send({ action: 'status', ...(requestId ? { requestId } : {}) });
+export const cancel = () => channel?.paired ? send({ action: 'cancel' }) : Promise.resolve();
+export async function cancelPendingPairing() {
+    const current = channel;
+    if (!current) return;
+
+    // Revoke locally first and abort an outstanding confirm fetch. Do not try an encrypted
+    // disconnect on the same channel: an aborted request may or may not have consumed its
+    // sequence number on the server. The dedicated origin-checked endpoint expires the session
+    // without touching that sequence and releases the desktop's pending approval wait.
+    channel = undefined;
+    current.abort.abort();
+    try { await current.pending; } catch { /* The in-flight exchange is intentionally aborted. */ }
+    try { await post('/v2/session/' + current.id + '/cancel', { reason: 'pairing-cancelled' }, 2000); }
+    catch { /* Local cancellation is authoritative; the desktop's two-minute pairing expiry remains a fallback. */ }
+}
+
+// Drop a broken/ambiguous channel without telling the host to cancel an accepted launch.
+// The host keeps the operation alive so an authenticated replacement session can inspect it.
+export function abandon() {
+    const current = channel;
+    if (!current) return;
+    channel = undefined;
+    current.abort.abort();
+}
+
+const pendingLaunchStorageKey = 'weblaunch.pendingLaunchId';
+const requestIdPattern = /^[a-f0-9]{32}$/i;
+export function pendingLaunchId(value) {
+    if (value === undefined) {
+        try {
+            const stored = sessionStorage.getItem(pendingLaunchStorageKey);
+            return stored && requestIdPattern.test(stored) ? stored : null;
+        } catch {
+            // Reading optional recovery state must not prevent the rest of the launcher starting.
+            return null;
+        }
+    }
+
+    const normalized = value == null ? '' : String(value);
+    if (normalized && !requestIdPattern.test(normalized))
+        throw new Error('Invalid launch recovery identifier.');
+    try {
+        if (normalized) sessionStorage.setItem(pendingLaunchStorageKey, normalized);
+        else sessionStorage.removeItem(pendingLaunchStorageKey);
+        return normalized || null;
+    } catch {
+        throw new Error('Could not store launch recovery state. Allow session storage before launching.');
+    }
+}
+
+export async function disconnect() {
+    const current = channel;
+    if (!current) return;
+    // Invalidate locally before awaiting network work; an old request must never revive this channel.
+    channel = undefined;
+    current.abort.abort();
+    // The channel is already revoked above; use a separate active signal for best-effort disconnect.
+    const timeout = deadlineSignal(2000);
+    try {
+        await current.pending;
+        await exchange(current, { action: 'disconnect' }, timeout.signal);
+    } finally {
+        timeout.dispose();
+    }
+}
+export async function forget() {
+    try { await disconnect(); } catch { /* Local revocation must work while the desktop is unavailable. */ }
+    const db = await database();
+    try {
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction('identity', 'readwrite');
+            tx.objectStore('identity').delete('current');
+            tx.oncomplete = resolve; tx.onerror = reject;
+        });
+    } finally { db.close(); }
+}
+export function supported() {
+    return /Windows/i.test(navigator.userAgent) && /(?:Chrome|Edg)\//.test(navigator.userAgent) && !!crypto.subtle;
+}
+export function preference(key, value) {
+    const name = 'weblaunch.' + key;
+    try { if (value !== undefined) localStorage.setItem(name, value); return localStorage.getItem(name); }
+    catch { return null; }
+}
+export function applyTheme(value) {
+    const dark = value === 'dark' || (value !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.classList.toggle('dark', dark);
+    document.documentElement.classList.toggle('light', !dark);
+    return dark;
+}
+export function scrollSection(id) { document.getElementById(id)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }
+
+export function focus(id) { document.getElementById(id)?.focus(); }
+
+export async function pairingSaved() { return !!(await readIdentity())?.desktop; }
+export function bootstrapLink(mode) {
+    if (mode !== 'gui' && mode !== 'console') throw new Error('Choose GUI or console mode.');
+    return 'HandleWebRequest:connect?v=2&mode=' + mode;
+}

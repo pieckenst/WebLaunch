@@ -73,7 +73,12 @@ namespace El_Garnan_Plugin_Loader.Base
         /// </summary>
         public string LastError => _lastError;
 
+        /// <summary>
+        /// Legacy mutable notification queue. New producers should use <see cref="INotificationService.ShowNotification"/>
+        /// so enqueue operations participate in the base class synchronization policy.
+        /// </summary>
         public Queue<PluginNotification> NotificationQueue { get; } = new();
+        private readonly object notificationGate = new();
         public virtual bool SupportsImGui => false;
 
         protected Type ImGuiType;
@@ -273,22 +278,24 @@ namespace El_Garnan_Plugin_Loader.Base
 
             RenderNotificationPopup();
 
-            if (NotificationQueue.Count == 0)
+            PluginNotification[] notifications;
+            lock (notificationGate) notifications = NotificationQueue.ToArray();
+            if (notifications.Length == 0)
             {
                 return;
             }
 
-            if (ImGui.Begin($"{Name} Notifications"))
+            if (ImGuiNET.ImGui.Begin($"{Name} Notifications"))
             {
-                foreach (var notification in NotificationQueue.ToArray())
+                foreach (var notification in notifications)
                 {
                     var color = GetNotificationColor(notification.Type);
-                    ImGui.PushStyleColor(ImGuiCol.Text, color);
-                    ImGui.Text($"[{notification.Timestamp:HH:mm:ss}] {notification.Title}: {notification.Message}");
-                    ImGui.PopStyleColor();
+                    ImGuiNET.ImGui.PushStyleColor(ImGuiCol.Text, color);
+                    ImGuiNET.ImGui.Text($"[{notification.Timestamp:HH:mm:ss}] {notification.Title}: {notification.Message}");
+                    ImGuiNET.ImGui.PopStyleColor();
                 }
             }
-            ImGui.End();
+            ImGuiNET.ImGui.End();
         }
 
         void INotificationService.ShowNotification(string title, string message, NotificationType type)
@@ -298,11 +305,10 @@ namespace El_Garnan_Plugin_Loader.Base
 
         private void EnqueueNotification(PluginNotification notification)
         {
-            NotificationQueue.Enqueue(notification);
-
-            if (SupportsImGui)
+            lock (notificationGate)
             {
-                _popupQueued = true;
+                NotificationQueue.Enqueue(notification);
+                if (SupportsImGui) _popupQueued = true;
             }
 
             Logger?.Information($"[{notification.Type}] {notification.Title}: {notification.Message}");
@@ -310,46 +316,62 @@ namespace El_Garnan_Plugin_Loader.Base
 
         private void RenderNotificationPopup()
         {
-            if (NotificationQueue.Count == 0)
+            PluginNotification notification;
+            bool openPopup;
+            lock (notificationGate)
             {
-                _showNotification = true;
-                return;
+                if (NotificationQueue.Count == 0)
+                {
+                    _showNotification = true;
+                    return;
+                }
+
+                notification = NotificationQueue.Peek();
+                openPopup = _popupQueued;
+                if (openPopup)
+                {
+                    _popupQueued = false;
+                    _showNotification = true;
+                }
             }
 
-            var notification = NotificationQueue.Peek();
+            if (openPopup)
+                ImGuiNET.ImGui.OpenPopup(NotificationPopupId);
 
-            if (_popupQueued)
-            {
-                ImGui.OpenPopup(NotificationPopupId);
-                _popupQueued = false;
-                _showNotification = true;
-            }
+            var io = ImGuiNET.ImGui.GetIO();
+            ImGuiNET.ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 300, 10), ImGuiCond.Always);
+            ImGuiNET.ImGui.SetNextWindowSize(new Vector2(280, 0));
 
-            var io = ImGui.GetIO();
-            ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 300, 10), ImGuiCond.Always);
-            ImGui.SetNextWindowSize(new Vector2(280, 0));
-
-            if (ImGui.BeginPopupModal(NotificationPopupId, ref _showNotification, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize))
+            if (ImGuiNET.ImGui.BeginPopupModal(NotificationPopupId, ref _showNotification, ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize))
             {
                 var color = GetNotificationColor(notification.Type);
-                ImGui.PushStyleColor(ImGuiCol.Text, color);
-                ImGui.Text(notification.Title);
-                ImGui.PopStyleColor();
-                ImGui.Text(notification.Message);
+                ImGuiNET.ImGui.PushStyleColor(ImGuiCol.Text, color);
+                ImGuiNET.ImGui.Text(notification.Title);
+                ImGuiNET.ImGui.PopStyleColor();
+                ImGuiNET.ImGui.Text(notification.Message);
 
                 if (!_showNotification)
                 {
-                    NotificationQueue.Dequeue();
-                    ImGui.CloseCurrentPopup();
+                    DequeueNotification();
+                    ImGuiNET.ImGui.CloseCurrentPopup();
                     _showNotification = true;
                 }
 
-                ImGui.EndPopup();
+                ImGuiNET.ImGui.EndPopup();
             }
             else if (!_showNotification)
             {
-                NotificationQueue.Dequeue();
+                DequeueNotification();
                 _showNotification = true;
+            }
+        }
+
+        private void DequeueNotification()
+        {
+            lock (notificationGate)
+            {
+                if (NotificationQueue.Count > 0) NotificationQueue.Dequeue();
+                if (NotificationQueue.Count > 0 && SupportsImGui) _popupQueued = true;
             }
         }
 

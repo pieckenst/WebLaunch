@@ -1,0 +1,1204 @@
+@using WebLaunch.Core
+@inject IJSRuntime JS
+@inject LaunchApp.Services.GameNavigation GameNavigation
+@implements IAsyncDisposable
+
+<section id="launch" class="launch-panel" aria-label="Launch controls">
+    <div class="play-card">
+        <button class="primary play-button" type="button" disabled="@(busy || connecting || manualConnectPending || launchOutcomeAmbiguous)" @onclick="PlayNow">Play now</button>
+        <button class="settings-button" type="button" aria-label="Game settings" title="Game settings" @onclick="OpenGame"><NavigationIcon /></button>
+    </div>
+    <button class="connection-summary" type="button" @onclick="OpenDesktop"><span class="status-dot @(paired ? "connected" : "")"></span>@PairingState</button>
+    <p class="launch-summary" role="status">@(launchAttempted || hasNotice ? message : "")</p>
+    @if (launchOutcomeAmbiguous && launchVerificationReady)
+    {
+        <button class="connection-action" type="button" disabled="@(busy || connecting || manualConnectPending)" @onclick="AcknowledgeLaunchState">
+            I've checked the game state — allow another launch
+        </button>
+    }
+</section>
+<dialog @ref="dialog" class="launcher-dialog" aria-labelledby="settings-title" aria-busy="@busy">
+    <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="settings-title">@(desktopView ? "Desktop connection" : Game == "ffxiv" ? "Login settings" : "Game settings")</h2></div>
+        <button type="button" class="close-dialog" aria-label="Close settings" disabled="@((connecting || manualConnectPending) && pairingCancellation is null)" @onclick="CloseSettings">×</button>
+    </div>
+    <div class="dialog-tabs" aria-label="Settings views">
+        <button type="button" aria-pressed="@(!desktopView)" @onclick="ShowGame">Game settings</button>
+        <button type="button" aria-pressed="@desktopView" @onclick="ShowDesktop">Desktop connection</button>
+    </div>
+    <div hidden="@(!desktopView)" class="connection-view">
+    @if (platformChecked && !supported)
+    {
+        <p role="note">Game launching requires Chrome or Edge on Windows. You can browse this site on any device.</p>
+    }
+    <div class="desktop-options">
+        <label for="desktop-mode">Desktop launcher mode</label>
+        <select id="desktop-mode" @bind="desktopMode" @bind:after="SaveMode" disabled="@(busy || connecting || manualConnectPending)" aria-describedby="desktop-mode-help">
+            <option value="gui">GUI — desktop window</option>
+            <option value="console">Console — terminal pairing</option>
+        </select>
+        <p id="desktop-mode-help">GUI confirms pairing in a window. Console asks you to type the matching code in its terminal. Close the running launcher before changing modes.</p>
+        @if (supported)
+        { <a class="button" href="@bootstrapUrl" @onclick="OpeningDesktop">Open desktop launcher</a> }
+        <a href="https://github.com/pieckenst/WebLaunch/releases/">Download the Windows launcher</a>
+    </div>
+    <p class="pairing-state" role="status" aria-label="Pairing status">@PairingState</p>
+    @if (actualMode.Length > 0)
+    {
+        <p class="desktop-state">Connected desktop mode: <strong>@ModeLabel(actualMode)</strong>.
+            @if (actualMode != desktopMode) { <span>The existing host is still running. Close it and open the selected mode to switch.</span> }
+        </p>
+    }
+    <div class="actions">
+        <button class="connection-action" type="button" @onclick="Connect" disabled="@(busy || connecting || manualConnectPending || !supported)">@if (connecting || manualConnectPending || reconnecting) { <span class="button-spinner" aria-hidden="true"></span> } <span>@(reconnecting ? "Reconnect now" : paired ? "Reconnect" : "Connect")</span></button>
+        <button type="button" @onclick="Forget" disabled="@(busy || connecting || manualConnectPending)">Forget this browser pairing</button>
+    </div>
+    @if (pairingCode.Length > 0)
+    {
+        <div class="pairing" role="group" aria-label="Confirm pairing">
+            <p>Compare this code with the desktop launcher. Confirm in both windows only if they match.</p>
+            <strong class="pairing-code">@pairingCode</strong>
+            <div class="actions"><button id="pairing-confirm" type="button" @onclick="Confirm" disabled="@(connecting || manualConnectPending)">The codes match</button><button type="button" @onclick="CancelPairing" disabled="@(pairingCancellation?.IsCancellationRequested == true)">Cancel pairing</button></div>
+        </div>
+    }
+    </div>
+    <div hidden="@desktopView" class="game-settings-view">
+        @if (!paired)
+        { <p class="connection-notice">Connect your desktop launcher before playing. <button type="button" class="inline-action" @onclick="ShowDesktop">Set up connection</button></p> }
+    <form @onsubmit="Launch" @onsubmit:preventDefault>
+        <fieldset disabled="@(busy || connecting || manualConnectPending)">
+
+            <label for="game-path">Installation folder</label>
+            <div class="path-control"><input id="game-path" @bind="path" required maxlength="1024" placeholder="C:\Games\..." aria-describedby="path-help" /><button type="button" @onclick="BrowseFolder" disabled="@(!paired || !canBrowseFolders || connecting || manualConnectPending)">Browse on desktop</button></div>
+            <small>Browsers cannot reveal an absolute Windows folder path. Browse through your paired desktop launcher, or enter the full path.</small>
+            <small id="path-help">@(Game == "ffxiv" ? "Choose the folder containing the boot and game directories." : "Choose the folder where Spellborn is installed, or a writable folder for installation.")</small>
+            @if (Game == "ffxiv")
+            {
+                <label for="username">Username</label><input id="username" @bind="username" required maxlength="256" autocomplete="username" />
+                <label for="password">Password</label><input id="password" type="password" @bind="password" @bind:event="oninput" required maxlength="1024" autocomplete="current-password" />
+                <label for="otp">One-time password (optional)</label><input id="otp" @bind="otp" @bind:event="oninput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
+                <label class="check"><input type="checkbox" @bind="steam" /> I own the game on Steam</label>
+            }
+            <div class="dialog-actions"><button type="button" @onclick="CloseSettings">Cancel</button><button class="primary launch-submit" type="submit" disabled="@(!paired || busy)">@if (busy) { <span class="button-spinner" aria-hidden="true"></span> } <span>@(busy ? "Launching…" : "Launch game")</span></button></div>
+        </fieldset>
+    </form>
+    </div>
+    @if (busy) { <div class="launch-progress" role="status"><span class="loader-spinner" aria-hidden="true"></span><span>Working with your desktop launcher…</span></div><button type="button" @onclick="Cancel">Cancel launch</button> }
+    <p id="launch-status" tabindex="-1" class="launch-status" role="status" aria-live="polite" aria-atomic="true">@message</p>
+</dialog>
+
+@if (needsCredentials)
+{
+    <dialog @ref="credentialDialog" class="launcher-dialog credential-dialog" aria-labelledby="credential-title" aria-busy="@busy">
+        <div class="dialog-heading"><div><p class="dialog-game">@Title</p><h2 id="credential-title">Sign in to launch</h2></div>
+            <button type="button" class="close-dialog" aria-label="Close sign in" disabled="@busy" @onclick="CloseCredentialPrompt">×</button>
+        </div>
+        <p class="credential-intro">Enter the sign-in details needed to start @Title. They are kept only in this tab and cleared after a confirmed launch.</p>
+        <form @onsubmit="SubmitCredentials" @onsubmit:preventDefault>
+            <fieldset disabled="@busy">
+                @if (missingUsername)
+                {
+                    <label for="credential-username">Username</label><input id="credential-username" @bind="username" required maxlength="256" autocomplete="username" />
+                }
+                <label for="credential-password">Password</label><input id="credential-password" type="password" @bind="password" @bind:event="oninput" required maxlength="1024" autocomplete="current-password" />
+                <label for="credential-otp">One-time password (optional)</label><input id="credential-otp" @bind="otp" @bind:event="oninput" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" />
+                <div class="dialog-actions"><button type="button" @onclick="OpenSettingsFromCredentialPrompt">Game settings</button><button type="button" @onclick="CloseCredentialPrompt">Cancel</button><button class="primary launch-submit" type="submit">@if (busy) { <span class="button-spinner" aria-hidden="true"></span> } <span>Launch game</span></button></div>
+            </fieldset>
+        </form>
+        @if (busy)
+        {
+            <div class="launch-progress" role="status"><span class="loader-spinner" aria-hidden="true"></span><span>Working with your desktop launcher…</span></div>
+            <button type="button" class="connection-action" @onclick="Cancel">Cancel launch</button>
+        }
+    </dialog>
+}
+
+@code {
+    [Parameter] public string Game { get; set; } = "ffxiv";
+    [Parameter] public string Title { get; set; } = "";
+    private IJSObjectReference? module, dialogModule;
+    private IDisposable? pageActionRegistration;
+    private ElementReference dialog, credentialDialog;
+    private DotNetObjectReference<LaunchPanel>? dialogReference, credentialDialogReference;
+    private bool desktopView, launchAttempted, canBrowseFolders, hasNotice, launchCancellationConfirmed, reconnecting, pairingCancelRequested, launchOutcomeAmbiguous, launchVerificationReady;
+    private string? launchOutcomeWarning;
+    private string pendingLaunchRequestId = "";
+    // Remembers why Play now diverted to a credential prompt instead of launching immediately.
+    private bool needsCredentials, missingUsername, successConfirmed;
+    private LaunchStatus? terminalStatus;
+    private Task? credentialPrompt;
+    private TaskCompletionSource? credentialPromptRendered;
+
+    // Play now is the frictionless path: launch immediately whenever the session already holds
+    // everything the request needs. Settings remain the place where missing details are entered.
+    private Task PlayNow()
+    {
+        if (busy || connecting || manualConnectPending) return Task.CompletedTask;
+        if (!supported) return OpenGame();
+
+        try { LaunchRequest.ValidateGamePath(path); }
+        catch (ArgumentException)
+        {
+            message = "Choose the installation folder before launching.";
+            hasNotice = true;
+            return OpenGame();
+        }
+
+        if (!paired) return OpenDesktop();
+        if (CredentialsComplete()) return Launch();
+
+        missingUsername = Game == "ffxiv" && username.Trim().Length == 0;
+        password = "";
+        otp = "";
+        return OpenCredentialPrompt();
+    }
+
+    // In-memory sign-in details satisfy the request until a launch is confirmed successful.
+    // They are never written to browser storage or a URL, so they do not outlive the tab.
+    private bool CredentialsComplete() =>
+        Game != "ffxiv" || (username.Trim().Length > 0 && password.Length > 0);
+
+    private async Task OpenCredentialPrompt()
+    {
+        if (needsCredentials) return;
+        var rendered = credentialPromptRendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        needsCredentials = true;
+        // The prompt lives in a conditional block, so the <dialog> element does not exist until
+        // the render completes. Wait for OnAfterRender before using its ElementReference.
+        await InvokeAsync(StateHasChanged);
+        try { await rendered.Task; }
+        catch (OperationCanceledException) { return; }
+        try
+        {
+            dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
+            credentialDialogReference ??= DotNetObjectReference.Create(this);
+            await dialogModule.InvokeVoidAsync("open", credentialDialog, credentialDialogReference, "CloseCredentialPrompt");
+            focusTarget = missingUsername ? "credential-username" : "credential-password";
+        }
+        catch (JSException ex)
+        {
+            // Without a prompt there is nowhere to type credentials, so fall back to settings.
+            needsCredentials = false;
+            credentialPromptRendered = null;
+            password = otp = "";
+            CloseCredentialPromptReference();
+            Report("open-credential-prompt", ex, "Could not open the sign-in prompt. Enter your details in game settings.");
+            await OpenGame();
+        }
+    }
+
+    [JSInvokable] public async Task CloseCredentialPrompt()
+    {
+        // Escape must not hide the only available cancellation control during an active launch.
+        if (busy) return;
+
+        // A dismissed prompt clears the prompt's own inputs, matching the settings dialog's
+        // dismissal behaviour, while the submitted request keeps its in-memory copies until a
+        // launch is confirmed successful.
+        needsCredentials = false;
+        password = otp = "";
+        CloseCredentialPromptReference();
+        if (credentialPrompt is not null) await ObserveDisposalTask(credentialPrompt, "credential prompt");
+        credentialPrompt = null;
+        if (dialogModule is not null)
+        {
+            try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+            catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseCredentialPromptReference()
+    {
+        credentialDialogReference?.Dispose();
+        credentialDialogReference = null;
+    }
+
+    private async Task OpenSettingsFromCredentialPrompt()
+    {
+        needsCredentials = false;
+        password = otp = "";
+        CloseCredentialPromptReference();
+        if (dialogModule is not null)
+        {
+            try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+            catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
+        }
+        await OpenGame();
+    }
+
+    private Task SubmitCredentials() => credentialPrompt = LaunchCredentialsCore();
+    private async Task LaunchCredentialsCore()
+    {
+        try { await Launch(); }
+        finally
+        {
+            // Always dismiss the sign-in modal after a terminal outcome. LaunchCore owns
+            // credential retention: failures/cancellation keep inputs for retry; confirmed
+            // success clears the secrets.
+            needsCredentials = false;
+            CloseCredentialPromptReference();
+            if (dialogModule is not null)
+            {
+                try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+                catch (JSException ex) { Report("close-credential-prompt", ex, "Could not close the sign-in prompt. Reload the page to reset the launcher."); }
+            }
+            credentialPrompt = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private Task OpenGame() => OpenSettings(false);
+    private Task OpenDesktop() => OpenSettings(true);
+    private async Task OpenSettings(bool desktop)
+    {
+        try
+        {
+        desktopView = desktop;
+        var target = desktop ? "desktop-mode" : "game-path";
+        focusTarget = target;
+        // Refresh this panel so the navbar's Launch game button - which reaches us through a plain
+        // Func<Task> that only re-renders the layout - actually applies desktopView and the focus
+        // target instead of reopening with whatever view the previous interaction left behind.
+        // OnAfterRender may consume focusTarget during this render, before showModal() runs, so
+        // apply the initial focus again after the native dialog is open.
+        await InvokeAsync(StateHasChanged);
+        dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/dialog.js");
+        dialogReference ??= DotNetObjectReference.Create(this);
+        await dialogModule.InvokeVoidAsync("open", dialog, dialogReference);
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("focus", target); }
+            catch (JSException ex) { Report("focus", ex, "Could not focus the control. Select it manually or reload the page."); }
+        }
+        }
+        catch (JSException ex) { Report("open-settings", ex, "Could not open settings. Reload the page and try again."); }
+    }
+    private void ShowGame() { desktopView = false; focusTarget = "game-path"; }
+    private void ShowDesktop() { desktopView = true; focusTarget = "desktop-mode"; }
+    [JSInvokable] public async Task CloseSettings()
+    {
+        if ((connecting || manualConnectPending) && pairingCancellation is null) return;
+        // Dismissal must not discard sign-in details the user already entered. They are cleared
+        // only once a launch is confirmed successful, when the desktop forgets this session.
+        if (pairingCode.Length > 0) await CancelPairing();
+        if (dialogModule is not null) { try { await dialogModule.InvokeVoidAsync("close", dialog); } catch (JSException ex) { Report("close-settings", ex, "Could not close settings. Reload the page to reset the launcher."); } }
+        await InvokeAsync(StateHasChanged);
+    }
+    private readonly CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? pairingCancellation, launchCancellation, recoveryCancellation;
+    private Task? confirmation, recoveryTask;
+    private string path = "", username = "", password = "", otp = "", pairingCode = "";
+    private string message = "Open the desktop launcher, then choose Connect.";
+    private bool steam, paired, savedPairing, busy, connecting, supported, platformChecked;
+    private bool manualConnectPending;
+    private string desktopMode = "gui", actualMode = "", bootstrapUrl = "HandleWebRequest:connect?v=2&mode=gui";
+    private string PairingState => manualConnectPending ? (savedPairing ? "Pairing saved · reconnecting" : "Connecting · not paired") : paired ? "Paired · connected" : reconnecting ? "Pairing saved · reconnecting" : pairingCode.Length > 0 ? "Pairing · waiting for confirmation" : savedPairing ? "Pairing saved · disconnected" : "Not paired · disconnected";
+    private static string ModeLabel(string mode) => mode switch { "gui" => "GUI", "console" => "Console", "quiet" => "Quiet console", _ => "Unknown — update your launcher" };
+    private Task? launch, connectionMonitor, connectTask;
+    // Invalidates a status failure that belongs to a connection replaced by a manual reconnect.
+    private long connectionGeneration;
+    private DateTimeOffset pairingExpires;
+    private string? focusTarget;
+    private sealed record Connection(bool Paired, string Code, string DesktopMode, bool CanBrowseFolders);
+    private sealed record Reply(bool Paired, LaunchStatus Status, string DesktopMode, bool CanBrowseFolders, string? FolderPath);
+    protected override void OnInitialized()
+    {
+        pageActionRegistration = GameNavigation.RegisterPageAction("Launch game", OpenGame);
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (needsCredentials && credentialPromptRendered is { } promptRendered)
+        {
+            credentialPromptRendered = null;
+            promptRendered.TrySetResult();
+        }
+        if (!firstRender)
+        {
+            if (focusTarget is { } target && module is not null && !manualConnectPending)
+            { focusTarget = null; try { await module.InvokeVoidAsync("focus", target); } catch (JSException ex) { Report("focus", ex, "Could not focus the control. Select it manually or reload the page."); } }
+            return;
+        }
+        try
+        {
+        module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/bridge.js");
+        supported = await module.InvokeAsync<bool>("supported"); platformChecked = true;
+        path = await module.InvokeAsync<string?>("preference", Game + ".path") ?? "";
+        desktopMode = await module.InvokeAsync<string?>("preference", "desktopMode") == "console" ? "console" : "gui";
+        bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode);
+        pendingLaunchRequestId = await module.InvokeAsync<string?>("pendingLaunchId") ?? "";
+        if (pendingLaunchRequestId.Length > 0)
+        {
+            launchOutcomeAmbiguous = true;
+            launchOutcomeWarning = "A previous launch response was interrupted. The game may still be starting; verify its state before submitting another launch.";
+            message = launchOutcomeWarning;
+            hasNotice = true;
+        }
+        try { savedPairing = await module.InvokeAsync<bool>("pairingSaved"); }
+        catch (JSException) { message = "Pairing storage is unavailable. Allow site storage before connecting."; }
+        connectionMonitor = MonitorConnection();
+        if (launchOutcomeAmbiguous && savedPairing)
+            _ = StartAutomaticRecoveryAsync();
+        }
+        catch (JSException ex) { Report("initialize", ex, "Could not initialize the launcher. Reload the page; check that browser storage and scripts are allowed."); }
+        StateHasChanged();
+    }
+    private async Task MonitorConnection()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+            {
+                if (connecting || manualConnectPending || busy || module is null) continue;
+
+                if (pairingCode.Length > 0 && DateTimeOffset.UtcNow >= pairingExpires)
+                {
+                    pairingCode = "";
+                    message = "Pairing expired. Connect again to compare a new code.";
+                    try { await module.InvokeVoidAsync("disconnect", lifetime.Token); }
+                    catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
+                    catch (JSException ex)
+                    {
+                        paired = false;
+                        actualMode = "";
+                        canBrowseFolders = false;
+                        message = "The pairing expired and the desktop could not be reached. Connect again to compare a new code.";
+                        BrowserDiagnostics.Report("pairing expiry disconnect", ex);
+                    }
+                    await RefreshConnectionStateAsync();
+                }
+
+                if (!paired) continue;
+                var observedConnectionGeneration = Interlocked.Read(ref connectionGeneration);
+                try
+                {
+                    await module.InvokeAsync<Reply>("status", lifetime.Token);
+                }
+                catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { throw; }
+                catch (JSException ex)
+                {
+                    // A manual reconnect may intentionally invalidate the status exchange. Its
+                    // failed response belongs to the replaced channel and must not clear the new
+                    // connection or start a competing automatic handshake.
+                    if (observedConnectionGeneration != Interlocked.Read(ref connectionGeneration))
+                        continue;
+
+                    // A launch can begin after the monitor starts its status request. In that
+                    // race, the launch path owns the result and reconnect decision; monitor recovery
+                    // must not install a new channel while launch submission/polling is in flight.
+                    if (busy)
+                        continue;
+
+                    // A failed encrypted exchange revokes its JavaScript channel. Never keep
+                    // launch/browse enabled while recovering or retry status against that channel.
+                    BrowserDiagnostics.Report("connection status", ex);
+                    paired = false;
+                    actualMode = "";
+                    canBrowseFolders = false;
+                    hasNotice = true;
+                    message = savedPairing
+                        ? "The secure desktop session was interrupted. Re-establishing the connection…"
+                        : "The desktop connection was interrupted. Connect again before launching.";
+                    await RefreshConnectionStateAsync();
+
+                    // State refresh yields to the renderer. Re-check the generation after that
+                    // await so a manual reconnect started during the yield owns the next handshake.
+                    if (savedPairing &&
+                        observedConnectionGeneration == Interlocked.Read(ref connectionGeneration))
+                        await StartAutomaticRecoveryAsync();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (JSException ex)
+        {
+            if (!lifetime.IsCancellationRequested)
+                BrowserDiagnostics.Report("connection monitor", ex);
+        }
+    }
+
+    private Task StartAutomaticRecoveryAsync()
+    {
+        if (recoveryTask is { IsCompleted: false }) return recoveryTask;
+        if (busy || manualConnectPending || !savedPairing || module is null || lifetime.IsCancellationRequested)
+            return Task.CompletedTask;
+
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        recoveryCancellation = cancellation;
+        reconnecting = true;
+        recoveryTask = RunAutomaticRecoveryAsync(cancellation);
+        return recoveryTask;
+    }
+
+    private async Task RunAutomaticRecoveryAsync(CancellationTokenSource recovery)
+    {
+        // Make sure StartAutomaticRecoveryAsync has published recoveryTask before any
+        // completion path can run, so manual reconnect/disposal can reliably await it.
+        await Task.Yield();
+        var token = recovery.Token;
+        var failures = 0;
+        string? previousFailure = null;
+        try
+        {
+            while (!token.IsCancellationRequested && savedPairing && module is not null)
+            {
+                if (failures > 0)
+                {
+                    var delay = RecoveryDelay(failures, previousFailure);
+                    var retryMessage = $"The desktop connection is unavailable. Retrying automatically in {delay.TotalSeconds:0} seconds. Select Reconnect now to retry immediately.";
+                    message = launchOutcomeAmbiguous
+                        ? $"{launchOutcomeWarning ?? "The previous launch outcome is unknown."} Retrying the secure desktop connection in {delay.TotalSeconds:0} seconds. Verify the game state before retrying."
+                        : retryMessage;
+                    hasNotice = true;
+                    await RefreshConnectionStateAsync();
+                    await Task.Delay(delay, token);
+                }
+
+                token.ThrowIfCancellationRequested();
+                connecting = true;
+                message = launchOutcomeAmbiguous
+                    ? $"{launchOutcomeWarning ?? "The previous launch outcome is unknown."} Re-establishing the secure desktop connection…"
+                    : failures == 0
+                        ? "The secure desktop session was interrupted. Reconnecting automatically…"
+                        : "Retrying the secure desktop connection…";
+                hasNotice = true;
+                await RefreshConnectionStateAsync();
+
+                try
+                {
+                    var recovered = await module.InvokeAsync<Connection>("connect", token);
+                    token.ThrowIfCancellationRequested();
+                    paired = recovered.Paired;
+                    pairingCode = recovered.Code;
+                    actualMode = recovered.DesktopMode;
+                    canBrowseFolders = recovered.Paired && recovered.CanBrowseFolders;
+
+                    if (recovered.Paired)
+                    {
+                        savedPairing = true;
+                        if (launchOutcomeAmbiguous)
+                        {
+                            // A new encrypted session is not proof that the previous launch stopped.
+                            // Query the host's request-ID history and keep launching disabled until
+                            // the user has checked the real game state.
+                            await RecoverInterruptedLaunchAsync(token);
+                        }
+                        else
+                        {
+                            message = "The desktop connection is restored.";
+                            hasNotice = true;
+                        }
+                        return;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(recovered.Code))
+                    {
+                        // A lost trust record must require fresh human confirmation. Never turn
+                        // a newly generated pairing code into an automatic trust decision.
+                        desktopView = true;
+                        pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
+                        message = "The desktop no longer recognizes this browser pairing. Compare the new codes and confirm in both windows.";
+                        hasNotice = true;
+                        await OpenSettings(true);
+                        focusTarget = "pairing-confirm";
+                        return;
+                    }
+
+                    paired = false;
+                    actualMode = "";
+                    canBrowseFolders = false;
+                    message = "The desktop did not confirm a secure session. Connect again before launching.";
+                    hasNotice = true;
+                    return;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+                catch (JSException ex)
+                {
+                    paired = false;
+                    actualMode = "";
+                    canBrowseFolders = false;
+                    pairingCode = "";
+                    if (IsUnsafeToRetryConnection(ex))
+                    {
+                        message = UserMessage(ex) + " Automatic reconnection stopped for safety. Review the pairing before trying again.";
+                        hasNotice = true;
+                        BrowserDiagnostics.Report("connection recovery stopped", ex);
+                        return;
+                    }
+
+                    previousFailure = UserMessage(ex);
+                    failures++;
+                    if (failures == 1 || failures % 4 == 0)
+                        BrowserDiagnostics.Report("connection recovery", ex);
+                }
+                finally
+                {
+                    connecting = false;
+                    await RefreshConnectionStateAsync();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            message = "Automatic reconnection stopped after an unexpected error. Connect again before launching.";
+            hasNotice = true;
+            BrowserDiagnostics.Report("connection recovery", ex);
+        }
+        finally
+        {
+            connecting = false;
+            reconnecting = false;
+            if (ReferenceEquals(recoveryCancellation, recovery))
+                recoveryCancellation = null;
+            recovery.Dispose();
+            await RefreshConnectionStateAsync();
+        }
+    }
+
+    private async Task RecoverInterruptedLaunchAsync(CancellationToken token)
+    {
+        var requestId = pendingLaunchRequestId;
+        if (module is null || requestId.Length == 0)
+        {
+            launchVerificationReady = true;
+            message = $"{launchOutcomeWarning} The desktop connection is restored, but the original launch identifier is unavailable. Verify the game state before another launch.";
+            hasNotice = true;
+            await RefreshConnectionStateAsync();
+            return;
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        LaunchStatus? lastStatus = null;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        do
+        {
+            token.ThrowIfCancellationRequested();
+            var reply = await module.InvokeAsync<Reply>("status", token, requestId);
+            lastStatus = reply.Status;
+
+            if (string.Equals(lastStatus.State, "unknown", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(lastStatus.State, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                launchVerificationReady = true;
+                message = $"{launchOutcomeWarning} Desktop connection restored, but the handler cannot confirm the original launch status. Verify the game state before submitting another launch.";
+                hasNotice = true;
+                await RefreshConnectionStateAsync();
+                return;
+            }
+
+            if (lastStatus.Completed)
+            {
+                launchVerificationReady = true;
+                message = lastStatus.Success
+                    ? "The desktop confirms that the game process started. Verify its current state before submitting another launch."
+                    : $"The desktop reports a terminal launch state: {lastStatus.Message} Verify the game state before submitting another launch.";
+                hasNotice = true;
+                await RefreshConnectionStateAsync();
+                return;
+            }
+
+            message = $"{lastStatus.Message} The desktop is still tracking the previous launch. Do not submit another launch until you verify its state.";
+            hasNotice = true;
+            await RefreshConnectionStateAsync();
+            if (DateTimeOffset.UtcNow >= deadline) break;
+        }
+        while (await timer.WaitForNextTickAsync(token));
+
+        launchVerificationReady = true;
+        message = $"{lastStatus?.Message ?? launchOutcomeWarning ?? "The previous launch outcome is unknown."} The desktop connection is restored. Verify the game state before submitting another launch.";
+        hasNotice = true;
+        await RefreshConnectionStateAsync();
+    }
+
+    private static TimeSpan RecoveryDelay(int failureCount, string? previousFailure)
+    {
+        // Respect the bridge's explicit pairing/rate-limit guidance rather than hammering
+        // the loopback host every 30 seconds while its five-minute admission lock is active.
+        if (previousFailure?.Contains("temporarily locked", StringComparison.OrdinalIgnoreCase) == true
+            || previousFailure?.Contains("retry in five minutes", StringComparison.OrdinalIgnoreCase) == true)
+            return TimeSpan.FromMinutes(5);
+
+        var seconds = failureCount >= 6 ? 30 : 1 << Math.Max(0, failureCount - 1);
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static bool IsUnsafeToRetryConnection(JSException exception)
+    {
+        var message = UserMessage(exception);
+        return message.Contains("desktop identity changed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("pairing state changed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("signature verification failed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid desktop handshake", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("secure browser storage", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("browser pairing storage is unavailable", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unable to read browser pairing", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("unable to save browser pairing", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("desktop launcher rejected this request", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("pairing was declined or expired", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid desktop response", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task CancelAutomaticRecoveryAsync()
+    {
+        var cancellation = recoveryCancellation;
+        if (cancellation is null) return;
+
+        try { await cancellation.CancelAsync(); }
+        catch (ObjectDisposedException) { }
+
+        // Cancel the actual JavaScript handshake as well as the .NET interop wait. Otherwise
+        // a late /v2/hello response could install a channel after the component stopped waiting.
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("cancelConnect"); }
+            catch (JSException ex) { BrowserDiagnostics.Report("cancel connection recovery", ex); }
+        }
+
+        var running = recoveryTask;
+        if (running is not null)
+            await ObserveDisposalTask(running, "connection recovery");
+    }
+
+    private async Task RefreshConnectionStateAsync()
+    {
+        if (lifetime.IsCancellationRequested) return;
+        try { await InvokeAsync(StateHasChanged); }
+        catch (Exception) when (lifetime.IsCancellationRequested) { }
+    }
+
+    private async Task SaveMode()
+    {
+        if (module is null) return;
+        try { await module.InvokeAsync<string?>("preference", "desktopMode", desktopMode);
+        bootstrapUrl = await module.InvokeAsync<string>("bootstrapLink", desktopMode); }
+        catch (JSException ex) { Report("desktop-mode", ex, "Could not change desktop mode. Reload the page and retry."); }
+    }
+    private void OpeningDesktop() => message = "Approve opening the desktop launcher in your browser, then choose Connect. If nothing opens, install or repair the desktop launcher.";
+    private Task Connect()
+    {
+        if (connectTask is { IsCompleted: false }) return connectTask;
+        var task = ConnectCoreAsync();
+        connectTask = task;
+        return task;
+    }
+
+    private async Task ConnectCoreAsync()
+    {
+        if (module is null || busy || connecting || manualConnectPending) return;
+
+        // Publish manual intent before any awaited cancellation work. A status request already in
+        // flight can fail because connect() replaces its JS channel; stale failure handling must
+        // not start competing automatic recovery or overwrite this explicit reconnect.
+        Interlocked.Increment(ref connectionGeneration);
+        var retrySavedPairing = false;
+        manualConnectPending = true;
+        message = savedPairing ? "Reconnecting to the desktop launcher…" : "Connecting to the desktop launcher…";
+        hasNotice = true;
+        try
+        {
+            await RefreshConnectionStateAsync();
+            await Task.Yield(); // Let the disabled button/state render before cancelling old work.
+            await CancelAutomaticRecoveryAsync();
+            if (module is null || lifetime.IsCancellationRequested) return;
+
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            connecting = true;
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            pairingCode = "";
+            message = "Connecting to the desktop launcher…";
+            hasNotice = true;
+            try
+            {
+                var result = await module.InvokeAsync<Connection>("connect", cancellation.Token);
+                paired = result.Paired;
+                pairingCode = result.Code;
+                actualMode = result.DesktopMode;
+                canBrowseFolders = result.Paired && result.CanBrowseFolders;
+                if (paired) savedPairing = true;
+                pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
+                focusTarget = paired ? "launch-status" : "pairing-confirm";
+                message = paired ? "Connected. Enter your game settings." : "Confirm the matching code in both windows.";
+                if (paired && launchOutcomeAmbiguous)
+                    await RecoverInterruptedLaunchAsync(cancellation.Token);
+            }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            catch (OperationCanceledException)
+            {
+                paired = false;
+                actualMode = "";
+                canBrowseFolders = false;
+                message = "The connection attempt was cancelled. Connect again before launching.";
+            }
+            catch (JSException ex)
+            {
+                BrowserDiagnostics.Report("bridge", ex);
+                paired = false;
+                pairingCode = "";
+                actualMode = "";
+                canBrowseFolders = false;
+                message = UserMessage(ex);
+                focusTarget = "launch-status";
+                retrySavedPairing = savedPairing && !IsUnsafeToRetryConnection(ex);
+            }
+            finally
+            {
+                connecting = false;
+                await RefreshConnectionStateAsync();
+            }
+
+        }
+        finally
+        {
+            manualConnectPending = false;
+            await RefreshConnectionStateAsync();
+        }
+
+        if (retrySavedPairing && !lifetime.IsCancellationRequested)
+            _ = StartAutomaticRecoveryAsync();
+    }
+
+    private Task Confirm() => confirmation = ConfirmPairing();
+    private async Task ConfirmPairing()
+    {
+        if (connecting || manualConnectPending || module is null) return;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        cancellation.CancelAfter(TimeSpan.FromMinutes(2));
+        pairingCancellation = cancellation;
+        pairingCancelRequested = false;
+        connecting = true;
+        try
+        {
+            var result = await module.InvokeAsync<Reply>("confirmPairing", cancellation.Token);
+            paired = result.Paired;
+            savedPairing = paired;
+            actualMode = result.DesktopMode;
+            canBrowseFolders = result.CanBrowseFolders;
+            pairingCode = "";
+            message = "Paired. Enter your game settings.";
+            focusTarget = "launch-status";
+            if (paired && launchOutcomeAmbiguous)
+                await RecoverInterruptedLaunchAsync(cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!pairingCancelRequested)
+            {
+                await CancelPendingBridgePairingAsync();
+                await DisconnectPairing();
+                message = "Pairing expired. Connect again to compare a new code.";
+                focusTarget = "launch-status";
+            }
+        }
+        catch (JSException ex)
+        {
+            if (!pairingCancelRequested)
+            {
+                BrowserDiagnostics.Report("bridge", ex);
+                await CancelPendingBridgePairingAsync();
+                await DisconnectPairing();
+                message = UserMessage(ex);
+                focusTarget = "launch-status";
+            }
+        }
+        finally
+        {
+            pairingCancellation = null;
+            connecting = false;
+            pairingCancelRequested = false;
+        }
+    }
+    private async Task CancelPairing()
+    {
+        if (pairingCancellation is { } cancellation)
+        {
+            // Abort the JavaScript confirmation immediately; the .NET cancellation token by
+            // itself only stops waiting for JS interop and does not abort the browser fetch.
+            pairingCancelRequested = true;
+            var stopBridge = CancelPendingBridgePairingAsync();
+            try { await cancellation.CancelAsync(); }
+            catch (ObjectDisposedException) { }
+            await stopBridge;
+            if (confirmation is not null) await confirmation;
+
+            // ConfirmPairing deliberately avoids racing a second disconnect against the aborted
+            // JavaScript exchange. Once it has completed, clear the pending UI state here.
+            pairingCode = "";
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            hasNotice = true;
+        }
+        else await DisconnectPairing();
+        message = "Pairing cancelled. Connect again when ready.";
+    }
+    private async Task CancelPendingBridgePairingAsync()
+    {
+        if (module is null) return;
+        try { await module.InvokeVoidAsync("cancelPendingPairing"); }
+        catch (Exception ex) { BrowserDiagnostics.Report("cancel pending pairing", ex); }
+    }
+    private async Task DisconnectPairing()
+    {
+        pairingCode = ""; paired = false; actualMode = ""; canBrowseFolders = false;
+        try { if (module is not null) await module.InvokeVoidAsync("disconnect"); }
+        catch (JSException ex) { BrowserDiagnostics.Report("cancel-pairing", ex); }
+    }
+    private async Task BrowseFolder()
+    {
+        if (module is null || !paired || connecting || manualConnectPending || busy || !canBrowseFolders) return;
+        var retryConnection = false;
+        connecting = true; message = "Choose a folder in the desktop launcher. Cancel in that window to keep the current path.";
+        try
+        {
+            var reply = await module.InvokeAsync<Reply>("browseFolder", lifetime.Token);
+            if (reply.FolderPath is { } selected) { LaunchRequest.ValidateGamePath(selected); path = selected; }
+            message = reply.Status.Message;
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (OperationCanceledException)
+        {
+            message = "The folder selection was cancelled. The installation path was not changed.";
+            hasNotice = true;
+        }
+        catch (JSException ex)
+        {
+            paired = false;
+            actualMode = "";
+            canBrowseFolders = false;
+            Report("browse-folder", ex, UserMessage(ex));
+            retryConnection = savedPairing && !IsUnsafeToRetryConnection(ex) && !lifetime.IsCancellationRequested;
+        }
+        catch (ArgumentException ex) { Report("folder-path", ex, "The selected folder is not a supported local Windows path. Enter the full path manually."); }
+        finally { connecting = false; focusTarget = "game-path"; }
+
+        // Start only after the browse operation has released the busy/connecting state.
+        if (retryConnection)
+            _ = StartAutomaticRecoveryAsync();
+    }
+    private void Report(string operation, Exception exception, string feedback)
+    {
+        BrowserDiagnostics.Report(operation, exception); message = feedback; hasNotice = true;
+    }
+    private async Task Forget()
+    {
+        if (module is null || busy || connecting || manualConnectPending) return;
+        await CancelAutomaticRecoveryAsync();
+        try { await module.InvokeVoidAsync("forget", lifetime.Token); paired = false; savedPairing = false; actualMode = ""; canBrowseFolders = false; pairingCode = ""; password = otp = ""; message = "Browser pairing forgotten. You can also revoke it in the desktop launcher."; hasNotice = true; }
+        catch (JSException) { message = "Could not clear pairing. Close this tab and clear WebLaunch site data in browser settings."; }
+    }
+    private Task Launch() => busy ? Task.CompletedTask : launch = LaunchCore();
+    private async Task LaunchCore()
+    {
+        if (launchOutcomeAmbiguous)
+        {
+            message = launchOutcomeWarning ?? "A previous launch outcome is unknown. Verify the game state before submitting another launch.";
+            hasNotice = true;
+            return;
+        }
+        if (busy || connecting || manualConnectPending || !paired || module is null) return;
+        var request = new LaunchRequest { Game = Game, GamePath = path, Username = username, Password = password, Otp = otp, IsSteam = steam };
+        try { request.Validate(); }
+        catch (ArgumentException ex) { message = ex.Message; request.ClearCredentials(); successConfirmed = false; return; }
+        var retainedUsername = username;
+        var retainedPassword = password;
+        var retainedOtp = otp;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        cancellation.CancelAfter(TimeSpan.FromHours(2));
+        launchCancellation = cancellation;
+        launchCancellationConfirmed = false;
+        terminalStatus = null;
+        launchOutcomeAmbiguous = false;
+        launchOutcomeWarning = null;
+        successConfirmed = false;
+        launchAttempted = true; busy = true; message = "Submitting launch request…";
+        var completed = false;
+        var launchRequestSubmitted = false;
+        var recoverAfterAmbiguousLaunch = false;
+        try
+        {
+            await module.InvokeAsync<string?>("preference", cancellation.Token, Game + ".path", path);
+            pendingLaunchRequestId = request.RequestId;
+            // Persist only the non-secret correlation ID so a page reload cannot silently discard
+            // the duplicate-launch guard. Never store credentials or launch arguments here.
+            await module.InvokeAsync<string?>("pendingLaunchId", cancellation.Token, pendingLaunchRequestId);
+            // JS interop serializes the request when the call is initiated. Keep the request intact
+            // until it has been serialized; clearing it here used to send empty FFXIV credentials.
+            launchRequestSubmitted = true;
+            var submission = module.InvokeAsync<Reply>("launch", cancellation.Token, request);
+            password = otp = "";
+            await InvokeAsync(StateHasChanged);
+            var reply = await submission;
+            message = reply.Status.Message;
+            await Poll(cancellation.Token, request.RequestId);
+            completed = true;
+            // Terminal status is authoritative for the host-side operation. Clear the recovery
+            // marker only after the complete status has been received successfully.
+            await module.InvokeVoidAsync("pendingLaunchId", cancellation.Token, "");
+            pendingLaunchRequestId = "";
+            launchOutcomeAmbiguous = false;
+            launchVerificationReady = false;
+            launchOutcomeWarning = null;
+            successConfirmed = terminalStatus?.Success == true;
+        }
+        catch (JSException ex)
+        {
+            BrowserDiagnostics.Report("bridge", ex);
+            if (launchRequestSubmitted)
+            {
+                launchOutcomeAmbiguous = true;
+                launchOutcomeWarning = "The launch response was interrupted. The game may still be starting; do not submit another launch until you verify its state.";
+                message = launchOutcomeWarning + " Re-establishing the desktop connection…";
+            }
+            else message = UserMessage(ex);
+        }
+        catch (OperationCanceledException)
+        {
+            if (launchCancellationConfirmed)
+            {
+                // Cancel() may confirm success if the game started before cancellation arrived.
+                successConfirmed = terminalStatus?.Success == true;
+                var confirmedOutcome = successConfirmed ? "success" : "cancellation";
+                if (module is null)
+                {
+                    launchOutcomeAmbiguous = true;
+                    launchVerificationReady = false;
+                    launchOutcomeWarning = $"The desktop confirmed {confirmedOutcome}, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
+                    message = launchOutcomeWarning;
+                }
+                else
+                {
+                    try
+                    {
+                        await module.InvokeVoidAsync("pendingLaunchId", "");
+                        pendingLaunchRequestId = "";
+                        launchOutcomeAmbiguous = false;
+                        launchVerificationReady = false;
+                        launchOutcomeWarning = null;
+                        message = successConfirmed ? "Game process started." : "Launch cancelled.";
+                    }
+                    catch (JSException ex)
+                    {
+                        BrowserDiagnostics.Report("clear confirmed launch state", ex);
+                        launchOutcomeAmbiguous = true;
+                        launchVerificationReady = false;
+                        launchOutcomeWarning = $"The desktop confirmed {confirmedOutcome}, but the browser could not clear its recovery marker. Reload and verify launch state before retrying.";
+                        message = launchOutcomeWarning;
+                    }
+                }
+            }
+            else
+            {
+                if (launchRequestSubmitted)
+                {
+                    launchOutcomeAmbiguous = true;
+                    launchVerificationReady = false;
+                    launchOutcomeWarning = lifetime.IsCancellationRequested
+                        ? "The launch connection closed before its final state was confirmed. The game may still be starting; verify its state before submitting another launch."
+                        : "Launch monitoring timed out. The game may still be starting; do not submit another launch until you verify its state.";
+                    message = launchOutcomeWarning + " Re-establishing the desktop connection…";
+                }
+                else if (!lifetime.IsCancellationRequested)
+                    message = "The operation was cancelled before the launch request was submitted.";
+            }
+        }
+        finally
+        {
+            launchCancellation = null;
+            // The serialized request is disposable as soon as it is on or off the wire. The
+            // component's copy is retained unless the desktop confirmed the game started.
+            request.ClearCredentials();
+            if (successConfirmed) password = otp = "";
+            else
+            {
+                // Inputs are cleared during launch submission, then restored only for a
+                // non-success outcome so the user can retry without retyping credentials.
+                username = retainedUsername;
+                password = retainedPassword;
+                otp = retainedOtp;
+            }
+            busy = false;
+            focusTarget = "launch-status";
+
+            if (launchRequestSubmitted)
+            {
+                // The bridge consumes a session when a launch request is submitted. Preserve a
+                // valid pairing for failures before submission, but force a fresh session afterward
+                // so that an ambiguous response cannot accidentally duplicate process creation.
+                if (completed)
+                    message += " Reconnect to launch again or browse folders.";
+                else
+                    recoverAfterAmbiguousLaunch = savedPairing && launchOutcomeAmbiguous && !lifetime.IsCancellationRequested;
+                paired = false;
+                actualMode = "";
+                try
+                {
+                    if (launchOutcomeAmbiguous)
+                        await module.InvokeVoidAsync("abandon");
+                    else
+                        await module.InvokeVoidAsync("disconnect");
+                }
+                catch (JSException ex) { BrowserDiagnostics.Report("post-launch disconnect", ex); }
+            }
+        }
+
+        // Re-establish a fresh authenticated session after a lost launch response, but never
+        // resubmit the launch automatically: the desktop may already have started the game.
+        if (recoverAfterAmbiguousLaunch)
+            _ = StartAutomaticRecoveryAsync();
+    }
+    private async Task Poll(CancellationToken token, string requestId)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        while (await timer.WaitForNextTickAsync(token))
+        {
+            var reply = await module!.InvokeAsync<Reply>("status", token, requestId);
+            message = reply.Status.Message; await InvokeAsync(StateHasChanged);
+            // The terminal status, not the launch acknowledgement, decides whether the game
+            // actually started. Remember it so credential retention keys off the real outcome.
+            if (reply.Status.Completed) { terminalStatus = reply.Status; return; }
+        }
+        terminalStatus = null;
+    }
+    private async Task AcknowledgeLaunchState()
+    {
+        if (!launchOutcomeAmbiguous || !launchVerificationReady || busy || connecting || manualConnectPending)
+            return;
+
+        try
+        {
+            if (module is not null)
+                await module.InvokeVoidAsync("pendingLaunchId", lifetime.Token, "");
+        }
+        catch (JSException ex)
+        {
+            Report("clear launch recovery state", ex, "Could not clear the pending launch guard. Allow session storage and retry.");
+            return;
+        }
+
+        pendingLaunchRequestId = "";
+        launchOutcomeAmbiguous = false;
+        launchVerificationReady = false;
+        launchOutcomeWarning = null;
+        message = "Launch state checked. Another launch is now allowed.";
+        hasNotice = true;
+        await RefreshConnectionStateAsync();
+    }
+
+    private async Task Cancel()
+    {
+        // Cancelling is not a sign-in failure, so the entered details stay put for the next attempt.
+        var cancellation = launchCancellation;
+        using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        requestTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            var reply = await module!.InvokeAsync<Reply>("cancel", requestTimeout.Token);
+            if (cancellation is null || !ReferenceEquals(launchCancellation, cancellation)) return;
+            message = reply.Status.Message;
+            if (reply.Status.Completed)
+            {
+                terminalStatus = reply.Status;
+                launchCancellationConfirmed = true;
+                cancellation.Cancel();
+            }
+        }
+        catch (JSException ex) { BrowserDiagnostics.Report("bridge", ex); paired = false; pairingCode = ""; actualMode = ""; message = UserMessage(ex); focusTarget = "launch-status"; }
+        catch (OperationCanceledException) { message = "Could not confirm cancellation. Check the desktop launcher."; }
+    }
+    // JS errors are user-facing controlled messages; strip the runtime-added stack trace.
+    private static string UserMessage(JSException ex) => ex.Message.Split('\n')[0];
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            try { await lifetime.CancelAsync(); }
+            catch (Exception ex) { ReportDisposalFailure("lifetime cancellation", ex); }
+
+            // Stop pending connect() work in JavaScript before waiting for the monitor. Cancelling
+            // only the .NET interop token cannot guarantee that the browser-side fetch has stopped.
+            if (module is not null)
+            {
+                try { await module.InvokeVoidAsync("cancelConnect"); }
+                catch (Exception ex) { ReportDisposalFailure("connect cancellation", ex); }
+            }
+
+            await ObserveDisposalTask(confirmation, "pairing confirmation");
+            await ObserveDisposalTask(connectionMonitor, "connection monitor");
+            await ObserveDisposalTask(launch, "launch task");
+            await ObserveDisposalTask(recoveryTask, "connection recovery");
+            await ObserveDisposalTask(connectTask, "manual connection");
+        }
+        finally
+        {
+            try
+            {
+                if (module is not null)
+                {
+                    try { await module.InvokeVoidAsync("disconnect"); }
+                    catch (Exception ex) { ReportDisposalFailure("bridge disconnect", ex); }
+                    finally
+                    {
+                        try { await module.DisposeAsync(); }
+                        catch (Exception ex) { ReportDisposalFailure("bridge module disposal", ex); }
+                        finally { module = null; }
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (dialogModule is not null)
+                    {
+                        // Both dialogs share the module; close the credential prompt on whichever
+                        // element it rendered before releasing the shared reference.
+                        try { await dialogModule.InvokeVoidAsync("close", credentialDialog); }
+                        catch (Exception ex) { ReportDisposalFailure("credential dialog close", ex); }
+                        try { await dialogModule.InvokeVoidAsync("close", dialog); }
+                        catch (Exception ex) { ReportDisposalFailure("dialog close", ex); }
+                        finally
+                        {
+                            try { await dialogModule.DisposeAsync(); }
+                            catch (Exception ex) { ReportDisposalFailure("dialog module disposal", ex); }
+                            finally { dialogModule = null; }
+                        }
+                    }
+                }
+                finally
+                {
+                    pageActionRegistration?.Dispose();
+                    pageActionRegistration = null;
+                    dialogReference?.Dispose();
+                    dialogReference = null;
+                    CloseCredentialPromptReference();
+                    needsCredentials = false;
+                    credentialPromptRendered?.TrySetCanceled();
+                    credentialPromptRendered = null;
+                    password = otp = "";
+                    lifetime.Dispose();
+                }
+            }
+        }
+    }
+
+    private static async Task ObserveDisposalTask(Task? task, string operation)
+    {
+        if (task is null) return;
+        try { await task; }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { ReportDisposalFailure(operation, ex); }
+    }
+
+    private static void ReportDisposalFailure(string operation, Exception exception)
+    {
+        // Disposal may run after Blazor has disconnected. Diagnostics must not prevent reference cleanup.
+        try { BrowserDiagnostics.Report(operation, exception); }
+        catch { /* Preserve the primary invariant: every owned reference is still released. */ }
+    }
+}

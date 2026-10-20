@@ -1,20 +1,19 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0-windows10.0.17763.0</TargetFramework>
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <AssemblyName>WMconsole</AssemblyName>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationIcon>appicon.ico</ApplicationIcon>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>false</SelfContained>
     <DebugType>embedded</DebugType>
-    <IncludeAllContentForSelfExtract>True</IncludeAllContentForSelfExtract>
-    <PublishReadyToRun>True</PublishReadyToRun>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <PublishSingleFile>True</PublishSingleFile>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <Authors>pieckenst</Authors>
     <Description>Protocol handler and plugin host for WebLaunch game launcher platform. Supports multiple games and launchers through a dynamic plugin system.</Description>
     <AssemblyTitle>WebLaunch Protocol Handler and Plugin Host</AssemblyTitle>
@@ -30,12 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="DotNetZip" Version="1.16.0" />
-    <PackageReference Include="Goblinfactory.Konsole" Version="6.2.2" />
-    <PackageReference Include="log4net" Version="2.0.15" />
-    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.2" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
-    <PackageReference Include="WpfAnimatedGif" Version="2.0.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -44,4 +38,38 @@
     <ProjectReference Include="..\SpinningWheelLib\SpinningWheelLib.csproj" />
   </ItemGroup>
 
+<ItemGroup>
+  <ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
+  <!-- Build plugins with the host, but do not link/copy them as default-context references.
+       Their manifests and private dependencies are loaded from isolated bundle directories. -->
+  <ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" ReferenceOutputAssembly="false" />
+  <ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" ReferenceOutputAssembly="false" />
+</ItemGroup>
+
+<!-- Stage real bundle layouts for F5/Debug as well as ordinary local builds. Release packaging
+     also publishes each plugin independently into the same Plugins/<id> layout. -->
+<Target Name="StagePluginBundlesForDesktopHost" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+  <PropertyGroup>
+    <FfxivPluginOutput Condition="'$(RuntimeIdentifier)' != '' and Exists('$(MSBuildThisFileDirectory)../Gameplugins.Plugin.FFXIV/bin/$(Configuration)/net10.0/$(RuntimeIdentifier)/Gameplugins.Plugin.FFXIV.dll')">$(MSBuildThisFileDirectory)../Gameplugins.Plugin.FFXIV/bin/$(Configuration)/net10.0/$(RuntimeIdentifier)/</FfxivPluginOutput>
+    <FfxivPluginOutput Condition="'$(FfxivPluginOutput)' == '' and Exists('$(MSBuildThisFileDirectory)../Gameplugins.Plugin.FFXIV/bin/$(Configuration)/net10.0/Gameplugins.Plugin.FFXIV.dll')">$(MSBuildThisFileDirectory)../Gameplugins.Plugin.FFXIV/bin/$(Configuration)/net10.0/</FfxivPluginOutput>
+    <SpellbornPluginOutput Condition="'$(RuntimeIdentifier)' != '' and Exists('$(MSBuildThisFileDirectory)../Gameplugins.Plugin.Spellborn/bin/$(Configuration)/net10.0/$(RuntimeIdentifier)/Gameplugins.Plugin.Spellborn.dll')">$(MSBuildThisFileDirectory)../Gameplugins.Plugin.Spellborn/bin/$(Configuration)/net10.0/$(RuntimeIdentifier)/</SpellbornPluginOutput>
+    <SpellbornPluginOutput Condition="'$(SpellbornPluginOutput)' == '' and Exists('$(MSBuildThisFileDirectory)../Gameplugins.Plugin.Spellborn/bin/$(Configuration)/net10.0/Gameplugins.Plugin.Spellborn.dll')">$(MSBuildThisFileDirectory)../Gameplugins.Plugin.Spellborn/bin/$(Configuration)/net10.0/</SpellbornPluginOutput>
+  </PropertyGroup>
+
+  <Error Condition="'$(FfxivPluginOutput)' == ''" Text="FFXIV plugin output was not found after its project build; cannot stage the dynamic plugin bundle." />
+  <Error Condition="'$(SpellbornPluginOutput)' == ''" Text="Spellborn plugin output was not found after its project build; cannot stage the dynamic plugin bundle." />
+
+  <RemoveDir Directories="$(OutDir)Plugins/FFXIV;$(OutDir)Plugins/Spellborn" />
+  <MakeDir Directories="$(OutDir)Plugins/FFXIV;$(OutDir)Plugins/Spellborn" />
+
+  <ItemGroup>
+    <FfxivBundleFiles Include="$(FfxivPluginOutput)**/*" />
+    <SpellbornBundleFiles Include="$(SpellbornPluginOutput)**/*" />
+  </ItemGroup>
+
+  <Copy SourceFiles="@(FfxivBundleFiles)" DestinationFiles="@(FfxivBundleFiles->'$(OutDir)Plugins/FFXIV/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  <Copy SourceFiles="@(SpellbornBundleFiles)" DestinationFiles="@(SpellbornBundleFiles->'$(OutDir)Plugins/Spellborn/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  <Copy SourceFiles="$(MSBuildThisFileDirectory)../Gameplugins.Plugin.FFXIV/plugin.json" DestinationFolder="$(OutDir)Plugins/FFXIV" />
+  <Copy SourceFiles="$(MSBuildThisFileDirectory)../Gameplugins.Plugin.Spellborn/plugin.json" DestinationFolder="$(OutDir)Plugins/Spellborn" />
+</Target>
 </Project>

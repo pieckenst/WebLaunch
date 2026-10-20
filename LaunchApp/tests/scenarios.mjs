@@ -1,0 +1,508 @@
+import { expect } from '@playwright/test';
+
+async function openDesktop(page) {
+    await page.locator('.connection-summary').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+}
+async function gameSettings(page) {
+    await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
+}
+async function desktopSettings(page) {
+    await page.getByRole('button', { name: 'Desktop connection', exact: true }).click();
+}
+
+export async function prepare(page, base) {
+    await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36' });
+    });
+    await page.goto(base);
+    await expect(page.getByRole('heading', { name: 'Your game library' })).toBeVisible();
+}
+export async function navigationAndPreferences(page, base) {
+    await page.evaluate(() => localStorage.setItem('unrelated-app', 'keep'));
+    await page.getByRole('checkbox', { name: 'Dark theme', exact: true }).focus();
+    await page.keyboard.press('Space');
+    const theme = await page.locator('html').getAttribute('data-theme');
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    expect(await page.evaluate(() => localStorage.getItem('unrelated-app'))).toBe('keep');
+    await page.getByRole('link', { name: 'Open Final Fantasy XIV', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { level: 1, name: 'Final Fantasy XIV' })).toBeVisible();
+    await page.getByRole('link', { name: 'Story', exact: true }).click();
+    await expect(page).toHaveURL(base + 'counter#story');
+    await page.goto(base + 'counter?section=world');
+    await expect(page).toHaveURL(base + 'counter#world');
+    await page.getByRole('link', { name: 'Game Launcher', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Your game library' })).toBeVisible();
+    await page.getByRole('link', { name: 'Open Chronicles of Spellborn', exact: true }).click();
+    await expect(page.getByRole('link', { name: 'Classes', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: 'Classes', exact: true }).click();
+    await expect(page).toHaveURL(base + 'spellborn#classes');
+    await page.getByRole('link', { name: 'Skip to content', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(base + 'spellborn#main');
+    await expect(page.getByRole('heading', { level: 1, name: 'Chronicles of Spellborn' })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base + 'counter');
+    await openDesktop(page);
+    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.locator('meta[name="viewport"]').getAttribute('content')).not.toContain('user-scalable=no');
+    await page.setViewportSize({ width: 1280, height: 900 });
+}
+export async function sectionHistoryAndModeControls(page, base) {
+    await page.goto(base + 'counter#story');
+    const sections = () => page.getByRole('navigation', { name: 'Game sections', exact: true });
+    const selected = name => sections().getByRole('link', { name, exact: true });
+    await expect(selected('Story')).toHaveAttribute('aria-current', 'location');
+    await page.reload();
+    await expect(selected('Story')).toHaveAttribute('aria-current', 'location');
+    await expect.poll(() => page.locator('#story').evaluate(element => element.getBoundingClientRect().top)).toBeGreaterThan(0);
+    await expect.poll(() => page.locator('#story').evaluate(element => element.getBoundingClientRect().top)).toBeLessThan(260);
+    await selected('World').click();
+    await expect(page).toHaveURL(base + 'counter#world');
+    await expect(selected('World')).toHaveAttribute('aria-current', 'location');
+    await page.goBack();
+    await expect(page).toHaveURL(base + 'counter#story');
+    await expect(selected('Story')).toHaveAttribute('aria-current', 'location');
+    await page.goForward();
+    await expect(selected('World')).toHaveAttribute('aria-current', 'location');
+    await selected('Launch settings').focus(); await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(base + 'counter#launch');
+    await expect(selected('Launch settings')).toHaveAttribute('aria-current', 'location');
+    await openDesktop(page);
+    await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('console');
+    await expect(page.getByRole('link', { name: 'Open desktop launcher', exact: true })).toHaveAttribute('href', 'HandleWebRequest:connect?v=2&mode=console');
+    await page.reload();
+    await openDesktop(page);
+    await expect(page.getByLabel('Desktop launcher mode', { exact: true })).toHaveValue('console');
+    await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('gui');
+    await expect(page.getByRole('link', { name: 'Open desktop launcher', exact: true })).toHaveAttribute('href', 'HandleWebRequest:connect?v=2&mode=gui');
+    await page.goto(base + 'spellborn/classes');
+    await expect(page).toHaveURL(base + 'spellborn#classes');
+    await expect(selected('Classes')).toHaveAttribute('aria-current', 'location');
+    await page.goto(base + 'spellborn?section=overview');
+    await expect(page).toHaveURL(base + 'spellborn#overview');
+    await expect(selected('Overview')).toHaveAttribute('aria-current', 'location');
+    await page.goto(base + 'counter/not-a-section');
+    await expect(page).toHaveURL(base + 'counter#overview');
+    await expect(selected('Overview')).toHaveAttribute('aria-current', 'location');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await selected('Features').click();
+    await expect(page).toHaveURL(base + 'counter#features');
+    await expect(selected('Features')).toHaveAttribute('aria-current', 'location');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByText('More', { exact: true }).click();
+    await page.getByRole('link', { name: 'Pairing and desktop mode', exact: true }).click();
+    await expect(page).toHaveURL(base + 'counter#launch');
+    await expect(page.locator('.section-menu')).not.toHaveAttribute('open', '');
+    await page.getByRole('link', { name: 'Game Launcher', exact: true }).click();
+    await expect(page).toHaveURL(base);
+    await expect(sections()).toHaveCount(0);
+    await page.goBack();
+    await expect(page).toHaveURL(base + 'counter#launch');
+    await expect(selected('Launch settings')).toHaveAttribute('aria-current', 'location');
+    await page.setViewportSize({ width: 1280, height: 900 });
+}
+export async function unmatchedNestedGameRouteHidesGameNavigation(page, base) {
+    await page.goto(base + 'counter');
+    const sections = page.getByRole('navigation', { name: 'Game sections', exact: true });
+    await expect(sections).toBeVisible();
+    await expect(page.locator('.nav-launch')).toBeVisible();
+    await page.evaluate(() => { window.unmatchedRouteMarker = true; });
+    await page.evaluate(() => {
+        // Intercepted unmatched links trigger a full reload; use the client-side router directly.
+        Blazor.navigateTo('counter/foo/bar');
+    });
+    await expect(page).toHaveURL(base + 'counter/foo/bar');
+    await expect(page.getByRole('alert').filter({ hasText: 'nothing at this address' })).toBeVisible();
+    await expect(sections).toHaveCount(0);
+    await expect(page.locator('.nav-launch')).toHaveCount(0);
+    expect(await page.evaluate(() => window.unmatchedRouteMarker)).toBe(true);
+    await page.goBack();
+    await expect(page).toHaveURL(base + 'counter');
+    await expect(sections).toBeVisible();
+    await expect(page.locator('.nav-launch')).toBeVisible();
+}
+async function pair(page) {
+    await page.getByRole('button', { name: 'Forget this browser pairing' }).click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
+    await page.getByRole('button', { name: 'Cancel pairing', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Not paired · disconnected');
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.pairing-code')).toHaveText(/^\d{6}$/);
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Pairing · waiting for confirmation');
+    await expect(page.getByRole('button', { name: 'The codes match' })).toBeFocused();
+    await page.getByRole('button', { name: 'The codes match' }).click();
+    await expect(page.locator('.launch-status')).toHaveText('Paired. Enter your game settings.');
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+    await expect(page.locator('.desktop-state')).toContainText('GUI');
+}
+export async function secureLaunch(page, base) {
+    await page.goto(base + 'counter');
+    await openDesktop(page);
+    await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('console');
+    await pair(page);
+    await expect(page.locator('.desktop-state')).toContainText('The existing host is still running');
+    await page.getByLabel('Desktop launcher mode', { exact: true }).selectOption('gui');
+    await gameSettings(page);
+    const consoles = []; page.on('console', message => consoles.push(message.text()));
+    await page.getByRole('button', { name: 'Browse on desktop', exact: true }).click();
+    await expect(page.getByLabel('Installation folder')).toHaveValue('C:\\Games\\日本語');
+    await page.getByLabel('Username', { exact: true }).fill('synthetic-user');
+    await page.getByLabel('Password', { exact: true }).fill('synthetic-secret:+?=é');
+    await page.getByLabel('One-time password (optional)').fill('12');
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
+    expect(await page.getByLabel('One-time password (optional)').evaluate(element => element.validity.valid)).toBe(false);
+    await page.getByLabel('One-time password (optional)').fill('');
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Cancel launch' })).toBeVisible();
+    // The launch is still in flight, so its credentials must not be readable from the form.
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await expect(page.locator('.launch-status')).toHaveText('Game process started. Reconnect to launch again or browse folders.', { timeout: 15000 });
+    // The desktop confirmed the game started, so the retained details are cleared.
+    await page.getByRole('button', { name: 'Game settings', exact: true }).click();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeDisabled();
+    await desktopSettings(page);
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Pairing saved · disconnected');
+    expect(page.url()).not.toContain('synthetic');
+    expect(consoles.join('\n')).not.toContain('synthetic-secret');
+    expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('synthetic-secret');
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.launch-status')).toHaveText('Connected. Enter your game settings.');
+    await gameSettings(page);
+    await page.getByLabel('Password', { exact: true }).fill('synthetic-cancel');
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel launch' }).click();
+    await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
+    expect(await page.evaluate(() => sessionStorage.getItem('weblaunch.pendingLaunchId'))).toBeNull();
+    // A cancelled launch is not a success, so the entered details survive for the retry.
+    await gameSettings(page);
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('synthetic-cancel');
+}
+
+export async function connectionAutoRecovery(page, base) {
+    const endpoint = 'http://127.0.0.1:47832';
+    let droppedSession = false;
+    let droppedHandshake = false;
+
+    await page.goto(base + 'counter');
+    await openDesktop(page);
+    await page.getByRole('button', { name: /^(Reconnect|Connect)$/ }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected', { timeout: 15000 });
+
+    // Simulate a transient network failure on a live, encrypted status request and
+    // another failure during the first automatic /v2/hello handshake.
+    const dropSessionOnce = async route => {
+        if (route.request().method() === 'POST' && !droppedSession) {
+            droppedSession = true;
+            await route.abort();
+            return;
+        }
+        await route.continue();
+    };
+    const dropHandshakeOnce = async route => {
+        if (route.request().method() === 'POST' && !droppedHandshake) {
+            droppedHandshake = true;
+            await route.abort();
+            return;
+        }
+        await route.continue();
+    };
+
+    await page.route(endpoint + '/v2/session/**', dropSessionOnce);
+    await page.route(endpoint + '/v2/hello', dropHandshakeOnce);
+    try {
+        await expect.poll(() => droppedSession, { timeout: 12000 }).toBe(true);
+        await expect.poll(() => droppedHandshake, { timeout: 12000 }).toBe(true);
+        await expect(page.locator('.launch-summary')).toContainText('restored', { timeout: 30000 });
+        await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected');
+        // Browse is rendered in the game-settings view, not the desktop-connection view.
+        await gameSettings(page);
+        await expect(page.getByRole('button', { name: 'Browse on desktop', exact: true })).toBeEnabled();
+
+        // Confirm the recovered channel is operational, not merely marked connected.
+        await page.getByRole('button', { name: 'Browse on desktop', exact: true }).click();
+        await expect(page.getByLabel('Installation folder')).toHaveValue('C:\\Games\\日本語', { timeout: 10000 });
+    } finally {
+        await page.unroute(endpoint + '/v2/session/**', dropSessionOnce);
+        await page.unroute(endpoint + '/v2/hello', dropHandshakeOnce);
+    }
+}
+
+export async function unavailableHandler(page, base) {
+    await page.goto(base + 'spellborn');
+    await openDesktop(page);
+    await page.route('http://127.0.0.1:47832/**', route => route.abort());
+    await page.getByRole('button', { name: /^(Reconnect|Connect)$/ }).click();
+    // Saved pairings now retry transient connection errors automatically instead of
+    // remaining permanently disconnected. Verify the retry state, then revoke trust
+    // while the connection is in its backoff window.
+    await expect(page.locator('.launch-status')).toContainText(/Retrying automatically/i, { timeout: 15000 });
+    await gameSettings(page);
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true })).toBeDisabled();
+    await desktopSettings(page);
+    const forget = page.getByRole('button', { name: 'Forget this browser pairing' });
+    await expect(forget).toBeEnabled({ timeout: 10000 });
+    await forget.click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Not paired · disconnected');
+    await page.unroute('http://127.0.0.1:47832/**');
+}
+
+export async function settingsDialogs(page, base) {
+    await page.goto(base + 'counter');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    const gear = page.getByRole('button', { name: 'Game settings', exact: true });
+    await gear.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveAccessibleName('Login settings');
+    await expect(page.getByLabel('Installation folder')).toBeFocused();
+    await page.getByLabel('Password', { exact: true }).fill('synthetic-dismiss-secret');
+    await page.getByLabel('One-time password (optional)').fill('123456');
+    // Native modal focus containment keeps background navigation outside the tab order.
+    await dialog.getByRole('button', { name: 'Close settings', exact: true }).focus();
+    for (let i = 0; i < 18; i++) {
+        await page.keyboard.press('Tab');
+        expect(await dialog.evaluate(el => el.contains(document.activeElement) || document.activeElement === document.body)).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await expect(gear).toBeFocused();
+    // Dismissal keeps what was already entered, so a retry does not re-demand every field.
+    await gear.click();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('synthetic-dismiss-secret');
+    await expect(page.getByLabel('One-time password (optional)')).toHaveValue('123456');
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await gear.click();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gear.click();
+    expect(await dialog.evaluate(el => el.getBoundingClientRect().width < innerWidth && el.getBoundingClientRect().height < innerHeight)).toBe(true);
+    await page.keyboard.press('Escape');
+    await page.goto(base + 'spellborn');
+    await gear.click();
+    await expect(dialog).toHaveAccessibleName('Game settings');
+    await expect(page.getByLabel('Installation folder')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    // Unpaired, Play now must route to connection setup instead of a launch attempt.
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(dialog).toHaveAccessibleName('Desktop connection');
+    await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 900 });
+}
+
+export async function playNowRoutesByReadiness(page, base) {
+    await prepare(page, base);
+    // Force the true first-run path state, even when this scenario shares a tab with
+    // prior tests that have saved an installation folder.
+    await page.evaluate(() => localStorage.removeItem('weblaunch.spellborn.path'));
+    await page.goto(base + 'spellborn');
+
+    // Missing paths must route through game settings before pairing or direct launch.
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('Game settings');
+    await expect(page.getByLabel('Installation folder')).toHaveValue('');
+    await expect(page.locator('.launch-summary')).toContainText('Choose the installation folder before launching.');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+
+    // Spellborn needs no sign-in details, so once a paired session holds the folder,
+    // Play now submits the launch without opening any dialog at all.
+    await openDesktop(page);
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected', { timeout: 15000 });
+    await gameSettings(page);
+    await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(page.locator('.launch-status')).toContainText('Launch request accepted', { timeout: 15000 });
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+
+    // FFXIV has no stored credentials, so Play now offers the focused sign-in prompt
+    // instead of the full settings dialog. A fresh page has a saved identity but no active
+    // encrypted channel; reconnect explicitly before asserting the frictionless launch path.
+    await page.goto(base + 'counter');
+    await openDesktop(page);
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Pairing status' })).toHaveText('Paired · connected', { timeout: 15000 });
+    await page.getByRole('button', { name: 'Close settings', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Play now', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    const prompt = page.getByRole('dialog');
+    await expect(prompt).toHaveAccessibleName('Sign in to launch');
+    await expect(page.getByLabel('Installation folder')).toHaveCount(0);
+    // Only the absent fields are asked for; the installation folder already came from settings.
+    await expect(page.getByLabel('Username', { exact: true })).toBeFocused();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('One-time password (optional)')).toBeVisible();
+
+    // Escape belongs to the sign-in dialog, not the hidden game-settings dialog.
+    await page.keyboard.press('Escape');
+    await expect(prompt).not.toBeVisible();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(prompt).toHaveAccessibleName('Sign in to launch');
+
+    // The prompt can hand off to full settings without losing the pairing.
+    await prompt.getByRole('button', { name: 'Game settings', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('Login settings');
+    await page.keyboard.press('Escape');
+
+    // Cancellation remains reachable while credential inputs are disabled during launch.
+    await page.getByRole('button', { name: 'Play now', exact: true }).click();
+    await expect(prompt).toHaveAccessibleName('Sign in to launch');
+    await prompt.getByLabel('Username', { exact: true }).fill('synthetic-user');
+    await prompt.getByLabel('Password', { exact: true }).fill('synthetic-cancel');
+    await prompt.getByRole('button', { name: 'Launch game', exact: true }).click();
+    await expect(prompt.getByRole('button', { name: 'Cancel launch', exact: true })).toBeVisible();
+    await prompt.getByRole('button', { name: 'Cancel launch', exact: true }).click();
+    await expect(page.locator('.launch-status')).toContainText('Launch cancelled.', { timeout: 15000 });
+    await expect(prompt).not.toBeVisible();
+}
+
+export async function browserRecovery(page, base) {
+    const diagnostics = [];
+    const observe = message => diagnostics.push(message.text());
+    page.on('console', observe);
+    try {
+        await page.goto(base + 'counter');
+        await page.getByRole('button', { name: 'Game settings', exact: true }).click();
+        const alignment = await page.locator('.path-control').evaluate(el => {
+            const input = el.querySelector('input').getBoundingClientRect();
+            const button = el.querySelector('button').getBoundingClientRect();
+            return Math.abs(input.top - button.top) < 1 && Math.abs(input.height - button.height) < 1;
+        });
+        expect(alignment).toBe(true);
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => {
+            window.dispatchEvent(new ErrorEvent('error', { cancelable: true, message: 'synthetic-private-path-password', error: new Error('synthetic-private-path-password') }));
+            window.dispatchEvent(new PromiseRejectionEvent('unhandledrejection', { cancelable: true, promise: Promise.resolve(), reason: 'synthetic-otp-secret' }));
+        });
+        await expect(page.locator('#browser-notice')).toBeVisible();
+        expect(diagnostics.some(line => line.includes('BROWSER_SCRIPT_ERROR'))).toBe(true);
+        expect(diagnostics.some(line => line.includes('BROWSER_ASYNC_ERROR'))).toBe(true);
+        expect(diagnostics.join('\n')).not.toContain('synthetic-private-path-password');
+        expect(diagnostics.join('\n')).not.toContain('synthetic-otp-secret');
+        await page.route('**/js/dialog.js', route => route.abort());
+        await page.reload();
+        await page.getByRole('button', { name: 'Game settings', exact: true }).click();
+        await expect(page.locator('.launch-summary')).toContainText('Could not open settings');
+        await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+        expect(diagnostics.some(line => line.includes('open-settings failed'))).toBe(true);
+        await page.unroute('**/js/dialog.js');
+        await page.reload();
+        await page.getByRole('button', { name: 'Game settings', exact: true }).click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await page.route('**/js/navigation.js', route => route.abort());
+        await page.reload();
+        await expect(page.getByRole('heading', { name: 'Let’s reload the launcher' })).toBeVisible();
+        expect(diagnostics.some(line => line.includes('navigation module initialization failed'))).toBe(true);
+        await page.unroute('**/js/navigation.js');
+        await page.getByRole('button', { name: 'Reload launcher', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Final Fantasy XIV', exact: true })).toBeVisible();
+    } finally { page.off('console', observe); }
+}
+
+export async function pendingLaunchStatus(page, base, action, terminalState = 'cancelled', markerClearFails = false) {
+    await page.route('**/js/bridge.js', async route => {
+        const response = await route.fetch();
+        let body = await response.text();
+        for (const name of ['connect', 'launch', 'disconnect'])
+            body = body.replace(`export async function ${name}(`, `async function original_${name}(`);
+        body = body.replace('export function abandon()', 'function original_abandon()');
+        body = body.replace('export const status =', 'const original_status =');
+        body = body.replace('export const cancel =', 'const original_cancel =');
+        if (markerClearFails) {
+            body = body.replace('export function pendingLaunchId(value) {', `export function pendingLaunchId(value) {
+                if (value === '') throw new Error('Synthetic session storage failure');`);
+        }
+        body += `
+export async function connect() { return { paired: true, code: '', desktopMode: 'gui' }; }
+export async function launch() { return { status: { message: 'Synthetic pending launch', completed: false } }; }
+export function status() { window.launchStatusStarted = (window.launchStatusStarted || 0) + 1; return new Promise(resolve => { window.finishLaunchStatus = resolve; }); }
+export async function cancel() { window.launchCancelSent = true; return { status: ${JSON.stringify(action.startsWith('cancel-pending') ? { message: 'Cancellation requested; still updating.', completed: false } : { state: terminalState, message: terminalState === 'launched' ? 'Game process started.' : 'Launch cancelled.', completed: true, success: terminalState === 'launched' })} }; }
+export async function disconnect() { window.launchDisconnected = true; }
+export function abandon() { window.launchDisconnected = true; }
+`;
+        await route.fulfill({ response, body });
+    });
+    await prepare(page, base);
+    await page.goto(base + (action === 'cancel' ? 'counter' : 'spellborn'));
+    if (action.endsWith('timeout')) await page.clock.install();
+    await page.locator('.connection-summary').click();
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
+    await page.getByLabel('Installation folder').fill('C:\\Games\\Spellborn');
+    if (action === 'cancel') {
+        await page.getByLabel('Username', { exact: true }).fill('synthetic-user');
+        await page.getByLabel('Password', { exact: true }).fill('synthetic-password');
+        await page.getByLabel('One-time password (optional)', { exact: true }).fill('123456');
+    }
+    await page.getByRole('dialog').getByRole('button', { name: 'Launch game', exact: true }).click();
+    if (action.endsWith('timeout')) await page.clock.runFor(1100);
+    await expect.poll(() => page.evaluate(() => !!window.launchStatusStarted)).toBe(true);
+    if (action === 'cancel') {
+        await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
+        const succeeded = terminalState === 'launched';
+        if (markerClearFails)
+            await expect(page.locator('.launch-status')).toContainText(`The desktop confirmed ${succeeded ? 'success' : 'cancellation'}, but the browser could not clear its recovery marker.`);
+        else
+            await expect(page.locator('.launch-status')).toHaveText(succeeded ? 'Game process started.' : 'Launch cancelled.');
+        expect(await page.evaluate(() => window.launchCancelSent)).toBe(true);
+        const pendingId = await page.evaluate(() => sessionStorage.getItem('weblaunch.pendingLaunchId'));
+        if (markerClearFails) expect(pendingId).toMatch(/^[a-f0-9]{32}$/);
+        else expect(pendingId).toBeNull();
+        if (!markerClearFails) {
+            // Reconnect in the same component to verify its in-memory request ID was cleared too.
+            await page.getByRole('dialog').getByRole('button', { name: 'Desktop connection', exact: true }).click();
+            await page.getByRole('button', { name: 'Connect', exact: true }).click();
+            await expect(page.getByRole('button', { name: 'Play now', exact: true })).toBeEnabled();
+            await page.getByRole('dialog').getByRole('button', { name: 'Game settings', exact: true }).click();
+        }
+        await expect(page.getByLabel('Username', { exact: true })).toHaveValue('synthetic-user');
+        await expect(page.getByLabel('Password', { exact: true })).toHaveValue(succeeded ? '' : 'synthetic-password');
+        await expect(page.getByLabel('One-time password (optional)', { exact: true })).toHaveValue(succeeded ? '' : '123456');
+    } else if (action.startsWith('cancel-pending')) {
+        await page.getByRole('button', { name: 'Cancel launch', exact: true }).click();
+        await expect(page.locator('.launch-status')).toHaveText('Cancellation requested; still updating.');
+        expect(await page.evaluate(() => !!window.launchDisconnected)).toBe(false);
+        await expect(page.getByRole('button', { name: 'Cancel launch', exact: true })).toBeVisible();
+        if (action.endsWith('timeout')) {
+            await page.clock.fastForward(2 * 60 * 60 * 1000 + 1000);
+            await expect(page.locator('.launch-status')).toContainText('monitoring timed out');
+        } else {
+            await page.evaluate(() => window.finishLaunchStatus({ status: { message: 'Still updating after cancel', completed: false } }));
+            await expect(page.locator('.launch-status')).toHaveText('Still updating after cancel');
+            await expect.poll(() => page.evaluate(() => window.launchStatusStarted)).toBe(2);
+            expect(await page.evaluate(() => !!window.launchDisconnected)).toBe(false);
+            await page.evaluate(state => window.finishLaunchStatus({ status: { state, message: 'Terminal: ' + state, completed: true } }), terminalState);
+            await expect(page.locator('.launch-status')).toHaveText('Terminal: ' + terminalState + ' Reconnect to launch again or browse folders.');
+        }
+    } else if (action === 'timeout') {
+        await page.clock.fastForward(2 * 60 * 60 * 1000 + 1000);
+        await expect(page.locator('.launch-status')).toContainText('monitoring timed out');
+    } else {
+        // Force an internal route change while the modal and JS status promise are pending.
+        await page.evaluate(() => document.querySelector('a[href="./"]').click());
+        await expect(page.getByRole('heading', { name: 'Your game library' })).toBeVisible();
+    }
+    await expect.poll(() => page.evaluate(() => !!window.launchDisconnected)).toBe(true);
+    await expect(page.getByRole('button', { name: 'Cancel launch', exact: true })).not.toBeVisible();
+    await page.evaluate(() => window.finishLaunchStatus({ status: { message: 'Late launch result', completed: true } }));
+    await expect(page.getByText('Late launch result', { exact: true })).toHaveCount(0);
+    await expect(page.locator('#blazor-error-ui')).not.toBeVisible();
+}

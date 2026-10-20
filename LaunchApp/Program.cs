@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Components.Web;
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using LumexUI.Extensions;
+using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
+builder.Logging.ClearProviders();
+builder.Logging.AddProvider(new LaunchApp.Shared.SafeBrowserLoggerProvider());
 builder.RootComponents.Add<LaunchApp.App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
@@ -19,6 +22,7 @@ builder.Services.AddMasaBlazor(builder =>
     });
 });
 
-builder.Services.AddLumexServices(); // This should now work
+builder.Services.AddLumexServices();
+builder.Services.AddScoped<LaunchApp.Services.GameNavigation>();
 
 await builder.Build().RunAsync();

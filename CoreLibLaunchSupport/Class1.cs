@@ -371,8 +371,12 @@ namespace CoreLibLaunchSupport
 
             var userName = Environment.UserName;
 
-            Log.Debug("[{Component}] Preparing process launch for {Executable} with working dir {WorkingDirectory}",
-                nameof(NativeProcessLauncher), options.ExecutablePath, options.WorkingDirectory);
+            Log.Debug("[{Component}] Preparing native game process", nameof(NativeProcessLauncher));
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone,
+                () => $"Native FFXIV process launch:{Environment.NewLine}" +
+                      $"  Executable: {options.ExecutablePath}{Environment.NewLine}" +
+                      $"  Working directory: {options.WorkingDirectory}{Environment.NewLine}" +
+                      $"  Arguments: {options.Arguments}");
 
             var pExplicitAccess = new PInvoke.EXPLICIT_ACCESS();
             PInvoke.BuildExplicitAccessWithName(
@@ -427,8 +431,7 @@ namespace CoreLibLaunchSupport
                 var compatLayerPrev = Environment.GetEnvironmentVariable("__COMPAT_LAYER");
                 Environment.SetEnvironmentVariable("__COMPAT_LAYER", BuildCompatLayer(options.DpiAwareness));
 
-                Log.Debug("[{Component}] Creating suspended process. Arguments: {Arguments}",
-                    nameof(NativeProcessLauncher), options.Arguments);
+                Log.Debug("[{Component}] Creating suspended process", nameof(NativeProcessLauncher));
 
                 if (!PInvoke.CreateProcess(
                         null,
@@ -480,8 +483,8 @@ namespace CoreLibLaunchSupport
                     // ignored as we're rethrowing the original exception
                 }
 
-                Log.Error("[{Component}] Failed to launch process {Executable}",
-                    nameof(NativeProcessLauncher), options.ExecutablePath);
+                Log.Error("[{Component}] Failed to launch process", nameof(NativeProcessLauncher));
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Failed to launch process: {options.ExecutablePath}");
 
                 throw;
             }
@@ -514,19 +517,52 @@ namespace CoreLibLaunchSupport
             return compat;
         }
 
-        private static void EnsureGameWindowReady(Process process)
+        internal static IDisposable UseCancellationToken(CancellationToken cancellationToken) =>
+            LaunchCancellationContext.Enter(
+                cancellationToken,
+                diagnostic => FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, diagnostic),
+                () => FfxivTraceLogger.TraceEnabled);
+
+        internal static void EnsureGameWindowReady(Process process, TimeSpan? readinessTimeout = null)
         {
-            try
+            ArgumentNullException.ThrowIfNull(process);
+            var timeout = readinessTimeout ?? TimeSpan.FromMinutes(2);
+            if (timeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(readinessTimeout));
+
+            var stopwatch = Stopwatch.StartNew();
+            while (true)
             {
-                do
+                LaunchCancellationContext.CurrentCancellationToken.ThrowIfCancellationRequested();
+
+                try
                 {
-                    process.WaitForInputIdle();
-                    Thread.Sleep(100);
-                } while (IntPtr.Zero == TryFindGameWindow(process));
-            }
-            catch (InvalidOperationException)
-            {
-                throw new GameExitedException();
+                    if (process.HasExited) throw new GameExitedException();
+                }
+                catch (InvalidOperationException)
+                {
+                    throw new GameExitedException();
+                }
+
+                // A non-GUI process can throw from WaitForInputIdle before it has a window.
+                // Continue polling for the actual FFXIV window, but never wait indefinitely.
+                try { process.WaitForInputIdle(250); }
+                catch (InvalidOperationException)
+                {
+                    if (process.HasExited) throw new GameExitedException();
+                }
+                catch (Win32Exception)
+                {
+                    if (process.HasExited) throw new GameExitedException();
+                }
+
+                if (IntPtr.Zero != TryFindGameWindow(process))
+                    return;
+
+                LaunchCancellationContext.CurrentCancellationToken.ThrowIfCancellationRequested();
+                if (stopwatch.Elapsed >= timeout)
+                    throw new TimeoutException("The game window did not become ready before the launch deadline.");
+
+                Thread.Sleep(100);
             }
         }
 
@@ -702,7 +738,21 @@ namespace CoreLibLaunchSupport
     public sealed class LauncherPaths
     {
         private const string DalamudPathEnvironmentVariable = "WEBLAUNCH_DALAMUD_PATH";
-        private const string DefaultDalamudPath = @"D:\\HandleGame\\Dalamud";
+        private const string LegacyDefaultDalamudPath = @"D:\HandleGame\Dalamud";
+
+        private static string GetDefaultDalamudPath()
+        {
+            // Preserve the historical install when it exists, but do not make a D: drive a
+            // prerequisite for FFXIV launch. New installations use a per-user writable location.
+            if (Directory.Exists(LegacyDefaultDalamudPath))
+                return LegacyDefaultDalamudPath;
+
+            var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApplicationData))
+                throw new InvalidOperationException("The current user's local application-data directory is unavailable.");
+
+            return Path.Combine(localApplicationData, "WebLaunch", "Dalamud");
+        }
 
         public LauncherPaths(string? dalamudPathOverride = null)
         {
@@ -722,17 +772,17 @@ namespace CoreLibLaunchSupport
 
             if (string.IsNullOrWhiteSpace(configuredPath))
             {
-                configuredPath = DefaultDalamudPath;
+                configuredPath = GetDefaultDalamudPath();
             }
 
-            Log.Verbose("[{Component}] Resolving Dalamud path from value {ConfiguredPath}",
-                nameof(LauncherPaths), configuredPath);
+            Log.Verbose("[{Component}] Resolving configured Dalamud location", nameof(LauncherPaths));
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Configured Dalamud path: {configuredPath}");
 
             if (!Directory.Exists(configuredPath))
             {
                 Directory.CreateDirectory(configuredPath);
-                Log.Information("[{Component}] Created Dalamud directory at {ConfiguredPath}",
-                    nameof(LauncherPaths), configuredPath);
+                Log.Information("[{Component}] Created the configured Dalamud directory", nameof(LauncherPaths));
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Created Dalamud directory: {configuredPath}");
             }
 
             return new DirectoryInfo(configuredPath);
@@ -769,8 +819,7 @@ namespace CoreLibLaunchSupport
         {
             var handler = new HttpClientHandler
             {
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-                ServerCertificateCustomValidationCallback = (_, _, _, _) => true
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
             };
 
             var httpClient = new HttpClient(handler, disposeHandler: true)
@@ -842,7 +891,10 @@ namespace CoreLibLaunchSupport
         }
     }
 
-    internal sealed record FfxivSidRequest(string Username, string Password, string? Otp, bool IsSteam);
+    internal sealed record FfxivSidRequest(string Username, string Password, string? Otp, bool IsSteam)
+    {
+        public override string ToString() => "FfxivSidRequest (credentials redacted)";
+    }
 
     internal sealed class FfxivAuthenticationService
     {
@@ -900,6 +952,7 @@ namespace CoreLibLaunchSupport
             httpRequest.Content = new FormUrlEncodedContent(form);
 
             using var response = await httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
             var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             var sidMatch = Regex.Match(payload, "sid,(?<sid>.*),terms", RegexOptions.Compiled);
@@ -950,8 +1003,8 @@ namespace CoreLibLaunchSupport
 
     internal sealed class WorldStatusService
     {
-        private static readonly Uri GateStatusUri = new("http://frontier.ffxiv.com/worldStatus/gate_status.json");
-        private static readonly Uri LoginStatusUri = new("http://frontier.ffxiv.com/worldStatus/login_status.json");
+        private static readonly Uri GateStatusUri = new("https://frontier.ffxiv.com/worldStatus/gate_status.json");
+        private static readonly Uri LoginStatusUri = new("https://frontier.ffxiv.com/worldStatus/login_status.json");
 
         private readonly HttpClient httpClient;
         private readonly string userAgent;
@@ -962,11 +1015,11 @@ namespace CoreLibLaunchSupport
             this.userAgent = userAgent ?? throw new ArgumentNullException(nameof(userAgent));
         }
 
-        public Task<bool> CheckGateStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(GateStatusUri, cancellationToken);
+        public Task<bool?> CheckGateStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(GateStatusUri, cancellationToken);
 
-        public Task<bool> CheckLoginStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(LoginStatusUri, cancellationToken);
+        public Task<bool?> CheckLoginStatusAsync(CancellationToken cancellationToken) => CheckStatusAsync(LoginStatusUri, cancellationToken);
 
-        private async Task<bool> CheckStatusAsync(Uri uri, CancellationToken cancellationToken)
+        private async Task<bool?> CheckStatusAsync(Uri uri, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.TryAddWithoutValidation("user-agent", userAgent);
@@ -975,19 +1028,19 @@ namespace CoreLibLaunchSupport
             {
                 using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
-
                 var payload = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var jsonData = JsonConvert.DeserializeObject<dynamic>(payload);
-                return Convert.ToBoolean(jsonData.status);
+                var status = Newtonsoft.Json.Linq.JObject.Parse(payload)["status"];
+                return status?.Type switch
+                {
+                    Newtonsoft.Json.Linq.JTokenType.Boolean => (bool)status,
+                    Newtonsoft.Json.Linq.JTokenType.Integer when status.ToString() == "0" => false,
+                    Newtonsoft.Json.Linq.JTokenType.Integer when status.ToString() == "1" => true,
+                    _ => null
+                };
             }
-            catch (TaskCanceledException)
-            {
-                return true;
-            }
-            catch
-            {
-                return true;
-            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
+            catch (HttpRequestException) { return null; }
+            catch (JsonException) { return null; }
         }
     }
 
@@ -1015,7 +1068,7 @@ namespace CoreLibLaunchSupport
                    bool encryptArguments, DpiAwareness dpiAwareness)
 {
     Log.Information(
-        $"XivGame::LaunchGame(steamServiceAccount:{isSteamServiceAccount}, args:{additionalArguments})");
+        "XivGame::LaunchGame(steamServiceAccount:{IsSteam})", isSteamServiceAccount);
 
     var exePath = Path.Combine(gamePath.FullName, "game", "ffxiv_dx11.exe");
 
@@ -1062,11 +1115,20 @@ namespace CoreLibLaunchSupport
         private static Storage storage;
 
         public static CommonUniqueIdCache UniqueIdCache;
+        public static List<AddonEntry> AddonEntries { get; } = new();
         private static readonly string UserAgentTemplate = "SQEXAuthor/2.0.0(Windows 6.2; ja-jp; {0})";
-        public List<AddonEntry>? Addons { get; set; }
+        public List<AddonEntry>? Addons
+        {
+            get => AddonEntries;
+            set
+            {
+                var entries = value?.ToArray() ?? Array.Empty<AddonEntry>();
+                AddonEntries.Clear();
+                AddonEntries.AddRange(entries);
+            }
+        }
         static string DalamudRolloutBucket { get; set; }
         private static readonly string UserAgent = GenerateUserAgent();
-        private static readonly LauncherPaths Paths = new();
         private static readonly SharedHttpClientProvider HttpClientProvider = new(TimeSpan.FromSeconds(30));
         private static readonly FfxivHashBuilder HashBuilder = new();
         private static readonly FfxivAuthenticationService AuthService = new(HttpClientProvider.Client, UserAgent);
@@ -1090,10 +1152,11 @@ namespace CoreLibLaunchSupport
     IDalamudCompatibilityCheck dalamudCompatCheck;
     dalamudRunner = new WindowsDalamudRunner();
     dalamudCompatCheck = new WindowsDalamudCompatibilityCheck();
-    var dalamudpath = Paths.DalamudDirectory;
+    var dalamudpath = new LauncherPaths().DalamudDirectory;
     Log.Information("[{Component}] Launch request received (DX11: {Dx11}, Region: {Region}, Expansion: {Expansion}, Steam: {IsSteam})",
         nameof(networklogic), dx11, region, expansionlevel, isSteam);
-    Log.Debug("[{Component}] Using Dalamud path {DalamudPath}", nameof(networklogic), dalamudpath.FullName);
+    Log.Debug("[{Component}] Using configured Dalamud location", nameof(networklogic));
+    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Dalamud path: {dalamudpath.FullName}");
     Troubleshooting.LogTroubleshooting(gamePath);
     DirectoryInfo gamePather = new DirectoryInfo(gamePath);
     DalamudLoadInfo = new DalamudOverlayInfoProxy();
@@ -1106,11 +1169,12 @@ namespace CoreLibLaunchSupport
             Overlay = DalamudLoadInfo
         };
         Log.Information("[{Component}] Starting Dalamud updater", nameof(networklogic));
-        DalamudUpdater.Run();
+        await DalamudUpdater.RunAsync(cancellationToken).ConfigureAwait(false);
     }
-    catch (Exception ex)
+    catch
     {
-        Log.Error(ex, "[{Component}] Could not start Dalamud updater", nameof(networklogic));
+        Log.Error("[{Component}] Could not prepare Dalamud", nameof(networklogic));
+        throw;
     }
 
     var dalamudLauncher = new DalamudLauncher(dalamudRunner, DalamudUpdater, DalamudLoadMethod.DllInject,
@@ -1124,12 +1188,14 @@ namespace CoreLibLaunchSupport
     }
     catch (IDalamudCompatibilityCheck.NoRedistsException ex)
     {
-        Log.Error(ex, "[{Component}] No Dalamud redistributables found", nameof(networklogic));
+        Log.Error("[{Component}] No Dalamud redistributables found ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud redistributable failure: {ex}");
         throw;
     }
     catch (IDalamudCompatibilityCheck.ArchitectureNotSupportedException ex)
     {
-        Log.Error(ex, "[{Component}] Architecture not supported", nameof(networklogic));
+        Log.Error("[{Component}] Architecture not supported ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud architecture failure: {ex}");
         throw;
     }
 
@@ -1138,74 +1204,88 @@ namespace CoreLibLaunchSupport
         try
         {
             Log.Debug("[{Component}] Holding Dalamud for update", nameof(networklogic));
-            dalamudOk = dalamudLauncher.HoldForUpdate(gamePather) == DalamudLauncher.DalamudInstallState.Ok;
+            dalamudOk = dalamudLauncher.HoldForUpdate(gamePather, cancellationToken) == DalamudLauncher.DalamudInstallState.Ok;
         }
         catch (DalamudRunnerException ex)
         {
-            Log.Error(ex, "[{Component}] Couldn't ensure Dalamud runner", nameof(networklogic));
+            Log.Error("[{Component}] Couldn't ensure Dalamud runner ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+            FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Dalamud runner failure: {ex}");
             throw;
         }
 
         IGameRunner runner;
         runner = new WindowsGameRunner(dalamudLauncher, dalamudOk, DalamudUpdater.Runtime);
         Log.Information("[{Component}] Launching game executable", nameof(networklogic));
+        // Snapshot and validate addon projection before creating the game process. If addon
+        // configuration is malformed or changes concurrently, fail before a process can escape
+        // without a session observer to own its cleanup.
+        var enabledAddons = AddonEntries.Where(x => x.IsEnabled).Select(x =>
+            x.Addon as IAddon ?? throw new InvalidDataException("An enabled addon has no valid implementation.")).ToArray();
+
+        cancellationToken.ThrowIfCancellationRequested();
+        using var launchCancellation = NativeProcessLauncher.UseCancellationToken(cancellationToken);
         Process ffxivgame = launcher.LaunchGame(runner, realsid,
             region, expansionlevel, isSteam, gameArgs, gamePather, dx11, ClientLanguage.English, true,
             DpiAwareness.Unaware);
 
-        var addonMgr = new AddonManager();
-        try
-        {
-            List<AddonEntry> xex = new List<AddonEntry>();
-            var addons = xex.Where(x => x.IsEnabled).Select(x => x.Addon).Cast<IAddon>().ToList();
-            addonMgr.RunAddons(ffxivgame.Id, addons);
-            Log.Debug("[{Component}] Started {AddonCount} addons", nameof(networklogic), addons.Count);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex.Message);
-            addonMgr.StopAddons();
-            throw;
-        }
-
-        Log.Debug("Waiting for game to exit");
-        await Task.Run(() => ffxivgame!.WaitForExit(), cancellationToken).ConfigureAwait(false);
-        Log.Verbose("Game has exited");
-
-        if (addonMgr.IsRunning)
-        {
-            addonMgr.StopAddons();
-            Log.Debug("[{Component}] Stopped addon manager", nameof(networklogic));
-        }
-            
-        Log.Information("[{Component}] Game session complete", nameof(networklogic));
+        if (ffxivgame is null) throw new GameExitedException();
+        StartGameSession(ffxivgame, enabledAddons);
+        Log.Information("[{Component}] Started addon session with {Count} addons", nameof(networklogic), enabledAddons.Length);
         return ffxivgame;
     }
+    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
     catch (Exception exc)
     {
-        Log.Error(exc, "[{Component}] Game launch failed", nameof(networklogic));
+        Log.Error("[{Component}] Game launch failed ({ErrorType})", nameof(networklogic), exc.GetType().Name);
+        FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Game launch failure: {exc}");
         switch(language)
         {
             case 0:
-                Debug.WriteLine("実行可能ファイルを起動できませんでした。 ゲームパスは正しいですか? " + exc);
+                Debug.WriteLine("実行可能ファイルを起動できませんでした。 ゲームパスは正しいですか?");
                 break;
             case 1:
-                Debug.WriteLine("Could not launch executable. Is your game path correct? " + exc);
+                Debug.WriteLine("Could not launch executable. Check the installation folder.");
                 break;
             case 2:
-                Debug.WriteLine("Die ausführbare Datei konnte nicht gestartet werden. Ist dein Spielpfad korrekt? " + exc);
+                Debug.WriteLine("Die ausführbare Datei konnte nicht gestartet werden. Prüfen Sie den Installationsordner.");
                 break;
             case 3:
-                Debug.WriteLine("Impossible de lancer l'exécutable. Votre chemin de jeu est-il correct? " + exc);
+                Debug.WriteLine("Impossible de lancer l'exécutable. Vérifiez le dossier d'installation.");
                 break;
             case 4:
-                Debug.WriteLine("Не удалось запустить файл. Ввели ли вы корректный путь к игре? " + exc);
+                Debug.WriteLine("Не удалось запустить файл. Проверьте каталог установки.");
                 break;
         }
     }
     return null;
 }
 
+
+        internal static void StartGameSession(Process game, IEnumerable<IAddon> enabledAddons)
+        {
+            try { DalamudGameSession.Start(game, enabledAddons); }
+            catch
+            {
+                try
+                {
+                    if (!game.HasExited) game.Kill(entireProcessTree: true);
+                    game.WaitForExit();
+                }
+                catch (Exception cleanupError)
+                {
+                    Log.Warning("[{Component}] Could not terminate game after session startup failed ({ErrorType})", nameof(networklogic), cleanupError.GetType().Name);
+                    FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Game cleanup failure: {cleanupError}");
+                }
+                finally { game.Dispose(); }
+                throw;
+            }
+        }
+
+        public static async Task<string> GetSidAsync(string username, string password, string otp, bool isSteam, CancellationToken token = default)
+        {
+            var stored = await AuthService.FetchStoredValueAsync(isSteam, token).ConfigureAwait(false);
+            return await AuthService.RequestSessionIdAsync(new FfxivSidRequest(username, password, otp, isSteam), stored, token).ConfigureAwait(false);
+        }
 
         public static string GetRealSid(string gamePath, string username, string password, string otp, bool isSteam)
         {
@@ -1259,20 +1339,21 @@ namespace CoreLibLaunchSupport
                 Log.Information("[{Component}] Acquired unique session identifier", nameof(networklogic));
                 return uniqueId;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (NoValidSubscriptionException ex)
             {
-                Log.Warning(ex, "[{Component}] Subscription validation failed", nameof(networklogic));
-                Console.WriteLine($"Subscription Error: {ex.Message}");
+                Log.Warning("[{Component}] Subscription validation failed", nameof(networklogic));
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Subscription validation failure: {ex}");
                 return "BAD";
             }
-            catch (Exception exc)
+            catch (Exception ex)
             {
-                Log.Error(exc, "[{Component}] Failed to obtain session identifier", nameof(networklogic));
-                Console.WriteLine($"GetRealSid Error: {exc.Message}");
-                Console.WriteLine($"Stack trace: {exc.StackTrace}");
+                Log.Error("[{Component}] Failed to obtain session identifier ({ErrorType})", nameof(networklogic), ex.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Session identifier request failed: {ex}");
                 return "BAD";
             }
         }
+
 
         private static async Task<string> GetLocalGameverAsync(string gamePath, CancellationToken cancellationToken)
         {
@@ -1280,28 +1361,32 @@ namespace CoreLibLaunchSupport
             {
                 await using var stream = new FileStream(Path.Combine(gamePath, "game", "ffxivgame.ver"), FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
                 using var reader = new StreamReader(stream);
-                var contents = await reader.ReadToEndAsync().ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                return contents;
+                return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception exc)
             {
-                Debug.WriteLine("Unable to get local game version.\n" + exc);
-                Log.Warning(exc, "[{Component}] Unable to open ffxivgame.ver", nameof(networklogic));
+                Log.Warning("[{Component}] Unable to read local game version ({ErrorType})", nameof(networklogic), exc.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, () => $"Unable to read local game version: {exc}");
                 return "BAD";
             }
         }
 
         public static bool CheckGateStatus() =>
-            StatusService.CheckGateStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+            StatusService.CheckGateStatusAsync(CancellationToken.None).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("Server availability is unknown.");
 
         public static bool CheckLoginStatus() =>
-            StatusService.CheckLoginStatusAsync(CancellationToken.None).GetAwaiter().GetResult();
+            StatusService.CheckLoginStatusAsync(CancellationToken.None).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("Server availability is unknown.");
 
-        public static Task<bool> CheckGateStatusAsync(CancellationToken cancellationToken = default) =>
+        public static Task<bool?> CheckGateStatusAsync(CancellationToken cancellationToken = default) =>
             StatusService.CheckGateStatusAsync(cancellationToken);
 
-        public static Task<bool> CheckLoginStatusAsync(CancellationToken cancellationToken = default) =>
+        public static Task<bool?> CheckLoginStatusAsync(CancellationToken cancellationToken = default) =>
             StatusService.CheckLoginStatusAsync(cancellationToken);
 
         private static string GenerateUserAgent()

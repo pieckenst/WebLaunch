@@ -1,0 +1,536 @@
+using CoreLibLaunchSupport;
+using El_Garnan_Plugin_Loader;
+using El_Garnan_Plugin_Loader.Interfaces;
+using El_Garnan_Plugin_Loader.Models;
+using GamePlugins.FFXIV;
+using LibDalamud.Common.Dalamud;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
+using XIVLauncher.Common.Addon;
+using Xunit;
+
+namespace WebLaunch.Tests;
+
+[CollectionDefinition("Trace state", DisableParallelization = true)]
+public sealed class TraceStateCollection { }
+
+[Collection("Trace state")]
+public sealed class ReviewRegressionTests
+{
+    private sealed class PluginLogger : El_Garnan_Plugin_Loader.Interfaces.ILogger
+    {
+        public List<(string Message, Exception? Exception)> Errors { get; } = [];
+        public void Debug(string message) { }
+        public void Information(string message) { }
+        public void Warning(string message) { }
+        public void Error(string message) => Errors.Add((message, null));
+        public void Error(string message, Exception exception) => Errors.Add((message, exception));
+    }
+    [Fact]
+    public async Task MissingManifestAssemblyRaisesPluginErrorInsteadOfSilentlySkipping()
+    {
+        using var root = new TemporaryDirectory();
+        var bundle = Directory.CreateDirectory(Path.Combine(root.Path, "broken-plugin")).FullName;
+        File.WriteAllText(Path.Combine(bundle, "plugin.json"),
+            "{\"version\":1,\"id\":\"broken-plugin\",\"assembly\":\"missing.dll\"}");
+
+        var logger = new PluginLogger();
+        await using var host = new CoreFunctions(root.Path, logger, false, false);
+        PluginErrorEventArgs? observed = null;
+        host.PluginError += (_, args) => observed = args;
+
+        await host.InitializeAsync();
+
+        Assert.NotNull(observed);
+        Assert.IsType<FileNotFoundException>(observed!.Error);
+        Assert.Equal(Path.Combine(bundle, "missing.dll"), observed.PluginPath);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task ValidationFailuresStillClearCredentials(bool validCredentials)
+    {
+        using var root = new TemporaryDirectory();
+        var logger = new PluginLogger();
+        var plugin = new FFXIVGamePlugin(logger);
+        var credentials = new GameCredentials
+        {
+            Username = validCredentials ? "test" : "",
+            Password = "synthetic-password", OTP = "123456", Token = "synthetic-token"
+        };
+        var request = new GameLaunchParameters { GamePath = root.Path, Credentials = credentials };
+        request.EnvironmentVariables["FFXIV_PASSWORD"] = "synthetic-password";
+        request.EnvironmentVariables["FFXIV_OTP"] = "123456";
+        var error = await Record.ExceptionAsync(() => plugin.LaunchAsync(request, new Progress<WebLaunch.Core.LaunchStatus>(), default));
+        if (validCredentials)
+        {
+            Assert.IsType<DirectoryNotFoundException>(error);
+            Assert.Equal("The selected folder is not a complete FFXIV installation. Choose the folder containing the boot and game directories, including game/ffxiv_dx11.exe and game/ffxivgame.ver.", error.Message);
+        }
+        else
+        {
+            Assert.IsType<ArgumentException>(error);
+            Assert.Equal("Username and password are required.", error.Message);
+        }
+        var logged = Assert.Single(logger.Errors);
+        Assert.Equal($"FFXIV launch failed: {error!.GetType().Name}", logged.Message);
+        Assert.Null(logged.Exception);
+        Assert.DoesNotContain(error.Message, logged.Message);
+        Assert.Equal("", credentials.Password); Assert.Equal("", credentials.OTP); Assert.Equal("", credentials.Token);
+        Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_PASSWORD"));
+        Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_OTP"));
+    }
+
+    private sealed class LaunchProgress(Action<WebLaunch.Core.LaunchStatus> report) : IProgress<WebLaunch.Core.LaunchStatus>
+    {
+        public void Report(WebLaunch.Core.LaunchStatus value) => report(value);
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public async Task FfxivLaunchClassifiesCancellationUsingTheCallerToken(bool cancelCaller)
+    {
+        using var root = new TemporaryDirectory();
+        var boot = Directory.CreateDirectory(Path.Combine(root.Path, "boot")).FullName;
+        var game = Directory.CreateDirectory(Path.Combine(root.Path, "game")).FullName;
+        File.WriteAllText(Path.Combine(boot, "ffxivboot.exe"), "synthetic boot executable");
+        File.WriteAllText(Path.Combine(game, "ffxiv_dx11.exe"), "synthetic executable");
+        File.WriteAllText(Path.Combine(game, "ffxivgame.ver"), "synthetic version");
+        var logger = new PluginLogger();
+        var plugin = new FFXIVGamePlugin(logger);
+        using var caller = new CancellationTokenSource();
+        var credentials = new GameCredentials { Username = "test", Password = "synthetic-password", OTP = "123456", Token = "synthetic-token" };
+        var request = new GameLaunchParameters { GamePath = root.Path, Credentials = credentials };
+        request.EnvironmentVariables["FFXIV_PASSWORD"] = credentials.Password;
+        request.EnvironmentVariables["FFXIV_OTP"] = credentials.OTP;
+        var failure = new TaskCanceledException("synthetic timeout");
+        // Raise the exception inside the launch try block without contacting the authentication service.
+        var progress = new LaunchProgress(_ =>
+        {
+            if (cancelCaller) caller.Cancel();
+            throw failure;
+        });
+
+        var error = await Record.ExceptionAsync(() => plugin.LaunchAsync(request, progress, caller.Token));
+
+        Assert.Equal(cancelCaller, caller.IsCancellationRequested);
+        if (cancelCaller)
+        {
+            Assert.Same(failure, error);
+            Assert.Empty(logger.Errors);
+        }
+        else
+        {
+            var timeout = Assert.IsType<TimeoutException>(error);
+            Assert.Same(failure, timeout.InnerException);
+            var logged = Assert.Single(logger.Errors);
+            Assert.Equal("FFXIV launch failed: TimeoutException", logged.Message);
+            Assert.Null(logged.Exception);
+        }
+        Assert.Equal("", credentials.Password); Assert.Equal("", credentials.OTP); Assert.Equal("", credentials.Token);
+        Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_PASSWORD"));
+        Assert.False(request.EnvironmentVariables.ContainsKey("FFXIV_OTP"));
+    }
+
+    [Fact] public void UnsupportedPlatformsDeleteLegacyCacheAndKeepNewSessionsInMemory()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        Assert.False(File.Exists(file));
+        cache.Add("test", "session", 1, 1);
+        Assert.True(cache.TryGet("test", out var cached)); Assert.Equal("session", cached.UniqueId);
+        Assert.False(File.Exists(file));
+    }
+
+    [Fact] public void UnsupportedPlatformsKeepSessionsWhenLegacyCacheCannotBeDeleted()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        var mode = File.GetUnixFileMode(root.Path);
+        try
+        {
+            File.SetUnixFileMode(root.Path, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var cache = new CommonUniqueIdCache(new FileInfo(file));
+            Assert.False(cache.HasValidCache("test"));
+            cache.Add("test", "session", 1, 1);
+            Assert.True(cache.TryGet("test", out var cached));
+            Assert.Equal("session", cached.UniqueId);
+            Assert.True(File.Exists(file));
+        }
+        finally { File.SetUnixFileMode(root.Path, mode); }
+    }
+
+    [Theory][InlineData("write")][InlineData("move")][InlineData("missing-directory")]
+    public void WindowsCacheSaveFailuresKeepSessionsInMemory(string failure)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        if (failure == "write") Directory.CreateDirectory(file + ".tmp");
+        else if (failure == "move") Directory.CreateDirectory(file);
+        else Directory.Delete(root.Path);
+        try
+        {
+            cache.Add("test", "session", 1, 1);
+            Assert.True(cache.TryGet("test", out var cached));
+            Assert.Equal("session", cached.UniqueId);
+            Assert.False(File.Exists(file + ".tmp"));
+        }
+        finally { Directory.CreateDirectory(root.Path); }
+    }
+
+    [Theory][InlineData(false)][InlineData(true)]
+    public void WindowsCacheReadAndCorruptCacheDeleteFailuresStartEmpty(bool allowRead)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        using var locked = File.Open(file, FileMode.Open, FileAccess.Read, allowRead ? FileShare.Read : FileShare.None);
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        Assert.False(cache.HasValidCache("test"));
+        Assert.True(File.Exists(file));
+    }
+
+    [Fact] public void CacheResetRemovesPersistedCredentials()
+    {
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        if (!OperatingSystem.IsWindows()) File.WriteAllText(file, "old persisted credentials");
+        Assert.True(File.Exists(file));
+
+        cache.Reset();
+
+        Assert.False(cache.HasValidCache("test"));
+        Assert.False(File.Exists(file));
+        Assert.False(new CommonUniqueIdCache(new FileInfo(file)).HasValidCache("test"));
+        cache.Reset(); // Reset remains safe when the file is already absent.
+    }
+
+    [Fact] public void CacheResetRemovesInterruptedSaveStagingFile()
+    {
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var staging = file + ".tmp";
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        if (!OperatingSystem.IsWindows()) File.WriteAllText(file, "old persisted credentials");
+        File.WriteAllBytes(staging, [1, 2, 3]);
+
+        cache.Reset();
+
+        Assert.False(File.Exists(file));
+        Assert.False(File.Exists(staging));
+        cache.Reset();
+    }
+
+    [Fact] public void CacheResetStillRemovesActiveCacheWhenStagingFileCannotBeDeleted()
+    {
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var staging = file + ".tmp";
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        if (!OperatingSystem.IsWindows()) File.WriteAllText(file, "old persisted credentials");
+        Directory.CreateDirectory(staging);
+        File.WriteAllText(Path.Combine(staging, "blocked"), "staging deletion must fail");
+
+        var error = Record.Exception(() => cache.Reset());
+
+        Assert.True(error is IOException or UnauthorizedAccessException);
+        Assert.False(File.Exists(file));
+    }
+
+    [Fact] public void WindowsCacheResetReportsFailureToRemovePreviousCredentials()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        var cache = new CommonUniqueIdCache(new FileInfo(file));
+        cache.Add("test", "session", 1, 1);
+        using (File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<IOException>(() => cache.Reset());
+            Assert.False(cache.HasValidCache("test"));
+            Assert.True(File.Exists(file));
+        }
+        cache.Reset();
+        Assert.False(File.Exists(file));
+    }
+
+    private sealed class FailingSessionAddon(Exception failure) : IAddon
+    {
+        public string Name => "test";
+        public void Setup(int pid) => throw failure;
+    }
+
+    [Fact] public void SessionFailureLogsSanitizedErrorAndPropagatesOriginalException()
+    {
+        var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
+        var originalLogger = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        using var game = System.Diagnostics.Process.GetCurrentProcess();
+        var failure = new IOException("synthetic-private-session-data");
+        try
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", null);
+            FfxivTraceLogger.ResetForTest();
+            Log.Logger = logger;
+
+            Assert.Same(failure, Assert.Throws<IOException>(() => DalamudGameSession.Start(game, [new FailingSessionAddon(failure)])));
+
+            var entry = Assert.Single(sink.Events, e => e.Level == LogEventLevel.Error);
+            Assert.Contains("Dalamud game session failed", entry.RenderMessage());
+            Assert.Contains("IOException", entry.RenderMessage());
+            Assert.DoesNotContain(failure.Message, string.Join("\n", sink.Events.Select(e => e.RenderMessage())));
+            Assert.Null(entry.Exception);
+        }
+        finally
+        {
+            Log.Logger = originalLogger;
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", originalTrace);
+            FfxivTraceLogger.ResetForTest();
+        }
+    }
+
+    [Fact] public void WindowsReadOnlyCorruptCacheStartsEmpty()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var root = new TemporaryDirectory();
+        var file = Path.Combine(root.Path, "cache.json");
+        File.WriteAllText(file, "legacy plaintext session");
+        File.SetAttributes(file, FileAttributes.ReadOnly);
+        try
+        {
+            var cache = new CommonUniqueIdCache(new FileInfo(file));
+            Assert.False(cache.HasValidCache("test"));
+            Assert.True(File.Exists(file));
+        }
+        finally { File.SetAttributes(file, FileAttributes.Normal); }
+    }
+
+    [Fact]
+    public async Task ManifestEntryAssemblyAllowsNestedManagedDirectory()
+    {
+        using var root = new TemporaryDirectory();
+        var nested = Directory.CreateDirectory(Path.Combine(root.Path, "lib", "managed")).FullName;
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "fixtures", "WebLaunch.TestManifestPlugin.dll"),
+            Path.Combine(nested, "WebLaunch.TestManifestPlugin.dll"));
+        File.WriteAllText(Path.Combine(root.Path, "plugin.json"),
+            """{"version":1,"id":"legacy-fixture","assembly":"lib/managed/WebLaunch.TestManifestPlugin.dll"}""");
+
+        var logger = new PluginLogger();
+        await using var plugins = new CoreFunctions(root.Path, logger, enableHotReload: false, useStandaloneWindow: false);
+        var failures = new List<El_Garnan_Plugin_Loader.PluginErrorEventArgs>();
+        plugins.PluginError += (_, args) => failures.Add(args);
+
+        await plugins.InitializeAsync();
+
+        var plugin = Assert.Single(plugins.GetLoadedPlugins());
+        Assert.Equal("legacy-fixture", plugin.PluginId);
+        Assert.Empty(failures);
+        var loadedPath = plugin.GetType().Assembly.Location;
+        Assert.Contains(Path.Combine("lib", "managed", "WebLaunch.TestManifestPlugin.dll"), loadedPath, StringComparison.OrdinalIgnoreCase);
+        await plugins.UnloadAllPluginsAsync();
+    }
+
+    [Fact] public void ConfiguredAddonEntriesReachTheEnabledLaunchSelection()
+    {
+        var original = networklogic.AddonEntries.ToArray();
+        try
+        {
+            var enabled = new AddonEntry { IsEnabled = true, Addon = new() };
+            var disabled = new AddonEntry { IsEnabled = false, Addon = new() };
+            var configuration = new networklogic { Addons = [enabled, disabled] };
+            Assert.Equal(new[] { enabled, disabled }, networklogic.AddonEntries);
+            Assert.Same(enabled, Assert.Single(networklogic.AddonEntries, entry => entry.IsEnabled));
+            configuration.Addons = configuration.Addons;
+            Assert.Equal(2, networklogic.AddonEntries.Count);
+        }
+        finally { networklogic.AddonEntries.Clear(); networklogic.AddonEntries.AddRange(original); }
+    }
+
+    private sealed class Sink : ILogEventSink
+    {
+        public List<LogEvent> Events { get; } = [];
+        public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LazyTraceFormattingFollowsTheExplicitTracePolicy(bool enabled)
+    {
+        var evaluated = false;
+        var sinkCalled = false;
+        using var scope = LaunchCancellationContext.Enter(
+            CancellationToken.None,
+            _ => sinkCalled = true,
+            () => enabled);
+
+        LaunchCancellationContext.WriteTrace(() =>
+        {
+            evaluated = true;
+            return "synthetic-sensitive-detail";
+        });
+
+        Assert.Equal(enabled, evaluated);
+        Assert.Equal(enabled, sinkCalled);
+    }
+
+    [Fact] public void NormalTraceLoggerErrorsNeverIncludeExceptionDetails()
+    {
+        var original = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            Log.Logger = logger;
+            FfxivTraceLogger.Error("test", "Plugin launch failed", new IOException("synthetic-secret", new Exception("nested-secret")));
+            var entry = Assert.Single(sink.Events);
+            Assert.Null(entry.Exception);
+            Assert.DoesNotContain("secret", entry.RenderMessage());
+            Assert.Contains("I/O failure", entry.RenderMessage());
+        }
+        finally { Log.Logger = original; }
+    }
+
+    [Fact] public void ConsoleLoggerRedactsPluginMessagesAndExceptionPayloads()
+    {
+        var originalLogger = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        try
+        {
+            Log.Logger = logger;
+            var pluginLogger = new WMConsole.ConsoleLogger();
+            const string sensitiveMessage = @"C:\Users\Alice\Game\game.exe password=synthetic-password";
+            pluginLogger.Information(sensitiveMessage);
+            pluginLogger.Error("Synthetic plugin failure", new IOException(@"C:\Users\Alice\private-response.json"));
+
+            Assert.Equal(2, sink.Events.Count);
+            Assert.DoesNotContain(sensitiveMessage, sink.Events[0].RenderMessage());
+            Assert.DoesNotContain(@"C:\Users\Alice\private-response.json", sink.Events[1].RenderMessage());
+            Assert.DoesNotContain("synthetic-password", string.Join("\n", sink.Events.Select(e => e.RenderMessage())));
+            Assert.Contains("MessageLength=", sink.Events[0].RenderMessage());
+            Assert.Equal("IOException", Assert.IsType<ScalarValue>(sink.Events[1].Properties["ExceptionType"]).Value);
+            Assert.All(sink.Events, entry => Assert.Null(entry.Exception));
+        }
+        finally { Log.Logger = originalLogger; }
+    }
+
+    [Fact] public void StageLazyDoesNotFormatSensitiveDetailsWhenTraceIsDisabled()
+    {
+        var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
+        var originalLogger = Log.Logger;
+        var sink = new Sink();
+        using var logger = new LoggerConfiguration().WriteTo.Sink(sink).CreateLogger();
+        var evaluated = false;
+        try
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", null);
+            FfxivTraceLogger.ResetForTest();
+            Log.Logger = logger;
+
+            FfxivTraceLogger.StageLazy("test", "Launch requested", () =>
+            {
+                evaluated = true;
+                return "synthetic-private-path-and-arguments";
+            });
+
+            Assert.False(evaluated);
+            var entry = Assert.Single(sink.Events);
+            Assert.Contains("Launch requested", entry.RenderMessage());
+            Assert.DoesNotContain("synthetic-private-path-and-arguments", entry.RenderMessage());
+        }
+        finally
+        {
+            Log.Logger = originalLogger;
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", originalTrace);
+            FfxivTraceLogger.ResetForTest();
+        }
+    }
+
+    [Fact] public void TraceLoggerRejectsSinkOpenFailure()
+    {
+        using var root = new TemporaryDirectory();
+        // Opening a directory as a file fails on both Windows and Linux, even as an administrator.
+        Assert.Throws<IOException>(() => FfxivTraceLogger.CreateTraceFileLogger(root.Path));
+    }
+
+    [Fact] public void TraceLoggerWritesToOpenedFile()
+    {
+        using var root = new TemporaryDirectory();
+        var path = Path.Combine(root.Path, "trace.log");
+        using (var logger = FfxivTraceLogger.CreateTraceFileLogger(path))
+            logger.Information("synthetic trace event");
+        Assert.Contains("synthetic trace event", File.ReadAllText(path));
+    }
+
+    [Fact] public void ShutdownWritesEndMarkerClosesTraceFileAndIsRepeatable()
+    {
+        using var root = new TemporaryDirectory();
+        var originalTrace = Environment.GetEnvironmentVariable("FFXIV_TRACE");
+        var logsDir = Path.Combine(root.Path, "logs");
+        try
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", "1");
+            FfxivTraceLogger.ResetForTest();
+            FfxivTraceLogger.TraceDirectoryOverride = logsDir;
+
+            FfxivTraceLogger.Trace("test", "synthetic trace event");
+            var path = Assert.Single(Directory.GetFiles(logsDir, "ffxiv-trace-*.log"));
+
+            FfxivTraceLogger.Shutdown();
+
+            var contents = File.ReadAllText(path);
+            Assert.Contains("trace log started", contents);
+            Assert.Contains("synthetic trace event", contents);
+            Assert.Contains("trace log ended", contents);
+            using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+            FfxivTraceLogger.Shutdown();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FFXIV_TRACE", originalTrace);
+            FfxivTraceLogger.Shutdown();
+            FfxivTraceLogger.ResetForTest();
+        }
+    }
+
+    [Fact] public void TraceRetentionRemovesOnlyExpiredTraceFiles()
+    {
+        using var root = new TemporaryDirectory();
+        var old = Path.Combine(root.Path, "ffxiv-trace-old.log");
+        var recent = Path.Combine(root.Path, "ffxiv-trace-recent.log");
+        var unrelated = Path.Combine(root.Path, "desktop.log");
+        foreach (var file in new[] { old, recent, unrelated }) File.WriteAllText(file, "synthetic");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-8));
+        File.SetLastWriteTimeUtc(unrelated, DateTime.UtcNow.AddDays(-8));
+        FfxivTraceLogger.CleanupTraceFiles(root.Path);
+        Assert.False(File.Exists(old)); Assert.True(File.Exists(recent)); Assert.True(File.Exists(unrelated));
+    }
+
+    [Fact] public void TraceRetentionChecksEveryMatchingFileInOneRun()
+    {
+        using var root = new TemporaryDirectory();
+        for (var i = 0; i < 1005; i++)
+        {
+            var path = Path.Combine(root.Path, $"ffxiv-trace-{i}.log");
+            File.WriteAllText(path, "synthetic");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-8));
+        }
+
+        FfxivTraceLogger.CleanupTraceFiles(root.Path);
+
+        Assert.Empty(Directory.EnumerateFiles(root.Path, "ffxiv-trace-*.log"));
+    }
+}

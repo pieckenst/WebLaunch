@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable></PropertyGroup>
+<ItemGroup>
+<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+<PackageReference Include="xunit" Version="2.9.3" />
+<PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" PrivateAssets="all" />
+<ProjectReference Include="../WebLaunch.Bridge/WebLaunch.Bridge.csproj" />
+<Compile Include="../handlerlaunch/DesktopTrustStore.cs" Link="test-support/DesktopTrustStore.cs" />
+<Compile Include="../handlerlaunch/ConsoleLogger.cs" Link="test-support/ConsoleLogger.cs" />
+<Compile Include="../LaunchApp/Shared/BrowserDiagnosticText.cs" Link="test-support/BrowserDiagnosticText.cs" />
+<ProjectReference Include="../CoreLibLaunchSupport/CoreLibLaunchSupport.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.Spellborn/Gameplugins.Plugin.Spellborn.csproj" />
+<ProjectReference Include="../Gameplugins.Plugin.FFXIV/Gameplugins.Plugin.FFXIV.csproj" />
+<ProjectReference Include="../El'GarnanPluginSystem/El'GarnanPluginSystem.csproj" />
+<ProjectReference Include="../WebLaunch.TestManifestPlugin/WebLaunch.TestManifestPlugin.csproj" ReferenceOutputAssembly="false" />
+<ProjectReference Include="../WebLaunch.TestPlugin/WebLaunch.TestPlugin.csproj" ReferenceOutputAssembly="false" />
+</ItemGroup>
+<Target Name="CopyFixture" AfterTargets="Build"><ItemGroup><FixtureFiles Include="../WebLaunch.TestManifestPlugin/bin/$(Configuration)/net10.0/WebLaunch.TestManifestPlugin.dll" /><FixtureFiles Include="../WebLaunch.TestPlugin/bin/$(Configuration)/net10.0/WebLaunch.TestPlugin.dll" /></ItemGroup><Copy SourceFiles="@(FixtureFiles)" DestinationFolder="$(OutDir)fixtures" /></Target>
+<ItemGroup>
+<None Update="crypto-interop.mjs" CopyToOutputDirectory="PreserveNewest" />
+<None Include="../LaunchApp/wwwroot/js/bridge.js" Link="fixtures/bridge.mjs" CopyToOutputDirectory="PreserveNewest" />
+</ItemGroup>
+</Project>

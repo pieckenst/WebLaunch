@@ -1,0 +1,529 @@
+using System.Collections.Concurrent;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using WebLaunch.Core;
+
+namespace WebLaunch.Bridge;
+
+public interface IBridgeTrustStore
+{
+    ECDsa Identity { get; }
+    bool IsTrusted(string origin, string fingerprint);
+    void Trust(string origin, string fingerprint);
+    void ForgetAll();
+}
+public interface IPairingPrompt
+{
+    Task<bool> ConfirmAsync(string origin, string code, CancellationToken cancellationToken);
+}
+public interface IGameFolderPicker
+{
+    Task<string?> SelectAsync(CancellationToken cancellationToken);
+}
+public sealed class BridgeCommand
+{
+    public string Action { get; set; } = "";
+    public string Code { get; set; } = "";
+    public string RequestId { get; set; } = "";
+    public LaunchRequest? Launch { get; set; }
+}
+public sealed record BridgeReply(bool Paired, LaunchStatus Status, string DesktopMode = "gui", bool CanBrowseFolders = false, string? FolderPath = null);
+
+public sealed class BridgeHost : IAsyncDisposable
+{
+    public const int Port = 47832;
+    private readonly IBridgeTrustStore trust;
+    private readonly IPairingPrompt prompt;
+    private readonly ILaunchService launcher;
+    private readonly HashSet<string> origins;
+    private readonly string desktopMode;
+    private readonly IGameFolderPicker? folderPicker;
+    private readonly Action<DiagnosticEvent, string?, string?>? diagnosticSink;
+    private readonly ConcurrentDictionary<string, Session> sessions = new();
+    private readonly ConcurrentDictionary<string, LaunchOperation> launchOperations = new(StringComparer.Ordinal);
+    private readonly ReplayRequestIdCache usedRequestIds;
+    private static readonly TimeSpan LaunchStatusRetention = TimeSpan.FromMinutes(30);
+    private const int MaxRetainedLaunchStatuses = 128;
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly SemaphoreSlim admission = new(1, 1);
+    private WebApplication? app;
+    private Task? reaper;
+    private DateTimeOffset pairingRetryAfter;
+    private int pairingFailures;
+
+    public BridgeHost(
+        IBridgeTrustStore trust,
+        IPairingPrompt prompt,
+        ILaunchService launcher,
+        IEnumerable<string>? developmentOrigins = null,
+        string desktopMode = "gui",
+        IGameFolderPicker? folderPicker = null,
+        TimeProvider? timeProvider = null,
+        Action<DiagnosticEvent, string?, string?>? diagnosticSink = null)
+    {
+        if (desktopMode is not ("gui" or "console" or "quiet")) throw new ArgumentException("Invalid desktop mode.");
+        this.desktopMode = desktopMode; this.folderPicker = folderPicker; this.diagnosticSink = diagnosticSink;
+        this.trust = trust; this.prompt = prompt; this.launcher = launcher;
+        usedRequestIds = new ReplayRequestIdCache(timeProvider: timeProvider);
+        origins = new(StringComparer.Ordinal) { "https://pieckenst.github.io" };
+        foreach (var origin in developmentOrigins ?? [])
+        {
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) || !uri.IsLoopback || uri.GetLeftPart(UriPartial.Authority) != origin)
+                throw new ArgumentException("Development origins must be explicit loopback origins.");
+            origins.Add(origin);
+        }
+    }
+    public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        // HTTP logs must never contain launch bodies, session URLs, or request exceptions.
+        builder.Logging.ClearProviders();
+        builder.WebHost.ConfigureKestrel(server =>
+        {
+            server.Listen(IPAddress.Loopback, Port);
+            server.Limits.MaxRequestBodySize = 65_536;
+            server.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10);
+        });
+        app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            var origin = context.Request.Headers.Origin.ToString();
+            if (context.Request.Host.Value != $"127.0.0.1:{Port}" || !origins.Contains(origin) ||
+                context.Connection.RemoteIpAddress is not { } ip || !IPAddress.IsLoopback(ip))
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeRejected, null, "origin-host-or-peer-rejected");
+                context.Response.StatusCode = 403;
+                return;
+            }
+            context.Response.Headers.AccessControlAllowOrigin = origin;
+            context.Response.Headers.Vary = "Origin";
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers.XContentTypeOptions = "nosniff";
+            if (context.Request.Method == "OPTIONS")
+            {
+                context.Response.Headers.AccessControlAllowMethods = "POST";
+                context.Response.Headers.AccessControlAllowHeaders = "Content-Type";
+                context.Response.Headers["Access-Control-Allow-Private-Network"] = "true";
+                context.Response.StatusCode = 204; return;
+            }
+            if (context.Request.Method != "POST" || !string.Equals(context.Request.ContentType?.Split(';')[0].Trim(), "application/json", StringComparison.OrdinalIgnoreCase))
+            { context.Response.StatusCode = 415; return; }
+            try { await next(context); }
+            catch (Exception ex) when (ex is JsonException or ArgumentException or FormatException or CryptographicException or InvalidDataException or BadHttpRequestException)
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeFailure, null, $"request-invalid-{ex.GetType().Name}-hr-{unchecked((uint)ex.HResult):X8}");
+                context.Response.StatusCode = 400;
+            }
+            catch (OperationCanceledException)
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeFailure, null, "request-cancelled-or-timed-out");
+                context.Response.StatusCode = 408;
+            }
+        });
+        app.MapPost("/v2/hello", HelloAsync);
+        // Cancellation bypasses the encrypted session gate so a pending approval can be expired
+        // even while the normal confirm request is awaiting desktop consent.
+        app.MapPost("/v2/session/{id}/cancel", CancelSessionAsync);
+        app.MapPost("/v2/session/{id}", MessageAsync);
+        await app.StartAsync(cancellationToken);
+        reaper = ReapAsync();
+    }
+    private async Task HelloAsync(HttpContext context)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var hello = await context.Request.ReadFromJsonAsync<ClientHello>(timeout.Token) ?? throw new InvalidDataException();
+        var origin = context.Request.Headers.Origin.ToString();
+        BridgeCrypto.ValidateHello(origin, hello);
+        RecordDiagnostic(DiagnosticEvent.BridgeRequest, null, "hello-proof-validated");
+        await admission.WaitAsync(timeout.Token);
+        try
+        {
+            var fingerprint = BridgeCrypto.Fingerprint(hello.Identity);
+            var known = trust.IsTrusted(origin, fingerprint);
+            usedRequestIds.PruneExpired();
+            if (sessions.Count >= 16 ||
+                (!known && (DateTimeOffset.UtcNow < pairingRetryAfter || sessions.Values.Any(s => !s.Paired && !s.IsExpired))))
+            {
+                RecordDiagnostic(DiagnosticEvent.BridgeRejected, null, "hello-rate-limited");
+                context.Response.StatusCode = 429;
+                return;
+            }
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, null, known ? "hello-known-browser" : "hello-pairing-required");
+            using var ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+            using var clientKey = ECDiffieHellman.Create();
+            var publicBytes = Convert.FromBase64String(hello.Ephemeral);
+            clientKey.ImportSubjectPublicKeyInfo(publicBytes, out var read);
+            if (read != publicBytes.Length || clientKey.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
+                throw new CryptographicException();
+            var response = new ServerHello(Guid.NewGuid().ToString("N"), Convert.ToBase64String(trust.Identity.ExportSubjectPublicKeyInfo()),
+                Convert.ToBase64String(ephemeral.ExportSubjectPublicKeyInfo()), Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)), "", known);
+            var transcript = BridgeCrypto.Transcript(origin, hello, response);
+            response = response with { Signature = BridgeCrypto.Sign(trust.Identity, transcript) };
+            var secret = ephemeral.DeriveRawSecretAgreement(clientKey.PublicKey);
+            Session session;
+            try { session = new(origin, fingerprint, BridgeCrypto.PairingCode(transcript), new SecureChannel(secret, transcript, true), lifetime.Token); }
+            finally { CryptographicOperations.ZeroMemory(secret); }
+            session.Paired = known;
+            session.Approval = known ? Task.FromResult(true) : prompt.ConfirmAsync(origin, session.Code, session.PairingTimeout.Token);
+            sessions[response.SessionId] = session;
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, null, "hello-session-created");
+            await context.Response.WriteAsJsonAsync(response, timeout.Token);
+        }
+        finally { admission.Release(); }
+    }
+    private async Task CancelSessionAsync(HttpContext context, string id)
+    {
+        // The random session ID is a per-session bearer capability; Origin is independently
+        // enforced by the loopback middleware and matched to the stored session before mutation.
+        // Returning the same status for unknown/mismatched IDs avoids exposing session existence.
+        if (!sessions.TryGetValue(id, out var session)
+            || session.Origin != context.Request.Headers.Origin.ToString())
+        {
+            context.Response.StatusCode = StatusCodes.Status204NoContent;
+            return;
+        }
+
+        // Expire before cancelling either token. Do not acquire Gate: MessageAsync deliberately
+        // holds it while waiting for approval, which is exactly the operation this endpoint must
+        // be able to interrupt.
+        session.Revoke();
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+    }
+
+    private void RecordDiagnostic(DiagnosticEvent code, string? requestId, string? detail)
+    {
+        try { diagnosticSink?.Invoke(code, requestId, detail); }
+        catch { /* Diagnostics must never affect bridge authorization or request handling. */ }
+    }
+
+    private async Task MessageAsync(HttpContext context, string id)
+    {
+        if (!sessions.TryGetValue(id, out var session) || session.Origin != context.Request.Headers.Origin.ToString() || session.IsExpired)
+        {
+            RecordDiagnostic(DiagnosticEvent.BridgeRejected, null, "session-missing-expired-or-origin-mismatch");
+            context.Response.StatusCode = 410;
+            return;
+        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(2));
+        await session.Gate.WaitAsync(timeout.Token);
+        try
+        {
+            if (session.IsExpired) { context.Response.StatusCode = 410; return; }
+            var envelope = await context.Request.ReadFromJsonAsync<EncryptedMessage>(timeout.Token) ?? throw new InvalidDataException();
+            var command = session.Channel.Decrypt<BridgeCommand>(envelope);
+            var diagnosticRequestId = command.Launch?.RequestId ?? command.RequestId;
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, diagnosticRequestId, "decrypted-action-" + (command.Action switch
+            {
+                "confirm" or "launch" or "status" or "browse" or "cancel" or "disconnect" => command.Action,
+                _ => "other"
+            }));
+            if (command.Action == "disconnect")
+            {
+                // Closing a transport must not cancel a launch that the browser may have submitted
+                // successfully but whose acknowledgement was lost. The launch is tracked by its
+                // request ID and continues independently until it reaches a terminal state.
+                session.Revoke(cancelJob: !session.HasActiveLaunch);
+                await context.Response.WriteAsJsonAsync(session.Channel.Encrypt(new BridgeReply(false,
+                    new("disconnected", "Connection closed.", true), desktopMode)), timeout.Token);
+                return;
+            }
+            if (!session.Paired)
+            {
+                if (command.Action != "confirm" || command.Code != session.Code)
+                {
+                    session.Expires = DateTimeOffset.MinValue;
+                    if (Interlocked.Increment(ref pairingFailures) >= 3) pairingRetryAfter = DateTimeOffset.UtcNow.AddMinutes(5);
+                    context.Response.StatusCode = 403; return;
+                }
+
+                // Cancellation can interrupt this approval wait independently of RequestAborted.
+                // The normal session gate remains held until the wait exits, but the dedicated
+                // /cancel endpoint can expire the session and cancel this token without taking Gate.
+                using var approvalCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                    timeout.Token,
+                    session.PairingTimeout.Token);
+                if (!await session.Approval.WaitAsync(approvalCancellation.Token) || session.IsExpired)
+                {
+                    session.Expires = DateTimeOffset.MinValue;
+                    if (Interlocked.Increment(ref pairingFailures) >= 3) pairingRetryAfter = DateTimeOffset.UtcNow.AddMinutes(5);
+                    context.Response.StatusCode = 403; return;
+                }
+                await admission.WaitAsync(timeout.Token);
+                try
+                {
+                    // ForgetBrowsersAsync can revoke this session while it waits for admission.
+                    // Approval alone is not authorization to restore trust after that revocation.
+                    if (session.IsExpired || approvalCancellation.IsCancellationRequested)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status410Gone;
+                        return;
+                    }
+                    trust.Trust(session.Origin, session.Fingerprint);
+                    pairingFailures = 0;
+                    session.Paired = true;
+                }
+                finally { admission.Release(); }
+            }
+            // Renewal and revocation share admission. Once ForgetBrowsersAsync has persisted
+            // the trust-store change, no in-flight request can renew this session's expiry.
+            await admission.WaitAsync(timeout.Token);
+            try
+            {
+                if (session.IsExpired)
+                {
+                    context.Response.StatusCode = StatusCodes.Status410Gone;
+                    return;
+                }
+                session.Expires = DateTimeOffset.UtcNow.AddMinutes(10);
+            }
+            finally { admission.Release(); }
+
+            string? folderPath = null;
+            LaunchStatus? replyStatus = null;
+            switch (command.Action)
+            {
+                case "confirm": break;
+                case "launch":
+                    if (session.Job is not null) throw new InvalidDataException("A launch was already submitted.");
+                    var request = command.Launch ?? throw new InvalidDataException();
+                    request.Validate();
+                    RecordDiagnostic(DiagnosticEvent.BridgeRequest, request.RequestId, "launch-validated");
+                    PruneLaunchOperations();
+                    if (!usedRequestIds.TryReserve(request.RequestId))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+                    var operation = new LaunchOperation(session.Origin, session.Fingerprint);
+                    if (!launchOperations.TryAdd(request.RequestId, operation))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+                    session.Status = new("connecting", "Launch request accepted.");
+                    operation.Publish(session.Status);
+                    session.Job = RunLaunchAsync(session, request, operation);
+                    break;
+                case "browse":
+                    RecordDiagnostic(DiagnosticEvent.BridgeRequest, command.RequestId, "folder-picker-requested");
+                    if (folderPicker is null) { replyStatus = new("unavailable", "Update the desktop launcher to choose folders, or enter the full path."); break; }
+                    if (session.Job is not null) throw new InvalidDataException("Reconnect before selecting another folder.");
+                    try
+                    {
+                        using var folderCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                            timeout.Token, session.RevocationCancellation.Token);
+                        folderPath = await folderPicker.SelectAsync(folderCancellation.Token);
+                        if (folderPath is not null)
+                        {
+                            folderPath = LaunchRequest.NormalizeGamePath(folderPath);
+                            LaunchRequest.ValidateGamePath(folderPath);
+                            RecordDiagnostic(DiagnosticEvent.BridgeRequest, command.RequestId, "folder-selection-completed");
+                        }
+                        else RecordDiagnostic(DiagnosticEvent.BridgeRequest, command.RequestId, "folder-selection-cancelled");
+                        replyStatus = new("folder", folderPath is null ? "Folder selection cancelled." : "Installation folder selected.");
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch { folderPath = null; replyStatus = new("failed", "Could not select a local folder. Close any open folder chooser and retry, or enter the full path."); }
+                    break;
+                case "status":
+                    if (!string.IsNullOrWhiteSpace(command.RequestId))
+                    {
+                        // Status recovery is scoped to the authenticated browser identity and
+                        // origin, never merely to the caller-supplied request identifier.
+                        replyStatus = Guid.TryParseExact(command.RequestId, "N", out _) &&
+                            launchOperations.TryGetValue(command.RequestId, out var previousLaunch) &&
+                            previousLaunch.BelongsTo(session.Origin, session.Fingerprint)
+                                ? previousLaunch.Status
+                                : new("unknown", "The previous launch status is unavailable. Verify the game state before submitting another launch.", true);
+                    }
+                    break;
+                case "cancel": session.JobCancellation.Cancel(); break;
+                default: throw new InvalidDataException("Unsupported command.");
+            }
+            // Serialize the final authorization check and response with ForgetBrowsersAsync.
+            // If revocation wins admission, even a folder picker that returns late cannot disclose
+            // its selected path; if this response wins, it is sent before revocation completes.
+            await admission.WaitAsync(timeout.Token);
+            try
+            {
+                if (session.IsExpired)
+                {
+                    context.Response.StatusCode = StatusCodes.Status410Gone;
+                    return;
+                }
+                await context.Response.WriteAsJsonAsync(
+                    session.Channel.Encrypt(new BridgeReply(session.Paired, replyStatus ?? session.Status, desktopMode, folderPicker is not null, folderPath)),
+                    timeout.Token);
+            }
+            finally { admission.Release(); }
+        }
+        finally { session.Gate.Release(); }
+    }
+    private async Task RunLaunchAsync(Session session, LaunchRequest request, LaunchOperation operation)
+    {
+        RecordDiagnostic(DiagnosticEvent.BridgeRequest, request.RequestId, "launch-execution-started");
+        try
+        {
+            await launcher.LaunchAsync(request, new InlineProgress<LaunchStatus>(status =>
+            {
+                session.Status = status;
+                operation.Publish(status);
+            }), session.JobCancellation.Token);
+            session.Status = new("launched", "Game process started.", true, true);
+            RecordDiagnostic(DiagnosticEvent.BridgeRequest, request.RequestId, "launch-execution-completed");
+        }
+        catch (OperationCanceledException)
+        {
+            session.Status = new("cancelled", "Launch cancelled.", true);
+            RecordDiagnostic(DiagnosticEvent.BridgeFailure, request.RequestId, "launch-cancelled");
+        }
+        catch (Exception ex)
+        {
+            session.Status = new("failed", "Launch failed. Check the installation, sign-in details, and desktop launcher status, then retry.", true);
+            RecordDiagnostic(DiagnosticEvent.BridgeFailure, request.RequestId,
+                $"launch-exception-{ex.GetType().Name}-hr-{unchecked((uint)ex.HResult):X8}");
+        }
+        finally
+        {
+            operation.Complete(session.Status);
+            request.ClearCredentials();
+        }
+    }
+    private async Task ReapAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+            while (await timer.WaitForNextTickAsync(lifetime.Token))
+            {
+                foreach (var pair in sessions.Where(p => p.Value.IsExpired && !p.Value.HasActiveLaunch))
+                    if (sessions.TryRemove(pair.Key, out var session)) await session.DisposeAsync();
+                PruneLaunchOperations();
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+    private void PruneLaunchOperations()
+    {
+        foreach (var pair in launchOperations.Where(pair => pair.Value.IsExpired).ToArray())
+            launchOperations.TryRemove(pair.Key, out _);
+
+        // Completed history is diagnostic state, not durable storage. Bound memory under repeated
+        // browser sessions while never evicting an in-flight launch.
+        var excess = launchOperations.Count - MaxRetainedLaunchStatuses;
+        if (excess <= 0) return;
+        foreach (var pair in launchOperations.Where(pair => pair.Value.IsCompleted)
+                     .OrderBy(pair => pair.Value.CompletedUtcTicks).Take(excess).ToArray())
+            launchOperations.TryRemove(pair.Key, out _);
+    }
+
+    public async Task ForgetBrowsersAsync()
+    {
+        await admission.WaitAsync();
+        try
+        {
+            // Persist revocation first. If persistence fails, keep the existing trust and sessions
+            // intact rather than reporting success for a revocation that was not saved.
+            trust.ForgetAll();
+            foreach (var session in sessions.Values) session.Revoke();
+        }
+        finally { admission.Release(); }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        await lifetime.CancelAsync();
+        if (app is not null) { await app.StopAsync(); await app.DisposeAsync(); }
+        if (reaper is not null) await reaper;
+        foreach (var session in sessions.Values) await session.DisposeAsync();
+        sessions.Clear(); lifetime.Dispose(); admission.Dispose();
+    }
+    private sealed class LaunchOperation(string origin, string fingerprint)
+    {
+        private LaunchStatus status = new("connecting", "Launch request accepted.");
+        private long completedUtcTicks;
+
+        public LaunchStatus Status => Volatile.Read(ref status);
+        public bool IsCompleted => Interlocked.Read(ref completedUtcTicks) > 0;
+        public long CompletedUtcTicks => Interlocked.Read(ref completedUtcTicks);
+        public bool IsExpired => IsCompleted &&
+            DateTimeOffset.UtcNow.UtcTicks - CompletedUtcTicks >= LaunchStatusRetention.Ticks;
+
+        public bool BelongsTo(string candidateOrigin, string candidateFingerprint) =>
+            string.Equals(origin, candidateOrigin, StringComparison.Ordinal) &&
+            string.Equals(fingerprint, candidateFingerprint, StringComparison.Ordinal);
+
+        public void Publish(LaunchStatus value) => Volatile.Write(ref status, value);
+
+        public void Complete(LaunchStatus value)
+        {
+            Publish(value);
+            Interlocked.Exchange(ref completedUtcTicks, DateTimeOffset.UtcNow.UtcTicks);
+        }
+    }
+
+    private sealed class Session : IAsyncDisposable
+    {
+        public readonly string Origin, Fingerprint, Code;
+        public readonly SecureChannel Channel;
+        public readonly SemaphoreSlim Gate = new(1, 1);
+        public readonly CancellationTokenSource PairingTimeout, JobCancellation, RevocationCancellation;
+        private long expiresUtcTicks = DateTimeOffset.UtcNow.AddMinutes(10).UtcTicks;
+        private readonly DateTimeOffset pairingExpires = DateTimeOffset.UtcNow.AddMinutes(2);
+        private int revoked;
+        public DateTimeOffset Expires
+        {
+            get => new(Interlocked.Read(ref expiresUtcTicks), TimeSpan.Zero);
+            set => Interlocked.Exchange(ref expiresUtcTicks, value.UtcTicks);
+        }
+        public bool HasActiveLaunch => Job is { IsCompleted: false };
+        public bool IsExpired => Volatile.Read(ref revoked) != 0 ||
+            (DateTimeOffset.UtcNow >= Expires && !HasActiveLaunch) ||
+            (!Paired && DateTimeOffset.UtcNow >= pairingExpires);
+        public bool Paired;
+        public Task<bool> Approval = Task.FromResult(false);
+        public Task? Job;
+        public LaunchStatus Status = new("ready", "Connected to the desktop launcher.");
+        public Session(string origin, string fingerprint, string code, SecureChannel channel, CancellationToken lifetime)
+        {
+            Origin = origin; Fingerprint = fingerprint; Code = code; Channel = channel;
+            PairingTimeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            PairingTimeout.CancelAfter(TimeSpan.FromMinutes(2));
+            JobCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            JobCancellation.CancelAfter(TimeSpan.FromHours(2));
+            RevocationCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+        }
+        public void Revoke(bool cancelJob = true)
+        {
+            Interlocked.Exchange(ref revoked, 1);
+            Expires = DateTimeOffset.MinValue;
+            CancelQuietly(RevocationCancellation);
+            if (cancelJob) CancelQuietly(JobCancellation);
+            CancelQuietly(PairingTimeout);
+        }
+        private static void CancelQuietly(CancellationTokenSource source)
+        {
+            try { source.Cancel(); }
+            catch (ObjectDisposedException) { }
+            catch (AggregateException) { }
+        }
+        public async ValueTask DisposeAsync()
+        {
+            Revoke();
+            if (Job is not null) await Job;
+            await Gate.WaitAsync();
+            try { Channel.Dispose(); } finally { Gate.Release(); }
+            JobCancellation.Dispose(); PairingTimeout.Dispose(); RevocationCancellation.Dispose();
+        }
+    }
+}
+public sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+{
+    public void Report(T value) => report(value);
+}

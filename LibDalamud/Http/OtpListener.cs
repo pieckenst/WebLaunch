@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 
 namespace XIVLauncher.Common.Http
@@ -29,7 +29,7 @@ namespace XIVLauncher.Common.Http
             {
                 var otp = e.Path.Substring(15);
 
-                OnOtpReceived?.Invoke(otp);
+                if (otp.Length == 6 && System.Linq.Enumerable.All(otp, char.IsAsciiDigit)) OnOtpReceived?.Invoke(otp);
             }
         }
 

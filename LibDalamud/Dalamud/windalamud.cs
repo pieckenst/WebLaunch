@@ -20,7 +20,8 @@ namespace LibDalamud.Common.Dalamud
     {
         public Process? Run(FileInfo runner, bool fakeLogin, bool noPlugins, bool noThirdPlugins, FileInfo gameExe, string gameArgs, IDictionary<string, string> environment, DalamudLoadMethod loadMethod, DalamudStartInfo startInfo)
         {
-            var inheritableCurrentProcess = GetInheritableCurrentProcessHandle();
+            using var inheritableCurrentProcess = GetInheritableCurrentProcessHandle()
+                ?? throw new InvalidOperationException("Could not create the inherited owner-process handle.");
 
             var launchArguments = new List<string>
         {
@@ -69,22 +70,57 @@ namespace LibDalamud.Common.Dalamud
                     psi.EnvironmentVariables.Add(keyValuePair.Key, keyValuePair.Value);
             }
 
+            // In the Dalamud path, this runner owns the actual game arguments and the injector
+            // command line; NativeProcessLauncher is not the process-start path. Keep both in the
+            // opt-in forensic trace so injection failures remain diagnosable.
+            LaunchCancellationContext.WriteTrace(() =>
+                $"FFXIV game arguments:{Environment.NewLine}{gameArgs}{Environment.NewLine}" +
+                $"Dalamud injector executable: {runner.FullName}{Environment.NewLine}" +
+                $"Dalamud injector working directory: {psi.WorkingDirectory}{Environment.NewLine}" +
+                $"Dalamud injector arguments:{Environment.NewLine}{psi.Arguments}");
+
+            Process? dalamudProcess = null;
             try
             {
-                var dalamudProcess = Process.Start(psi);
-                var output = dalamudProcess.StandardOutput.ReadLine();
+                dalamudProcess = Process.Start(psi)
+                    ?? throw new DalamudRunnerException("Could not start the Dalamud injector process.");
 
-                if (output == null)
-                    throw new DalamudRunnerException("An internal Dalamud error has occured");
+                string? output;
+                try
+                {
+                    // The first output line is the only readiness/ownership hand-off from the injector.
+                    // Never fall back to another launcher when this hand-off is ambiguous.
+                    var cancellationToken = LaunchCancellationContext.CurrentCancellationToken;
+                    var pendingRead = dalamudProcess.StandardOutput.ReadLineAsync(cancellationToken).AsTask();
+                    output = pendingRead.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).GetAwaiter().GetResult();
+                }
+                catch (TimeoutException ex)
+                {
+                    TerminateInjector(dalamudProcess);
+                    LaunchCancellationContext.WriteTrace(() => $"Timed out awaiting injector readiness output: {ex}");
+                    throw new DalamudRunnerException("Dalamud did not report process readiness before the 30-second deadline.", ex);
+                }
+                catch (OperationCanceledException) when (LaunchCancellationContext.CurrentCancellationToken.IsCancellationRequested)
+                {
+                    TerminateInjector(dalamudProcess);
+                    throw;
+                }
+
+                if (output is null)
+                {
+                    LaunchCancellationContext.WriteTrace("Injector stdout closed without a process ownership response.");
+                    throw new DalamudRunnerException("Dalamud exited without returning a game-process handle.");
+                }
 
                 try
                 {
-                    var dalamudConsoleOutput = JsonConvert.DeserializeObject<DalamudConsoleOutput>(output);
+                    var dalamudConsoleOutput = JsonConvert.DeserializeObject<DalamudConsoleOutput>(output)
+                        ?? throw new JsonReaderException("Empty process response.");
                     Process gameProcess;
 
                     if (dalamudConsoleOutput.Handle == 0)
                     {
-                        Console.WriteLine($"Dalamud returned NULL process handle, attempting to recover by creating a new one from pid {dalamudConsoleOutput.Pid}...");
+                        LaunchCancellationContext.WriteTrace($"Injector returned no handle; validating recovery PID {dalamudConsoleOutput.Pid}.");
                         gameProcess = Process.GetProcessById(dalamudConsoleOutput.Pid);
                     }
                     else
@@ -94,29 +130,47 @@ namespace LibDalamud.Common.Dalamud
 
                     try
                     {
-                        Console.WriteLine($"Got game process handle {gameProcess.Handle} with pid {gameProcess.Id}");
+                        LaunchCancellationContext.WriteTrace($"Resolved game process handle {gameProcess.Handle} for PID {gameProcess.Id}.");
                     }
                     catch (InvalidOperationException ex)
                     {
-                        Console.WriteLine(ex.Message, $"Dalamud returned invalid process handle {gameProcess.Handle}, attempting to recover by creating a new one from pid {dalamudConsoleOutput.Pid}...");
+                        LaunchCancellationContext.WriteTrace(() => $"Returned game handle was invalid; checking PID {dalamudConsoleOutput.Pid}: {ex}");
+                        gameProcess.Dispose();
                         gameProcess = Process.GetProcessById(dalamudConsoleOutput.Pid);
-                        Console.WriteLine($"Recovered with process handle {gameProcess.Handle}");
                     }
 
                     if (gameProcess.Id != dalamudConsoleOutput.Pid)
-                        Console.WriteLine($"Internal Process ID {gameProcess.Id} does not match Dalamud provided one {dalamudConsoleOutput.Pid}");
+                    {
+                        gameProcess.Dispose();
+                        throw new DalamudRunnerException("Dalamud returned a process handle with a mismatched PID.");
+                    }
 
                     return gameProcess;
                 }
                 catch (JsonReaderException ex)
                 {
-                    Console.WriteLine(ex.Message, $"Couldn't parse Dalamud output: {output}");
-                    return null;
+                    LaunchCancellationContext.WriteTrace(() => $"Could not parse injector process response: {ex}");
+                    throw new DalamudRunnerException("Dalamud returned an invalid process ownership response.", ex);
                 }
+            }
+            catch (OperationCanceledException) when (LaunchCancellationContext.CurrentCancellationToken.IsCancellationRequested)
+            {
+                // Preserve caller cancellation as cancellation rather than reporting a failed launch.
+                if (dalamudProcess is not null)
+                    TerminateInjector(dalamudProcess);
+                throw;
             }
             catch (Exception ex)
             {
-                throw new DalamudRunnerException("Error trying to start Dalamud.", ex);
+                // Only terminate the injector itself. Killing the entire process tree here could
+                // destroy a game that the injector already launched before failing to report its handle.
+                if (dalamudProcess is not null)
+                    TerminateInjector(dalamudProcess);
+                throw new DalamudRunnerException("Error trying to start Dalamud. No fallback process was started because injection state may be ambiguous.", ex);
+            }
+            finally
+            {
+                dalamudProcess?.Dispose();
             }
         }
 
@@ -196,6 +250,18 @@ namespace LibDalamud.Common.Dalamud
             uint dwDesiredAccess,
             [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle,
             DuplicateOptions dwOptions);
+
+        private static void TerminateInjector(Process process)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill();
+            }
+            catch (InvalidOperationException) { }
+            catch (Win32Exception) { }
+            catch (System.NotSupportedException) { }
+        }
 
         private static Process GetInheritableCurrentProcessHandle()
         {

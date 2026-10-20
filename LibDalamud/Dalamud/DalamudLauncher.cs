@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -49,9 +49,12 @@ namespace LibDalamud.Common.Dalamud
 
         public const string REMOTE_BASE = "https://kamori.goats.dev/Dalamud/Release/VersionInfo?track=";
 
-        public DalamudInstallState HoldForUpdate(DirectoryInfo gamePath)
+        public DalamudInstallState HoldForUpdate(DirectoryInfo gamePath) => HoldForUpdate(gamePath, CancellationToken.None);
+
+        public DalamudInstallState HoldForUpdate(DirectoryInfo gamePath, CancellationToken cancellationToken)
         {
-            Log.Information("[HOOKS] DalamudLauncher::HoldForUpdate(gp:{0})", gamePath.FullName);
+            Log.Information("[HOOKS] DalamudLauncher::HoldForUpdate");
+            LaunchCancellationContext.WriteTrace(() => $"HoldForUpdate game path: {gamePath.FullName}");
 
             if (this.updater.State != DalamudUpdater.DownloadState.Done)
                 this.updater.ShowOverlay();
@@ -70,7 +73,8 @@ namespace LibDalamud.Common.Dalamud
                     throw new DalamudRunnerException("No runner integrity");
                 }
 
-                Thread.Yield();
+                cancellationToken.ThrowIfCancellationRequested();
+                Thread.Sleep(50);
             }
 
             if (!this.updater.Runner.Exists)
@@ -90,7 +94,9 @@ namespace LibDalamud.Common.Dalamud
 
         public Process Run(FileInfo gameExe, string gameArgs, IDictionary<string, string> environment)
         {
-            Log.Information("[HOOKS] DalamudLauncher::Run(gp:{0}, cl:{1})", this.gamePath.FullName, this.language);
+            Log.Information("[HOOKS] Starting Dalamud runner (language {Language})", this.language);
+            LaunchCancellationContext.WriteTrace(() =>
+                $"Dalamud runner: gamePath={this.gamePath.FullName}; configDirectory={this.configDirectory.FullName}; executable={gameExe.FullName}; arguments={gameArgs}");
 
             var ingamePluginPath = Path.Combine(this.configDirectory.FullName, "installedPlugins");
             var defaultPluginPath = Path.Combine(this.configDirectory.FullName, "devPlugins");
@@ -129,6 +135,11 @@ namespace LibDalamud.Common.Dalamud
                     break;
             }
 
+            LaunchCancellationContext.WriteTrace(() =>
+                $"Dalamud start info: workingDirectory={startInfo.WorkingDirectory}; configurationPath={startInfo.ConfigurationPath}; " +
+                $"pluginDirectory={startInfo.PluginDirectory}; defaultPluginDirectory={startInfo.DefaultPluginDirectory}; " +
+                $"assetDirectory={startInfo.AssetDirectory}; delayInitializeMs={startInfo.DelayInitializeMs}; " +
+                $"launchMode={this.loadMethod}; environmentKeys={string.Join(",", environment.Keys)}");
             var process = this.runner.Run(this.updater.Runner, this.fakeLogin, this.noPlugin, this.noThirdPlugin, gameExe, gameArgs, environment, this.loadMethod, startInfo);
 
             this.updater.CloseOverlay();

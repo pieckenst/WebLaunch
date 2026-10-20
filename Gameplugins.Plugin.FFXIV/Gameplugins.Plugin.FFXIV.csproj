@@ -1,7 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnableDynamicLoading>true</EnableDynamicLoading>
@@ -9,11 +9,7 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <Authors>pieckenst</Authors>
     <Description>FFXIV Game Plugin for Elgar'nan Plugin System</Description>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
     <DebugType>embedded</DebugType>
-    <IncludeAllContentForSelfExtract>True</IncludeAllContentForSelfExtract>
-    <PublishReadyToRun>True</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,17 +18,10 @@
 
   <ItemGroup>
     <None Update="plugin.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </None>
   </ItemGroup>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <PropertyGroup>
-      <PluginDir>$(SolutionDir)\Plugins\FFXIV\</PluginDir>
-    </PropertyGroup>
-    <MakeDir Directories="$(PluginDir)" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDir)" />
-    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFolder="$(PluginDir)" />
-  </Target>
-
+  <ItemGroup><ProjectReference Include="../CoreLibLaunchSupport/CoreLibLaunchSupport.csproj" /></ItemGroup>
 </Project>

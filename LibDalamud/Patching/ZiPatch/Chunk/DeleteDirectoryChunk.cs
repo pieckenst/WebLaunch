@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using Serilog;
 using XIVLauncher.Common.Patching.Util;
@@ -28,7 +28,7 @@ namespace XIVLauncher.Common.Patching.ZiPatch.Chunk
         {
             try
             {
-                Directory.Delete(config.GamePath + DirName);
+                Directory.Delete(WebLaunch.Core.SafePath.Resolve(config.GamePath, DirName.StartsWith('/') ? DirName[1..] : DirName));
             }
             catch (Exception e)
             {

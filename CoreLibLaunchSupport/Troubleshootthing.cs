@@ -198,36 +198,48 @@ namespace CoreLibLaunchSupport
         public static void LogException(Exception exception, string context)
         {
             LastException = exception;
+            if (!FfxivTraceLogger.TraceEnabled)
+            {
+                Log.Warning("[FFXIV:{CorrelationId}] Detailed FFXIV exception diagnostics suppressed ({ExceptionType}); set FFXIV_TRACE=1 to capture a local trace.",
+                    FfxivTraceLogger.CorrelationOrNone, exception.GetType().Name);
+                return;
+            }
 
             try
             {
                 var fixedContext = context?.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-
                 var payload = new ExceptionPayload
                 {
                     Context = fixedContext,
                     When = DateTime.Now,
                     Info = exception.ToString(),
                 };
-
                 var encodedPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload)));
-                Log.Information($"LASTEXCEPTION:{encodedPayload}");
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"LASTEXCEPTION:{encodedPayload}");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Log.Error("Could not print exception");
+                Log.Error("Could not capture FFXIV exception diagnostics ({ErrorType})", ex.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Exception diagnostic capture failed: {ex}");
             }
         }
         internal static void LogTroubleshooting(string gamepath)
         {
+            if (!FfxivTraceLogger.TraceEnabled)
+            {
+                Log.Debug("Detailed game integrity diagnostics omitted; set FFXIV_TRACE=1 to capture a local trace.");
+                return;
+            }
+
             try
             {
-                var encodedPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(GetTroubleshootingJson(gamepath)));
-                Log.Information($"TROUBLESHXLTING:{encodedPayload}");
+                var payload = GetTroubleshootingJson(gamepath);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"TROUBLESHXLTING:{payload}");
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Could not print troubleshooting");
+                Log.Error("Could not capture game integrity diagnostics ({ErrorType})", ex.GetType().Name);
+                FfxivTraceLogger.Trace(FfxivTraceLogger.CorrelationOrNone, $"Troubleshooting capture failed: {ex}");
             }
         }
         internal static string GetTroubleshootingJson(string gamepath)

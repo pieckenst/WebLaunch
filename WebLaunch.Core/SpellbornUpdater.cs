@@ -1,0 +1,113 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text.Json.Serialization;
+
+namespace WebLaunch.Core;
+
+public interface IInstalledVersionStore
+{
+    string? Read(string root);
+    void Write(string root, string version);
+}
+public sealed class SpellbornUpdater(HttpClient client, IInstalledVersionStore versions, ArchiveInstaller installer)
+{
+    // Once installation starts, recovery or a failed commit may leave changed files.
+    public bool InstallationStarted { get; private set; }
+    private static readonly Uri BaseUri = new("https://files.spellborn.org/");
+    private sealed class Release
+    {
+        [JsonPropertyName("version")] public string Version { get; set; } = "";
+        [JsonPropertyName("file")] public string File { get; set; } = "";
+        [JsonPropertyName("checksum")] public string Checksum { get; set; } = "";
+        [JsonPropertyName("applies_to")] public string AppliesTo { get; set; } = "";
+        [JsonPropertyName("enabled")] public string Enabled { get; set; } = "true";
+    }
+    public async Task EnsureUpdatedAsync(string root, IProgress<LaunchStatus> progress, CancellationToken token)
+    {
+        // Recover before any network request. If recovery itself fails, keep InstallationStarted
+        // true so SpellbornPlugin cannot use the offline-launch fallback on a partial installation.
+        InstallationStarted = true;
+        installer.RecoverPendingTransaction(root, prior => versions.Write(root, prior ?? "false"));
+        InstallationStarted = false;
+
+        var version = versions.Read(root);
+        var latest = await client.GetFromJsonAsync<Release>(new Uri(BaseUri, "latest.json"), token) ?? throw new InvalidDataException("Missing release metadata.");
+        if (version is null || version == "false")
+        {
+            var previousVersion = version;
+            await InstallReleaseAsync(latest, root, progress, token, previousVersion);
+            version = latest.Version;
+        }
+        // Retain the provider's existing incremental update wire format.
+        await using var updateStream = await client.GetStreamAsync(new Uri(BaseUri, "updates.json"), token);
+        using var json = await JsonDocument.ParseAsync(updateStream, cancellationToken: token);
+        if (json.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("Invalid incremental update metadata: an array is required.");
+
+        var visited = new HashSet<string>(StringComparer.Ordinal) { version };
+        for (var i = 0; i < 100; i++)
+        {
+            var next = json.RootElement.EnumerateArray().Select(element =>
+            {
+                if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("update", out var update))
+                    throw new InvalidDataException("Invalid incremental update metadata: an update object is required.");
+                return update.Deserialize<Release>()
+                    ?? throw new InvalidDataException("Invalid incremental update metadata: an update record is empty.");
+            }).FirstOrDefault(release => release.AppliesTo == version && release.Enabled == "true");
+            if (next is null) return;
+            if (string.IsNullOrWhiteSpace(next.Version) || !visited.Add(next.Version)) throw new InvalidDataException("Invalid update sequence.");
+            var previousVersion = version;
+            await InstallReleaseAsync(next, root, progress, token, previousVersion);
+            version = next.Version;
+        }
+        throw new InvalidDataException("Too many incremental updates.");
+    }
+    private async Task InstallReleaseAsync(
+        Release release, string root, IProgress<LaunchStatus> progress, CancellationToken token, string? previousVersion)
+    {
+        SafePath.Resolve(root, release.File);
+        if (string.IsNullOrWhiteSpace(release.Version) || release.Checksum.Length != 32 || !release.Checksum.All(char.IsAsciiHexDigit))
+            throw new InvalidDataException("Invalid release metadata.");
+        var url = new Uri(BaseUri, release.File.Replace('\\', '/'));
+        if (url.Scheme != "https" || url.Host != BaseUri.Host) throw new InvalidDataException("Invalid download origin.");
+        var temporary = Path.Combine(Path.GetTempPath(), "weblaunch-" + Guid.NewGuid().ToString("N") + ".zip");
+        try
+        {
+            progress.Report(new("updating", "Downloading Chronicles of Spellborn…"));
+            await DownloadAsync(url, temporary, token);
+            await using (var stream = File.OpenRead(temporary))
+            {
+                var hash = await MD5.HashDataAsync(stream, token); // Provider format, integrity only; HTTPS authenticates transport.
+                if (!CryptographicOperations.FixedTimeEquals(hash, Convert.FromHexString(release.Checksum)))
+                    throw new InvalidDataException("Download checksum mismatch.");
+            }
+            progress.Report(new("updating", "Installing verified game files…"));
+            InstallationStarted = true;
+            var versionTransaction = new VersionMetadataTransaction(
+                previousVersion,
+                () => versions.Write(root, release.Version),
+                prior => versions.Write(root, prior ?? "false"));
+            await installer.InstallAsync(temporary, root, token, versionTransaction);
+        }
+        finally { File.Delete(temporary); }
+    }
+    private async Task DownloadAsync(Uri url, string file, CancellationToken token)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+                response.EnsureSuccessStatusCode();
+                if (response.RequestMessage?.RequestUri is not { Scheme: "https" } final || final.Host != BaseUri.Host)
+                    throw new InvalidDataException("Unexpected download redirect.");
+                await using var input = await response.Content.ReadAsStreamAsync(token);
+                await using var output = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
+                await input.CopyToAsync(output, token);
+                return;
+            }
+            catch (HttpRequestException) when (attempt < 2) { await Task.Delay(TimeSpan.FromSeconds(attempt + 1), token); }
+        }
+    }
+}

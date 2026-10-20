@@ -7,67 +7,193 @@ using System.Runtime.Loader;
 namespace El_Garnan_Plugin_Loader
 {
     /// <summary>
-    /// Represents a custom assembly load context for loading plugins.
+    /// Resolves one plugin's private dependencies before falling back to assemblies already
+    /// available to the host. It shares the plugin contract/runtime services from the default
+    /// context to preserve type identity across the plugin boundary.
     /// </summary>
-    public class PluginLoadContext : AssemblyLoadContext
+    public sealed class PluginLoadContext : AssemblyLoadContext
     {
-        private AssemblyDependencyResolver _pluginResolver;
-        private AssemblyDependencyResolver _processResolver;
-        private string _pluginPath;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PluginLoadContext"/> class with the specified plugin path.
-        /// </summary>
-        /// <param name="pluginPath">The path to the plugin directory.</param>
-        public PluginLoadContext(string pluginPath)
+        private static readonly HashSet<string> SharedAssemblies = new(StringComparer.OrdinalIgnoreCase)
         {
-            _pluginPath = pluginPath;
-            _pluginResolver = new AssemblyDependencyResolver(pluginPath);
-            _processResolver = new AssemblyDependencyResolver(AppContext.BaseDirectory);
+            "Elgarnan", "WebLaunch.Core", "CoreLibLaunchSupport", "LibDalamud",
+            "ImGui.NET", "Veldrid", "Veldrid.SDL2", "Serilog"
+        };
+
+        private readonly AssemblyDependencyResolver pluginResolver;
+        private readonly AssemblyDependencyResolver processResolver;
+        private readonly PluginDiagnostics? diagnostics;
+        private readonly string diagnosticPluginId;
+        private readonly string correlationId;
+
+        /// <summary>Creates a collectible load context without host diagnostics.</summary>
+        public PluginLoadContext(string pluginPath)
+            : this(pluginPath, null, "legacy", Guid.NewGuid().ToString("N"))
+        {
+        }
+
+        internal PluginLoadContext(
+            string pluginPath,
+            PluginDiagnostics? diagnostics,
+            string pluginId,
+            string correlationId)
+            : base(isCollectible: true)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(pluginPath);
+            this.diagnostics = diagnostics;
+            diagnosticPluginId = SafeLabel(pluginId, "legacy");
+            this.correlationId = SafeLabel(correlationId, Guid.NewGuid().ToString("N"));
+            pluginResolver = new AssemblyDependencyResolver(Path.GetFullPath(pluginPath));
+            processResolver = new AssemblyDependencyResolver(typeof(PluginLoadContext).Assembly.Location);
+
+            // This event is reached only when the normal plugin, host and runtime resolution paths
+            // could not provide the assembly. Keep the event diagnostic-only; never probe arbitrary
+            // locations or turn a failed lookup into an implicit load from an untrusted path.
+            Resolving += (_, name) =>
+            {
+                Record(
+                    PluginDiagnosticLevel.Error,
+                    "assembly-resolution",
+                    $"unresolved-{SafeLabel(name.Name, "unknown")}");
+                return null;
+            };
+            ResolvingUnmanagedDll += (_, name) =>
+            {
+                Record(
+                    PluginDiagnosticLevel.Warning,
+                    "native-resolution",
+                    $"unresolved-{SafeLabel(name, "unknown")}");
+                return IntPtr.Zero;
+            };
         }
 
         /// <summary>
-        /// Loads the specified assembly by its name.
+        /// Loads a managed dependency from the plugin's bundle first, then the host's dependency
+        /// graph. Returning null intentionally lets the runtime make its normal default-context
+        /// resolution attempt after both explicit resolvers have been checked.
         /// </summary>
-        /// <param name="assemblyName">The name of the assembly to load.</param>
-        /// <returns>The loaded assembly, or null if the assembly cannot be found.</returns>
-        protected override Assembly Load(AssemblyName assemblyName)
+        protected override Assembly? Load(AssemblyName assemblyName)
         {
-            Assembly sharedAssembly = AssemblyLoadContext.Default.Assemblies
-                .FirstOrDefault(a => string.Equals(a.GetName().Name, assemblyName.Name, StringComparison.OrdinalIgnoreCase));
-
-            if (sharedAssembly != null)
+            var name = SafeLabel(assemblyName.Name, "unknown");
+            if (SharedAssemblies.Contains(name))
             {
-                return sharedAssembly;
+                Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"shared-default-context-{name}");
+                try { return AssemblyLoadContext.Default.LoadFromAssemblyName(assemblyName); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "assembly-resolution", $"shared-default-context-failed-{name}", ex);
+                    throw;
+                }
             }
 
-            string assemblyPath = _pluginResolver.ResolveAssemblyToPath(assemblyName) ??
-                                  _processResolver.ResolveAssemblyToPath(assemblyName);
+            string? path = null;
+            try
+            {
+                path = pluginResolver.ResolveAssemblyToPath(assemblyName);
+            }
+            catch (Exception ex)
+            {
+                Record(PluginDiagnosticLevel.Warning, "assembly-resolution", $"plugin-resolver-failed-{name}", ex);
+            }
 
-            return assemblyPath != null
-                ? LoadFromAssemblyPath(assemblyPath)
-                : null;
+            if (path is not null)
+            {
+                Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"plugin-bundle-resolved-{name}");
+                try { return LoadFromAssemblyPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "assembly-resolution", $"plugin-bundle-load-failed-{name}", ex);
+                    throw;
+                }
+            }
+
+            try
+            {
+                path = processResolver.ResolveAssemblyToPath(assemblyName);
+            }
+            catch (Exception ex)
+            {
+                Record(PluginDiagnosticLevel.Warning, "assembly-resolution", $"host-resolver-failed-{name}", ex);
+            }
+
+            if (path is not null)
+            {
+                Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"host-fallback-resolved-{name}");
+                try { return LoadFromAssemblyPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "assembly-resolution", $"host-fallback-load-failed-{name}", ex);
+                    throw;
+                }
+            }
+
+            Record(PluginDiagnosticLevel.Trace, "assembly-resolution", $"no-explicit-resolver-path-{name}");
+            return null;
         }
 
-        /// <summary>
-        /// Loads the specified unmanaged DLL by its name.
-        /// </summary>
-        /// <param name="unmanagedDllName">The name of the unmanaged DLL to load.</param>
-        /// <returns>A pointer to the loaded unmanaged DLL, or IntPtr.Zero if the DLL cannot be found.</returns>
+        /// <summary>Resolves native libraries using the same plugin-first, host-fallback order.</summary>
         protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
         {
-            string libraryPath = _pluginResolver.ResolveUnmanagedDllToPath(unmanagedDllName);
-            if (libraryPath == null)
+            var name = SafeLabel(unmanagedDllName, "unknown");
+            string? path = null;
+            try
             {
-                libraryPath = _processResolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+                path = pluginResolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            }
+            catch (Exception ex)
+            {
+                Record(PluginDiagnosticLevel.Warning, "native-resolution", $"plugin-resolver-failed-{name}", ex);
             }
 
-            if (libraryPath != null)
+            if (path is not null)
             {
-                return LoadUnmanagedDllFromPath(libraryPath);
+                Record(PluginDiagnosticLevel.Trace, "native-resolution", $"plugin-bundle-resolved-{name}");
+                try { return LoadUnmanagedDllFromPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "native-resolution", $"plugin-bundle-load-failed-{name}", ex);
+                    throw;
+                }
             }
 
+            try
+            {
+                path = processResolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            }
+            catch (Exception ex)
+            {
+                Record(PluginDiagnosticLevel.Warning, "native-resolution", $"host-resolver-failed-{name}", ex);
+            }
+
+            if (path is not null)
+            {
+                Record(PluginDiagnosticLevel.Trace, "native-resolution", $"host-fallback-resolved-{name}");
+                try { return LoadUnmanagedDllFromPath(path); }
+                catch (Exception ex)
+                {
+                    Record(PluginDiagnosticLevel.Error, "native-resolution", $"host-fallback-load-failed-{name}", ex);
+                    throw;
+                }
+            }
+
+            Record(PluginDiagnosticLevel.Trace, "native-resolution", $"no-explicit-resolver-path-{name}");
             return IntPtr.Zero;
+        }
+
+        private void Record(
+            PluginDiagnosticLevel level,
+            string stage,
+            string outcome,
+            Exception? exception = null) =>
+            diagnostics?.Record(level, stage, diagnosticPluginId, outcome, exception, correlationId);
+
+        private static string SafeLabel(string? value, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return fallback;
+            var safe = new string(value
+                .Where(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' or '.')
+                .Take(48)
+                .ToArray());
+            return safe.Length == 0 ? fallback : safe;
         }
     }
 }
